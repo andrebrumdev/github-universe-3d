@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { rawRepo, rawUser } from './__fixtures__/raw'
-import { MAX_PLANETS, TOP_REAL } from './config'
+import { MAX_HISTORY_PAGES, MAX_PLANETS, TOP_REAL } from './config'
 import { fetchUniverse } from './fetchUniverse'
 import type { RawRepo, RawUser } from './normalize'
 
@@ -102,5 +102,60 @@ describe('fetchUniverse', () => {
   it('erro do GraphQL lança erro', async () => {
     const { impl } = fakeFetch(() => ({ body: { errors: [{ message: 'Bad credentials' }] } }))
     await expect(fetchUniverse('andre', { token: 't', fetchImpl: impl, now: NOW })).rejects.toThrow('Bad credentials')
+  })
+})
+
+describe('fetchUniverse: limites e truncamento', () => {
+  it('busca os históricos em sequência, não em paralelo', async () => {
+    let inFlight = 0
+    let maxInFlight = 0
+    const impl = (async (_url: unknown, init?: RequestInit) => {
+      const { query } = JSON.parse(String(init?.body)) as { query: string }
+      if (query.includes('repositories(')) return new Response(JSON.stringify({ data: { user: rawUser(repos(4)) } }))
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise((r) => setTimeout(r, 5))
+      inFlight--
+      return new Response(JSON.stringify(historyPage([]).body))
+    }) as typeof fetch
+    await fetchUniverse('andre', { token: 't', fetchImpl: impl, now: NOW })
+    expect(maxInFlight).toBe(1)
+  })
+
+  it('limite de taxa no histórico: aviso com o nome do repo e o motivo, repo derivado', async () => {
+    const warnings: string[] = []
+    const { impl } = setup(rawUser(repos(2)), (vars) => (vars.name === 'r1' ? { status: 403 } : historyPage([])))
+    const u = await fetchUniverse('andre', { token: 't', fetchImpl: impl, now: NOW, onWarning: (m) => warnings.push(m) })
+    expect(u.repos.find((r) => r.name === 'r1')?.activity.source).toBe('derived')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('r1')
+    expect(warnings[0]).toMatch(/limite de taxa/i)
+  })
+
+  it('histórico cortado em MAX_HISTORY_PAGES: continua real e avisa', async () => {
+    const warnings: string[] = []
+    const { impl, calls } = setup(rawUser(repos(1)), (vars) =>
+      historyPage(['2026-10-07T10:00:00Z'], `c-${String(vars.after ?? 'start')}`),
+    )
+    const u = await fetchUniverse('andre', { token: 't', fetchImpl: impl, now: NOW, onWarning: (m) => warnings.push(m) })
+    const historyCalls = calls.filter((v) => 'authorId' in v)
+    expect(historyCalls).toHaveLength(MAX_HISTORY_PAGES)
+    expect(u.repos[0].activity.source).toBe('real')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('r0')
+    expect(warnings[0]).toMatch(/truncad/)
+  })
+
+  it('falha numa página posterior mantém as datas já lidas como reais e avisa', async () => {
+    const warnings: string[] = []
+    const { impl } = setup(rawUser(repos(1)), (vars) =>
+      vars.after ? { status: 502 } : historyPage(['2026-10-07T10:00:00Z', '2026-10-06T10:00:00Z'], 'cursor-1'),
+    )
+    const u = await fetchUniverse('andre', { token: 't', fetchImpl: impl, now: NOW, onWarning: (m) => warnings.push(m) })
+    expect(u.repos[0].activity.source).toBe('real')
+    expect(u.repos[0].activity.weeks.flat().reduce((a, b) => a + b, 0)).toBe(2)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('r0')
+    expect(warnings[0]).toContain('502')
   })
 })

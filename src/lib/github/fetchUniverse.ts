@@ -23,21 +23,41 @@ interface HistoryResponse {
   } | null
 }
 
+const reasonOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+/**
+ * Datas dos commits do autor no repo. Falha na primeira página é propagada (o chamador usa o padrão
+ * derivado). Falha numa página posterior mantém as datas já lidas e avisa. Corte no limite de páginas avisa.
+ */
 export async function fetchCommitDates(
   fetchImpl: typeof fetch,
   token: string,
   vars: { owner: string; name: string; authorId: string; since: string },
+  warn: (message: string) => void = () => {},
 ): Promise<string[]> {
   const dates: string[] = []
   let after: string | null = null
+  let more = false
   for (let page = 0; page < MAX_HISTORY_PAGES; page++) {
-    const data: HistoryResponse = await gql<HistoryResponse>(fetchImpl, token, HISTORY_QUERY, { ...vars, after })
+    let data: HistoryResponse
+    try {
+      data = await gql<HistoryResponse>(fetchImpl, token, HISTORY_QUERY, { ...vars, after })
+    } catch (e) {
+      if (page === 0) throw e
+      warn(`histórico de ${vars.name} parcial (${reasonOf(e)}); usando ${dates.length} commits já lidos`)
+      return dates
+    }
     const history = data.repository?.defaultBranchRef?.target?.history
-    if (!history) break
+    if (!history) {
+      more = false
+      break
+    }
     for (const node of history.nodes) dates.push(node.committedDate)
-    if (!history.pageInfo.hasNextPage) break
+    more = history.pageInfo.hasNextPage
+    if (!more) return dates
     after = history.pageInfo.endCursor
   }
+  if (more) warn(`histórico de ${vars.name} truncado em ${MAX_HISTORY_PAGES} páginas (${dates.length} commits)`)
   return dates
 }
 
@@ -52,16 +72,22 @@ export async function fetchUniverse(login: string, deps: FetchDeps): Promise<Uni
   const all = user.repositories.nodes.map(normalizeRepo)
   const ranked = rankRepos(all, now).slice(0, MAX_PLANETS)
   const since = startOfGrid(now).toISOString()
-  const histories = await Promise.allSettled(
-    ranked
-      .slice(0, TOP_REAL)
-      .map((r) => fetchCommitDates(f, deps.token, { owner: user.login, name: r.name, authorId: user.id, since })),
-  )
+
+  // Sequencial de propósito: disparar as 10 em paralelo estoura os limites secundários do GitHub.
+  const histories: (string[] | { error: unknown })[] = []
+  for (const repo of ranked.slice(0, TOP_REAL)) {
+    try {
+      histories.push(await fetchCommitDates(f, deps.token, { owner: user.login, name: repo.name, authorId: user.id, since }, warn))
+    } catch (error) {
+      histories.push({ error })
+    }
+  }
 
   const repos: Repo[] = ranked.map((repo, i) => {
     const history = histories[i]
-    if (history?.status === 'fulfilled') return { ...repo, activity: bucketCommits(history.value, now) }
-    if (history?.status === 'rejected') warn(`histórico de ${repo.name} falhou (${String(history.reason)}); usando padrão derivado`)
+    if (history === undefined) return { ...repo, activity: deriveActivity(repo, now) }
+    if (Array.isArray(history)) return { ...repo, activity: bucketCommits(history, now) }
+    warn(`histórico de ${repo.name} falhou (${reasonOf(history.error)}); usando padrão derivado`)
     return { ...repo, activity: deriveActivity(repo, now) }
   })
 
