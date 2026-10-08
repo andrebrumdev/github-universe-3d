@@ -17,6 +17,19 @@ describe('normalizeRepo', () => {
     })
   })
 
+  it('guarda só o resumo do README, tentando as variações de nome', () => {
+    const md = '# alpha\n\n![b](x.svg)\n\nUm app **simples** de [notas](https://x.y).'
+    expect(normalizeRepo(rawRepo({ name: 'alpha', readme: { text: md } })).readme).toBe('Um app simples de notas.')
+    expect(normalizeRepo(rawRepo({ name: 'alpha', readme: null, readmeLower: { text: md } })).readme).toBe('Um app simples de notas.')
+    expect(normalizeRepo(rawRepo({ name: 'alpha', readme: null, readmePlain: { text: 'Texto puro.' } })).readme).toBe('Texto puro.')
+  })
+
+  it('omite readme quando ausente ou sem conteúdo útil', () => {
+    expect('readme' in normalizeRepo(rawRepo({ name: 'a' }))).toBe(false)
+    expect('readme' in normalizeRepo(rawRepo({ name: 'a', readme: { text: '# a\n![x](y.svg)' } }))).toBe(false)
+    expect('readme' in normalizeRepo(rawRepo({ name: 'a', readme: {} }))).toBe(false)
+  })
+
   it('aguenta repo vazio e campos nulos', () => {
     const repo = normalizeRepo(
       rawRepo({ name: 'vazio', description: null, pushedAt: null, primaryLanguage: null, languages: null, defaultBranchRef: null }),

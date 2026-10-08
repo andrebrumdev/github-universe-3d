@@ -32,6 +32,8 @@ export interface RepoBase {
   languages: Language[]
   lastCommit: CommitRef | null
   totalCommits: number
+  /** Resumo do README em texto simples (nunca o README bruto). Opcional: schemaVersion 1 segue compatível. */
+  readme?: string
 }
 
 export interface Repo extends RepoBase {

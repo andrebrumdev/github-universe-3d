@@ -1,9 +1,13 @@
+import { summarizeReadme } from './readme'
 import type { CommitRef, Language, Profile, RepoBase } from '../types'
 
 export interface RawHistory {
   totalCount: number
   nodes: { committedDate: string; messageHeadline: string }[]
 }
+
+/** `object(expression:)` devolve {} quando não é Blob, ou null quando não existe. */
+export type RawBlob = { text?: string | null } | null
 
 export interface RawRepo {
   name: string
@@ -15,6 +19,9 @@ export interface RawRepo {
   pushedAt: string | null
   primaryLanguage: { name: string } | null
   languages: { edges: { size: number; node: { name: string; color: string | null } }[] } | null
+  readme?: RawBlob
+  readmeLower?: RawBlob
+  readmePlain?: RawBlob
   defaultBranchRef: { target: { history?: RawHistory } | null } | null
 }
 
@@ -36,6 +43,7 @@ export function normalizeRepo(raw: RawRepo): RepoBase {
     .sort((a, b) => b.bytes - a.bytes)
   const history = raw.defaultBranchRef?.target?.history
   const head = history?.nodes[0]
+  const readme = summarizeReadme(raw.readme?.text || raw.readmeLower?.text || raw.readmePlain?.text || '', 280, raw.name)
   return {
     name: raw.name,
     description: raw.description ?? '',
@@ -48,6 +56,7 @@ export function normalizeRepo(raw: RawRepo): RepoBase {
     languages,
     lastCommit: head ? { date: head.committedDate, message: head.messageHeadline } : null,
     totalCommits: history?.totalCount ?? 0,
+    ...(readme ? { readme } : {}),
   }
 }
 

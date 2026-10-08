@@ -17,6 +17,9 @@ export const USER_QUERY = /* GraphQL */ `
           forkCount
           pushedAt
           watchers { totalCount }
+          readme: object(expression: "HEAD:README.md") { ... on Blob { text } }
+          readmeLower: object(expression: "HEAD:readme.md") { ... on Blob { text } }
+          readmePlain: object(expression: "HEAD:README") { ... on Blob { text } }
           primaryLanguage { name }
           languages(first: 10, orderBy: { field: SIZE, direction: DESC }) {
             edges { size node { name color } }
