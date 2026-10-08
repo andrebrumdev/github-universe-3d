@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildOrbits, planetPosition, SUN_RADIUS, type Vec3 } from '../universe/orbits'
-import { bankAngle, CHASE_SPRING, chasePose, escortPosition, MAX_BANK, springLead, springStep, targetAnchor, visitPosition } from './escort'
+import { bankAngle, CHASE_SPRING, chasePose, escortPosition, MAX_BANK, MAX_CHASE_LEAD, springLead, springStep, targetAnchor, visitPosition } from './escort'
+import { bezierPoint, planTravel, travelProgress, travelVelocity } from './travel'
 import { SUN_SAFE_DISTANCE } from './travel'
 import { cross, dot, length, sub } from './vec'
 
@@ -163,5 +164,29 @@ describe('escortPosition com viewport', () => {
 
   it('na tela larga, o lado fica o do plano', () => {
     expect(escortPosition([0, 0, 0], [0, 0, -1], [0, 1, 0], { aspect: 16 / 10, fov: 50 })[0]).toBeCloseTo(1.6)
+  })
+})
+
+describe('antecipação da perseguição limitada', () => {
+  const lead = (v: Vec3) => length(sub(springLead([0, 0, 0], v, CHASE_SPRING, MAX_CHASE_LEAD), [0, 0, 0]))
+
+  it('nunca passa do limite, nem com velocidade enorme', () => {
+    expect(lead([1e6, -1e6, 3e5])).toBeCloseTo(MAX_CHASE_LEAD)
+    expect(lead([0.5, 0, 0])).toBeCloseTo((2 * 0.5) / CHASE_SPRING)
+  })
+
+  it('troca de destino no meio da viagem ou dt enorme não estouram a antecipação', () => {
+    const first = planTravel([10, 0, 0], [-40, 0, 25])
+    const mid = first.duration / 2
+    // a nova viagem parte de onde a nave está (velocidade analítica do caminho, não diferença entre frames)
+    const here = bezierPoint(first.points, travelProgress(mid, first.duration))
+    const second = planTravel(here, [30, 0, -30])
+    const samples = [travelVelocity(first, mid), travelVelocity(second, 0), travelVelocity(second, 0.1), travelVelocity(second, 1e6), travelVelocity(first, first.duration / 3)]
+    for (const v of samples) expect(lead(v)).toBeLessThanOrEqual(MAX_CHASE_LEAD + 1e-9)
+    expect(lead(travelVelocity(second, 0))).toBe(0)
+  })
+
+  it('sem limite, mantém a antecipação exata 2v/ω', () => {
+    expect(length(springLead([0, 0, 0], [30, 0, 0], CHASE_SPRING))).toBeCloseTo((2 * 30) / CHASE_SPRING)
   })
 })

@@ -115,7 +115,6 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
   )
   useEffect(() => () => ringPulse.material.dispose(), [ringPulse])
   const flame = useRef<THREE.Mesh>(null)
-  const glow = useRef<THREE.PointLight>(null)
   const thrusterHalo = useMemo(() => new GlowHalo({ color: COLORS.thruster, size: 1.1, opacity: 0 }), [])
   useFrame(({ clock }, delta) => {
     if (!reducedMotion) ringPulse.update(delta)
@@ -127,7 +126,6 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
       flame.current.visible = on
     }
     thrusterHalo.setOpacity(0.8 * s)
-    if (glow.current) glow.current.intensity = 3 * s
   })
 
   // Brilhos (sprites aditivos): um por farol e um na boca do bocal.
@@ -216,7 +214,6 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
       <mesh geometry={NOZZLE_LIP_GEOMETRY} material={CREAM_MATERIAL} />
       <mesh ref={flame} geometry={FLAME_GEOMETRY} material={FLAME_MATERIAL} position={THRUSTER_ORIGIN} />
       <primitive object={thrusterHalo} position={THRUSTER_ORIGIN} />
-      <pointLight ref={glow} position={THRUSTER_ORIGIN} color={COLORS.thruster} distance={3} intensity={0} />
 
       {/* asas espelhadas abertas para os lados (diedro, enflechadas): lilás, faixa verde-água por baixo, 2 luzinhas */}
       {WINGS.map(({ side, blade, stripe, lights }) => (

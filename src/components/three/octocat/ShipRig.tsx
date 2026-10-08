@@ -10,11 +10,11 @@ import type { OctocatExpression } from '@/lib/octocat/expression'
 import { formatLine } from '@/lib/octocat/lines'
 import { bankAngle, escortPosition, targetAnchor, visitPosition, type ShipTarget } from '@/lib/ship/escort'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
-import { bezierPoint, bezierTangent, planTravel, travelProgress } from '@/lib/ship/travel'
+import { bezierPoint, bezierTangent, planTravel, travelProgress, travelVelocity } from '@/lib/ship/travel'
 import type { Repo } from '@/lib/types'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
-import { shipPose } from '@/store/shipPose'
+import { INITIAL_SHIP_POSE, shipPose } from '@/store/shipPose'
 import { simClock } from '@/store/simClock'
 import { useTutorial } from '@/store/tutorial'
 import { useUniverse } from '@/store/universe'
@@ -26,6 +26,8 @@ import { THRUSTER_ORIGIN } from './shipParts'
  * Em 0,18: ~1,0 × 0,74 — menor que o diâmetro do menor planeta (1,2) e ~15% da largura da tela na escolta.
  */
 const SHIP_SCALE = 0.18
+/** A entrada desce de 6 unidades acima da escolta. */
+const ENTER_DROP = 6
 /**
  * Lado em que a nave paira, na visão da câmera: no desktop, à direita do alvo (entre ele e o painel lateral,
  * já que a pose de foco põe o alvo à esquerda); no celular, perto do alvo para não sair da tela estreita.
@@ -71,6 +73,21 @@ export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; r
     return name ? { kind: 'planet', name } : null
   }, [selection, step, repos])
 
+  // Ponto de partida real antes de qualquer viagem (este efeito roda antes do de baixo): onde a entrada
+  // começa, acima da escolta. Sem isso, um passo do tutorial que chega antes do 1º frame partiria do centro do sol.
+  useEffect(() => {
+    camera.getWorldDirection(forward)
+    up.set(0, 1, 0).applyQuaternion(camera.quaternion)
+    const escort = escortPosition(camera.position.toArray() as Vec3, forward.toArray() as Vec3, up.toArray() as Vec3)
+    const spawn: Vec3 = [escort[0], escort[1] + ENTER_DROP, escort[2]]
+    group.current?.position.set(...spawn)
+    Object.assign(shipPose, INITIAL_SHIP_POSE, { position: spawn })
+    // Remontagem (HMR) não deixa a câmera perseguindo uma nave parada.
+    return () => {
+      Object.assign(shipPose, INITIAL_SHIP_POSE)
+    }
+  }, [camera, forward, up])
+
   // Destino mudou: planeja a viagem até onde o alvo vai estar quando o tempo parar.
   // O modo vai para o shipPose já aqui: a câmera decide no próximo frame se persegue a nave.
   useEffect(() => {
@@ -78,6 +95,7 @@ export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; r
       machine.current = shipReducer(machine.current, { type: 'release' })
       shipPose.mode = machine.current.mode
       shipPose.userTravel = false
+      shipPose.velocity = [0, 0, 0]
       return
     }
     // Mesmo alvo (ex.: clicar numa lua do planeta já visitado): a nave fica onde está.
@@ -98,6 +116,8 @@ export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; r
       machine.current = shipReducer(machine.current, { type: 'travel', target, path: planTravel(shipPose.position, destination) })
     }
     shipPose.mode = machine.current.mode
+    // A nova viagem parte do ponto atual, parada (o easing começa em zero).
+    shipPose.velocity = [0, 0, 0]
   }, [target, system, camera, reduced, step, visitSide])
 
   useFrame((_, rawDt) => {
@@ -152,6 +172,7 @@ export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; r
     if (trailHead.current) g.localToWorld(trailHead.current.position)
     shipPose.position = g.position.toArray() as Vec3
     shipPose.tangent = tangent ?? shipPose.tangent
+    shipPose.velocity = s.mode === 'traveling' && s.path ? travelVelocity(s.path, s.elapsed) : [0, 0, 0]
     shipPose.mode = s.mode
   })
 

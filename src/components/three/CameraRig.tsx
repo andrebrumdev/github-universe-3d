@@ -5,8 +5,8 @@ import { CameraControls } from '@react-three/drei'
 import { useReducedMotion } from 'framer-motion'
 import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 import { maxCameraDistance, selectionPose, tutorialPose, type PanelLayout, type Pose, type Viewport } from '@/lib/cameraPoses'
-import { CHASE_SPRING, chasePose, FOCUS_SPRING, springLead, springStep, type Spring3 } from '@/lib/ship/escort'
-import { length, scale, sub } from '@/lib/ship/vec'
+import { CHASE_SPRING, chasePose, FOCUS_SPRING, MAX_CHASE_LEAD, springLead, springStep, type Spring3 } from '@/lib/ship/escort'
+import { length, sub } from '@/lib/ship/vec'
 import type { Repo } from '@/lib/types'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
@@ -46,8 +46,6 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
   const drive = useRef<Drive | null>(null)
   /** Enquadrar a seleção atual assim que a nave não estiver em viagem do usuário. */
   const focusRequest = useRef(false)
-  /** Pose de perseguição do frame anterior, para estimar a velocidade dela (antecipação da mola). */
-  const lastChase = useRef<Pose | null>(null)
   const scratch = useMemo(() => new Vector3(), [])
 
   useEffect(() => {
@@ -85,19 +83,16 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
     const chase = shipPose.mode === 'traveling' && shipPose.userTravel
     let goal: Pose | null = null
     if (chase) {
-      // A câmera mira à frente na velocidade da nave: alcança nas curvas e só atrasa quando a nave acelera.
+      // A câmera mira à frente na velocidade da nave (analítica, do caminho — sem diferença entre frames,
+      // que estourava ao trocar de destino ou num frame lento), com limite: alcança nas curvas e atrasa na partida.
       const raw = chasePose(shipPose.position, shipPose.tangent)
-      const prev = lastChase.current
-      const velocity = (now: Vec3, before: Vec3 | undefined): Vec3 => (before && dt > 0 ? scale(sub(now, before), 1 / dt) : [0, 0, 0])
       goal = {
-        position: springLead(raw.position, velocity(raw.position, prev?.position), CHASE_SPRING),
-        target: springLead(raw.target, velocity(raw.target, prev?.target), CHASE_SPRING),
+        position: springLead(raw.position, shipPose.velocity, CHASE_SPRING, MAX_CHASE_LEAD),
+        target: springLead(raw.target, shipPose.velocity, CHASE_SPRING, MAX_CHASE_LEAD),
       }
-      lastChase.current = raw
       // Ao chegar, a mesma mola leva a câmera da perseguição até a pose da seleção.
       focusRequest.current = true
     } else if (focusRequest.current || drive.current) {
-      lastChase.current = null
       const { selection: sel, viewport: vp, layout: lay } = latest.current
       goal = selectionPose(sel, system, predictStopTime(simClock), lay, vp)
       focusRequest.current = false

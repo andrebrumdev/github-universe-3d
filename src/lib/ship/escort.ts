@@ -94,10 +94,16 @@ export function springStep(s: Spring3, goal: Vec3, omega: number, dt: number): S
   return { position, velocity }
 }
 
+/** Maior antecipação da perseguição (unidades): uma distância de perseguição e pouco. */
+export const MAX_CHASE_LEAD = 8
+
 /**
  * Antecipação para a mola seguir um alvo em movimento: mira à frente na velocidade do alvo,
  * o que cancela o atraso de regime (2v/ω) da mola criticamente amortecida. Sobra só o atraso da aceleração.
+ * `maxLead` limita o comprimento da antecipação (velocidades grandes não arremessam a câmera).
  */
-export function springLead(goal: Vec3, goalVelocity: Vec3, omega: number): Vec3 {
-  return add(goal, scale(goalVelocity, 2 / omega))
+export function springLead(goal: Vec3, goalVelocity: Vec3, omega: number, maxLead = Infinity): Vec3 {
+  const lead = scale(goalVelocity, 2 / omega)
+  const l = length(lead)
+  return add(goal, l > maxLead ? scale(lead, maxLead / l) : lead)
 }
