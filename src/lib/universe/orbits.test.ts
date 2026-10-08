@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_PLANET_RADIUS, MIN_PLANET_RADIUS } from './planets'
+import { bodyExtent, MAX_MOONS, MAX_PLANET_RADIUS, MIN_PLANET_RADIUS } from './planets'
 import {
   buildOrbits,
   MAX_ECCENTRICITY,
@@ -16,6 +16,11 @@ import {
   type Vec3,
 } from './orbits'
 
+/**
+ * Trava de regressão do pior caso (40 planetas máximos com 6 luas, alcance ≈ 336). O enquadramento é testado em
+ * cameraPoses.test; nesse pior caso a câmera da visão geral fica fora da casca de estrelas (260–340).
+ */
+const REACH_LIMIT = 345
 const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2])
 const dist = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
@@ -51,7 +56,7 @@ describe('posição na órbita', () => {
 
   it('volta ao mesmo ponto depois de um período', () => {
     const r = ring()
-    const orbit = { name: 'p', ring: 0, radius: 1, phase: 0.4 }
+    const orbit = { name: 'p', ring: 0, radius: 1, extent: 1, phase: 0.4 }
     const p0 = planetPosition(r, orbit, 12.3)
     const p1 = planetPosition(r, orbit, 12.3 + r.period)
     expect(dist(p0, p1)).toBeLessThan(1e-9)
@@ -69,6 +74,18 @@ describe('buildOrbits', () => {
     const one = buildOrbits([{ name: 'solo', radius: 1 }])
     expect(one.rings).toHaveLength(1)
     expect(one.orbits[0]).toMatchObject({ name: 'solo', ring: 0 })
+  })
+
+  it('o alcance (planeta + luas) é o que conta no espaçamento; sem alcance, vale o raio', () => {
+    const { rings, orbits } = buildOrbits([
+      { name: 'a', radius: 1 },
+      { name: 'b', radius: 2, extent: 5 },
+      { name: 'c', radius: 1.5 },
+    ])
+    expect(orbits.map((o) => [o.radius, o.extent])).toEqual([[1, 1], [2, 5], [1.5, 1.5]])
+    expect(rings[0].maxRadius).toBe(5)
+    const bare = buildOrbits([{ name: 'a', radius: 1 }, { name: 'b', radius: 2 }, { name: 'c', radius: 1.5 }])
+    expect(rings[0].a).toBeGreaterThan(bare.rings[0].a)
   })
 
   it('preenche anéis com 3 + 2k planetas, na ordem do ranking', () => {
@@ -94,8 +111,11 @@ describe('buildOrbits', () => {
     expect(new Set(rings.map((r) => Math.sign(r.inclination))).size).toBe(2)
   })
 
-  it('o periélio de cada anel passa do afélio do anterior, com os dois raios máximos e a folga', () => {
-    const planets = Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: 0.45 + (i % 5) * 0.6 }))
+  it('o periélio de cada anel passa do afélio do anterior, com os dois alcances máximos e a folga', () => {
+    const planets = Array.from({ length: 40 }, (_, i) => {
+      const radius = 0.45 + (i % 5) * 0.6
+      return { name: `p${i}`, radius, extent: bodyExtent(radius, i % 7) }
+    })
     const { rings } = buildOrbits(planets)
     for (let k = 1; k < rings.length; k++) {
       const prev = rings[k - 1]
@@ -106,11 +126,11 @@ describe('buildOrbits', () => {
     }
   })
 
-  it('o sistema cheio (40 planetas, todos máximos) cabe dentro da casca de estrelas', () => {
-    const { rings } = buildOrbits(Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: MAX_PLANET_RADIUS })))
+  it('o sistema cheio (40 planetas máximos com 6 luas) tem alcance limitado', () => {
+    const extent = bodyExtent(MAX_PLANET_RADIUS, MAX_MOONS)
+    const { rings } = buildOrbits(Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: MAX_PLANET_RADIUS, extent })))
     const outer = rings[rings.length - 1]
-    // pior caso: a câmera de visão geral fica a ~1,5× o alcance + 10, na borda interna da casca (260)
-    expect(outer.a * (1 + outer.e) + outer.maxRadius).toBeLessThan(170)
+    expect(outer.a * (1 + outer.e) + outer.maxRadius).toBeLessThan(REACH_LIMIT)
   })
 
   it('orbitPath desenha a elipse: periélio a(1−e) e afélio a(1+e)', () => {
@@ -120,14 +140,18 @@ describe('buildOrbits', () => {
     expect(Math.max(...radii)).toBeCloseTo(r.a * (1 + r.e), 6)
   })
 
+  const maxWithMoons = bodyExtent(MAX_PLANET_RADIUS, MAX_MOONS)
   it.each([
-    ['raios mistos', (i: number) => (i % 2 ? MAX_PLANET_RADIUS : MIN_PLANET_RADIUS)],
-    ['todos máximos', () => MAX_PLANET_RADIUS],
-  ])('nenhuma colisão ao longo de um período do anel externo (%s)', (_, radiusOf) => {
-    const planets = Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: radiusOf(i) }))
+    ['raios mistos, sem luas', (i: number) => (i % 2 ? MAX_PLANET_RADIUS : MIN_PLANET_RADIUS), (r: number) => r],
+    ['todos máximos, sem luas', () => MAX_PLANET_RADIUS, (r: number) => r],
+    ['todos máximos com 6 luas', () => MAX_PLANET_RADIUS, () => maxWithMoons],
+  ])('nenhuma colisão ao longo de um período do anel externo (%s)', (_, radiusOf, extentOf) => {
+    const planets = Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: radiusOf(i), extent: extentOf(radiusOf(i)) }))
     const { rings, orbits } = buildOrbits(planets)
     const outer = rings[rings.length - 1]
-    // menor folga (distância − soma dos raios) ao Sol e entre planetas; um expect só no fim.
+    // Menor folga, com o alcance de cada corpo (planeta + luas): nenhuma lua chega a SUN_RADIUS do centro do sol,
+    // e as esferas de alcance de dois corpos nunca se cruzam. Um expect só no fim.
+    // Inclinações diferentes não importam: o espaçamento compara só distâncias ao sol.
     // Passo fino o bastante para ~40 amostras por volta do anel interno (o externo é ~50× mais lento).
     const STEPS = 2000
     let sunGap = Infinity
@@ -136,9 +160,9 @@ describe('buildOrbits', () => {
       const t = (s / STEPS) * outer.period
       const pos = orbits.map((o) => planetPosition(rings[o.ring], o, t))
       for (let i = 0; i < orbits.length; i++) {
-        sunGap = Math.min(sunGap, len(pos[i]) - SUN_RADIUS - orbits[i].radius)
+        sunGap = Math.min(sunGap, len(pos[i]) - SUN_RADIUS - orbits[i].extent)
         for (let j = i + 1; j < orbits.length; j++) {
-          pairGap = Math.min(pairGap, dist(pos[i], pos[j]) - orbits[i].radius - orbits[j].radius)
+          pairGap = Math.min(pairGap, dist(pos[i], pos[j]) - orbits[i].extent - orbits[j].extent)
         }
       }
     }

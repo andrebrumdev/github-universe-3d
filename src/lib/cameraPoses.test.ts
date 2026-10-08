@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildOrbits, planetPosition, type Vec3 } from './universe/orbits'
+import { buildOrbits, orbitPath, planetPosition, type OrbitSystem, type Vec3 } from './universe/orbits'
+import { bodyExtent, MAX_MOONS, MAX_PLANET_RADIUS, MIN_PLANET_RADIUS } from './universe/planets'
 import { DEFAULT_VIEWPORT, maxCameraDistance, overviewPose, planetPose, selectionPose, showcasePlanet, sunPose, tutorialPose } from './cameraPoses'
 
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
@@ -18,6 +19,48 @@ describe('overviewPose', () => {
   it('funciona sem planetas', () => {
     const pose = overviewPose({ rings: [], orbits: [] })
     expect(len(pose.position)).toBeGreaterThan(10)
+  })
+})
+
+/**
+ * Maior coordenada normalizada de tela (|x| ou |y|, 1 = borda) entre todos os pontos das órbitas,
+ * cada um inflado pelo alcance máximo do anel (planeta + luas) — inclui a altura das órbitas inclinadas.
+ */
+function worstScreenExtent(sys: OrbitSystem, viewport: { aspect: number; fov: number }): number {
+  const { position: eye, target } = overviewPose(sys, viewport)
+  const fwd = sub(target, eye)
+  const fl = len(fwd)
+  const f: Vec3 = [fwd[0] / fl, fwd[1] / fl, fwd[2] / fl]
+  const rl = Math.hypot(f[2], f[0])
+  const right: Vec3 = [-f[2] / rl, 0, f[0] / rl]
+  const up: Vec3 = [right[1] * f[2] - right[2] * f[1], right[2] * f[0] - right[0] * f[2], right[0] * f[1] - right[1] * f[0]]
+  const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+  const tanY = Math.tan((viewport.fov * Math.PI) / 360)
+  const tanX = tanY * viewport.aspect
+  let worst = 0
+  for (const ring of sys.rings) {
+    for (const p of orbitPath(ring, 96)) {
+      const v = sub(p, eye)
+      const depth = dot(v, f)
+      // esfera de raio maxRadius em volta do ponto: o pior caso na tela é o centro deslocado de r para fora
+      const sx = (Math.abs(dot(v, right)) + ring.maxRadius) / ((depth - ring.maxRadius) * tanX)
+      const sy = (Math.abs(dot(v, up)) + ring.maxRadius) / ((depth - ring.maxRadius) * tanY)
+      worst = Math.max(worst, sx, sy)
+    }
+  }
+  return worst
+}
+
+describe('overviewPose enquadra o sistema inteiro (alcance com luas e inclinação)', () => {
+  const dec = (i: number, n: number) => MIN_PLANET_RADIUS + (MAX_PLANET_RADIUS - MIN_PLANET_RADIUS) * (1 - i / (n - 1)) ** 2
+  const systems: [string, OrbitSystem][] = [
+    ['amostra (14, com luas)', buildOrbits(Array.from({ length: 14 }, (_, i) => ({ name: `p${i}`, radius: dec(i, 14), extent: bodyExtent(dec(i, 14), 1 + (i % 4)) })))],
+    ['40 com luas', buildOrbits(Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: dec(i, 40), extent: bodyExtent(dec(i, 40), 1 + (i % 4)) })))],
+    ['40 máximos com 6 luas', buildOrbits(Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: MAX_PLANET_RADIUS, extent: bodyExtent(MAX_PLANET_RADIUS, MAX_MOONS) })))],
+  ]
+  it.each(systems)('%s: tudo dentro da tela, no desktop e no celular em pé', (_, sys) => {
+    expect(worstScreenExtent(sys, DEFAULT_VIEWPORT)).toBeLessThanOrEqual(1)
+    expect(worstScreenExtent(sys, { aspect: 390 / 844, fov: 50 })).toBeLessThanOrEqual(1)
   })
 })
 

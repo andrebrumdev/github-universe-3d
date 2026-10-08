@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   axisAngles,
+  bodyExtent,
   languageShares,
   MAX_MOONS,
+  MAX_MOON_RADIUS,
   MAX_PLANET_RADIUS,
   MIN_PLANET_RADIUS,
   maxPlanetWeight,
@@ -77,12 +79,38 @@ describe('moonOrbits', () => {
     for (let i = 1; i < moons.length; i++) expect(moons[i].radius).toBeLessThanOrEqual(moons[i - 1].radius)
   })
 
-  it('órbitas crescem e não encostam no planeta nem entre si', () => {
-    const moons = moonOrbits(2, [lang('a', 900), lang('b', 900), lang('c', 900)])
-    expect(moons[0].orbitRadius - moons[0].radius).toBeGreaterThan(2)
-    for (let i = 1; i < moons.length; i++) {
-      expect(moons[i].orbitRadius - moons[i - 1].orbitRadius).toBeGreaterThan(moons[i].radius + moons[i - 1].radius)
+  it('órbitas crescem e não encostam no planeta nem entre si, mesmo com 6 luas máximas', () => {
+    const equal = Array.from({ length: MAX_MOONS }, (_, i) => lang(`L${i}`, 900))
+    for (const r of [MIN_PLANET_RADIUS, 1, 2, MAX_PLANET_RADIUS]) {
+      const moons = moonOrbits(r, equal)
+      expect(moons[0].radius).toBeCloseTo(MAX_MOON_RADIUS, 12)
+      expect(moons[0].orbitRadius - moons[0].radius).toBeGreaterThan(r + 0.05)
+      for (let i = 1; i < moons.length; i++) {
+        expect(moons[i].orbitRadius - moons[i - 1].orbitRadius).toBeGreaterThan(moons[i].radius + moons[i - 1].radius)
+      }
     }
+  })
+})
+
+describe('bodyExtent', () => {
+  it('sem luas é o próprio raio; com luas, a órbita mais externa mais o maior raio de lua', () => {
+    expect(bodyExtent(1.7, 0)).toBe(1.7)
+    const six = moonOrbits(3, Array.from({ length: 6 }, (_, i) => lang(`L${i}`, 900)))
+    expect(bodyExtent(3, 6)).toBeCloseTo(six[5].orbitRadius + MAX_MOON_RADIUS, 12)
+    expect(bodyExtent(3, 9)).toBe(bodyExtent(3, MAX_MOONS))
+  })
+
+  it('cobre todas as luas reais e cresce com o número de luas sem explodir', () => {
+    const langs = [lang('a', 1000), lang('b', 400), lang('c', 90), lang('d', 10), lang('e', 5)]
+    for (const r of [MIN_PLANET_RADIUS, 1.3, MAX_PLANET_RADIUS]) {
+      for (let n = 1; n <= langs.length; n++) {
+        const ext = bodyExtent(r, n)
+        for (const m of moonOrbits(r, langs.slice(0, n))) expect(m.orbitRadius + m.radius).toBeLessThanOrEqual(ext + 1e-12)
+        expect(ext).toBeGreaterThan(bodyExtent(r, n - 1))
+      }
+    }
+    // o planeta maior com 6 luas não passa de ~2,6× o próprio raio
+    expect(bodyExtent(MAX_PLANET_RADIUS, MAX_MOONS)).toBeLessThan(8)
   })
 })
 

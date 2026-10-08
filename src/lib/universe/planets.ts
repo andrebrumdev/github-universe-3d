@@ -55,6 +55,30 @@ export interface MoonSpec {
   phase: number
 }
 
+export const MIN_MOON_RADIUS = 0.12
+export const MAX_MOON_RADIUS = 0.35
+/**
+ * Órbita da lua i: MOON_ORBIT_SCALE·r + MOON_ORBIT_OFFSET + i·MOON_ORBIT_STEP.
+ * O passo passa de 2·MAX_MOON_RADIUS, então duas luas nunca se tocam (a distância entre elas é ≥ a diferença das órbitas),
+ * e a primeira fica fora do planeta mesmo no menor raio.
+ */
+const MOON_ORBIT_SCALE = 1.1
+const MOON_ORBIT_OFFSET = 0.4
+const MOON_ORBIT_STEP = 0.75
+
+function moonOrbitRadius(planetR: number, i: number): number {
+  return MOON_ORBIT_SCALE * planetR + MOON_ORBIT_OFFSET + i * MOON_ORBIT_STEP
+}
+
+/**
+ * Alcance do planeta com as luas (distância máxima ao centro do planeta): a órbita mais externa mais o maior raio
+ * de lua possível; sem luas, o próprio raio. É o que o espaçamento das órbitas reserva para cada corpo.
+ */
+export function bodyExtent(planetR: number, moonCount: number): number {
+  const n = Math.min(MAX_MOONS, Math.max(0, Math.floor(moonCount)))
+  return n === 0 ? planetR : moonOrbitRadius(planetR, n - 1) + MAX_MOON_RADIUS
+}
+
 /** `languages` deve vir ordenado por bytes (decrescente), como sai do normalize. */
 export function moonOrbits(planetR: number, languages: Language[]): MoonSpec[] {
   const langs = languages.slice(0, MAX_MOONS)
@@ -63,8 +87,8 @@ export function moonOrbits(planetR: number, languages: Language[]): MoonSpec[] {
   return langs.map((l, i) => ({
     language: l.name,
     color: l.color,
-    radius: 0.12 + 0.23 * Math.sqrt(l.bytes / maxBytes),
-    orbitRadius: planetR + 0.6 + i * 0.8,
+    radius: MIN_MOON_RADIUS + (MAX_MOON_RADIUS - MIN_MOON_RADIUS) * Math.sqrt(l.bytes / maxBytes),
+    orbitRadius: moonOrbitRadius(planetR, i),
     speed: 0.8 / (1 + i * 0.5),
     inclination: ((i % 3) - 1) * 0.12,
     phase: i * 2.399,

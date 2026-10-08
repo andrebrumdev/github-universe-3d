@@ -3,7 +3,7 @@ import { Canvas } from '@react-three/fiber'
 import { Stats } from '@react-three/drei'
 import type { Universe } from '@/lib/types'
 import { buildOrbits } from '@/lib/universe/orbits'
-import { maxPlanetWeight, planetRadius } from '@/lib/universe/planets'
+import { bodyExtent, MAX_MOONS, maxPlanetWeight, planetRadius } from '@/lib/universe/planets'
 import { useUniverse } from '@/store/universe'
 import { CameraRig } from './CameraRig'
 import { ShipRig } from './octocat/ShipRig'
@@ -20,7 +20,13 @@ export function Scene({ universe }: { universe: Universe }) {
   const system = useMemo(() => {
     // tamanho relativo ao próprio perfil: o repo de maior peso fica com o raio máximo
     const maxWeight = maxPlanetWeight(universe.repos)
-    return buildOrbits(universe.repos.map((r) => ({ name: r.name, radius: planetRadius(r.stars, r.forks, maxWeight) })))
+    return buildOrbits(
+      universe.repos.map((r) => {
+        const radius = planetRadius(r.stars, r.forks, maxWeight)
+        // o espaçamento reserva o planeta com as luas (uma por linguagem, até MAX_MOONS)
+        return { name: r.name, radius, extent: bodyExtent(radius, Math.min(MAX_MOONS, r.languages.length)) }
+      }),
+    )
   }, [universe.repos])
 
   return (

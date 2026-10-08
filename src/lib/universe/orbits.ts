@@ -16,14 +16,17 @@ export interface Ring {
   periapsis: number
   /** segundos de simulação por volta */
   period: number
-  /** maior raio de planeta no anel */
+  /** maior alcance (planeta + luas, ver `bodyExtent`) entre os planetas do anel */
   maxRadius: number
 }
 
 export interface PlanetOrbit {
   name: string
   ring: number
+  /** raio do planeta (desenho) */
   radius: number
+  /** alcance do planeta com as luas; é o que o espaçamento reserva */
+  extent: number
   /** anomalia média em t = 0 */
   phase: number
 }
@@ -72,14 +75,15 @@ export function minChordFactor(e: number, n: number): number {
   return min
 }
 
-export function buildOrbits(planets: { name: string; radius: number }[]): OrbitSystem {
+/** `extent` (planeta + luas) é o que entra no espaçamento; se faltar, vale o próprio `radius`. */
+export function buildOrbits(planets: { name: string; radius: number; extent?: number }[]): OrbitSystem {
   const rings: Ring[] = []
   const orbits: PlanetOrbit[] = []
   let start = 0
   for (let k = 0; start < planets.length; k++) {
-    const members = planets.slice(start, start + ringCapacity(k))
+    const members = planets.slice(start, start + ringCapacity(k)).map((m) => ({ ...m, extent: Math.max(m.radius, m.extent ?? m.radius) }))
     const n = members.length
-    const maxRadius = Math.max(...members.map((m) => m.radius))
+    const maxRadius = Math.max(...members.map((m) => m.extent))
     const rng = seededRandom(`ring-${k}`)
     const taper = Math.min(1, k / 3)
     const e = MAX_ECCENTRICITY - (MAX_ECCENTRICITY - MIN_ECCENTRICITY) * (0.75 * taper + 0.25 * rng())
@@ -88,7 +92,7 @@ export function buildOrbits(planets: { name: string; radius: number }[]): OrbitS
     const periapsis = rng() * Math.PI * 2
 
     const prev = rings[k - 1]
-    // O periélio deste anel fica além do afélio do anterior (ou do sol), com os dois raios máximos e folga:
+    // O periélio deste anel fica além do afélio do anterior (ou do sol), com os dois alcances máximos e folga:
     // vale em qualquer orientação (Ω, i, ω), porque compara só distâncias ao sol.
     const minPeri = prev
       ? prev.a * (1 + prev.e) + prev.maxRadius + maxRadius + RING_GAP
@@ -99,7 +103,9 @@ export function buildOrbits(planets: { name: string; radius: number }[]): OrbitS
     const period = rings.length ? INNER_PERIOD * Math.pow(a / rings[0].a, 1.5) : INNER_PERIOD
 
     rings.push({ index: k, a, e, inclination, node, periapsis, period, maxRadius })
-    members.forEach((m, i) => orbits.push({ name: m.name, ring: k, radius: m.radius, phase: (i / n) * Math.PI * 2 + k * 0.7 }))
+    members.forEach((m, i) =>
+      orbits.push({ name: m.name, ring: k, radius: m.radius, extent: m.extent, phase: (i / n) * Math.PI * 2 + k * 0.7 }),
+    )
     start += n
   }
   return { rings, orbits }
