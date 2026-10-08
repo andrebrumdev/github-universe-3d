@@ -38,7 +38,6 @@ export const COLORS = {
   blush: '#F29C8A',
   whisker: '#141018',
   hat: '#D97757',
-  hatBrim: '#B85C3E',
   hatEyes: '#141413',
   stick: '#4A5878',
   thought: '#9AA3B8',
@@ -201,45 +200,55 @@ export interface Block {
   color: string
 }
 
-/** A copa abraça a cabeça: funda o bastante para a cabeça não furar a frente acima da aba. */
-export const CROWN_DEPTH = 0.8
-/** A aba é mais funda que a frente da cabeça na altura dela. */
-export const BRIM_DEPTH = 0.95
-
-/** Retângulos do gorro-Clawd (dentro de translate(80 44)): x, y, w, h, profundidade 3D, cor. */
-const HAT_RECTS: [number, number, number, number, number, string][] = [
-  [92, 34, 9, 18, 0.3, COLORS.hat],
-  [108, 34, 9, 18, 0.3, COLORS.hat],
-  [124, 34, 9, 18, 0.3, COLORS.hat],
-  [140, 34, 9, 18, 0.3, COLORS.hat],
-  [62, 50, 116, 80, CROWN_DEPTH, COLORS.hat],
-  [40, 96, 24, 14, 0.3, COLORS.hat],
-  [176, 96, 24, 14, 0.3, COLORS.hat],
-  [40, 110, 14, 34, 0.3, COLORS.hat],
-  [186, 110, 14, 34, 0.3, COLORS.hat],
-  [58, 120, 124, 14, BRIM_DEPTH, COLORS.hatBrim],
-]
-const HAT_EYE_RECTS: [number, number, number, number][] = [
-  [96, 66, 10, 24],
-  [134, 66, 10, 24],
-]
-
 /**
- * O gorro é o desenho do SVG reduzido (`scale`) e assentado no alto da cabeça: a borda de baixo da aba
- * (y 134 no SVG do gorro) fica em `brimBottom`, deixando a testa escura, os olhos e as orelhas à mostra.
+ * Clawd (o mascote pixel do Claude Code) em pé no alto da cabeça, entre as orelhas: corpo laranja mais largo
+ * que alto (≈1,6:1), dois braços curtos nas laterais, quatro perninhas EMBAIXO do corpo (dois pares) com os
+ * pés apoiados na cabeça e dois olhos em fenda na frente. O corpo fica acima da linha da face interna das
+ * orelhas, que continuam inteiras à vista.
  */
-export const HAT = { scale: 0.82, brimBottom: 1.5 } as const
-const HAT_BRIM_SVG_Y = 134
+export const CLAWD = {
+  body: { width: 0.4, height: 0.25, depth: 0.26, bottom: 1.92 },
+  arm: { length: 0.07, height: 0.05, depth: 0.1 },
+  leg: { xs: [0.06, 0.14], width: 0.05, depth: 0.07, sink: 0.01 },
+  eye: { width: 0.045, height: 0.11, depth: 0.02, dx: 0.08 },
+} as const
 
-function rectToBlock(x: number, y: number, w: number, h: number, depth: number, color: string, z = 0): Block {
-  const k = HAT.scale / PX
-  const [cx, cy] = [x + w / 2 - 120, HAT.brimBottom + (HAT_BRIM_SVG_Y - (y + h / 2)) * k]
-  return { position: [cx * k, cy, z], size: [w * k, h * k, depth], color }
+/** Altura (y) da superfície da cabeça no plano z = 0, na posição x do piloto. */
+export function headTopY(x: number): number {
+  return HEAD.center[1] + HEAD.ry * Math.sqrt(Math.max(0, 1 - (x / HEAD.rx) ** 2))
 }
 
-export const HAT_BLOCKS: Block[] = HAT_RECTS.map(([x, y, w, h, depth, color]) => rectToBlock(x, y, w, h, depth, color))
-export const HAT_EYE_BLOCKS: Block[] = HAT_EYE_RECTS.map(([x, y, w, h]) =>
-  rectToBlock(x, y, w, h, 0.02, COLORS.hatEyes, CROWN_DEPTH / 2 + 0.011),
+const bodyTop = CLAWD.body.bottom + CLAWD.body.height
+const bodyMidY = CLAWD.body.bottom + CLAWD.body.height / 2
+
+/** Corpo, dois braços e quatro pernas (nessa ordem). Cada perna vai da superfície da cabeça ao fundo do corpo. */
+export const HAT_BLOCKS: Block[] = [
+  { position: [0, bodyMidY, 0], size: [CLAWD.body.width, CLAWD.body.height, CLAWD.body.depth], color: COLORS.hat },
+  ...[-1, 1].map(
+    (side): Block => ({
+      position: [side * (CLAWD.body.width + CLAWD.arm.length) / 2, bodyMidY, 0],
+      size: [CLAWD.arm.length, CLAWD.arm.height, CLAWD.arm.depth],
+      color: COLORS.hat,
+    }),
+  ),
+  ...CLAWD.leg.xs.flatMap((x) =>
+    [-1, 1].map((side): Block => {
+      const bottom = headTopY(Math.abs(x) + CLAWD.leg.width / 2) - CLAWD.leg.sink
+      return {
+        position: [side * x, (bottom + CLAWD.body.bottom) / 2, 0],
+        size: [CLAWD.leg.width, CLAWD.body.bottom - bottom, CLAWD.leg.depth],
+        color: COLORS.hat,
+      }
+    }),
+  ),
+]
+/** Olhos: fendas verticais escuras coladas na frente do corpo, na metade de cima. */
+export const HAT_EYE_BLOCKS: Block[] = [-1, 1].map(
+  (side): Block => ({
+    position: [side * CLAWD.eye.dx, bodyTop - 0.04 - CLAWD.eye.height / 2, CLAWD.body.depth / 2 + CLAWD.eye.depth / 2 - 0.004],
+    size: [CLAWD.eye.width, CLAWD.eye.height, CLAWD.eye.depth],
+    color: COLORS.hatEyes,
+  }),
 )
 
 // ─── Nave: estilo máquina do tempo (frame da nave; ver o comentário do topo) ───

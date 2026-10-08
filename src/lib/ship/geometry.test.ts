@@ -2,11 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   ANTENNA,
   ARM_Z,
-  BRIM_DEPTH,
   CANOPY,
   canopyContains,
   COCKPIT,
-  CROWN_DEPTH,
   DASH_TENTACLE,
   DASHBOARD,
   DECK_Y,
@@ -17,11 +15,12 @@ import {
   FREE_TENTACLE,
   FUSELAGE,
   fuselageSection,
-  HAT,
+  CLAWD,
   HAT_BLOCKS,
   HAT_EYE_BLOCKS,
   HEAD,
   headFrontZ,
+  headTopY,
   JOYSTICK,
   LEG_TENTACLES,
   NOZZLE,
@@ -30,6 +29,7 @@ import {
   planFacet,
   RIM,
   SEAT,
+  type Block,
   type Tentacle,
   SHIP_HEIGHT,
   SHIP_LENGTH,
@@ -444,68 +444,93 @@ describe('asas', () => {
   })
 })
 
-describe('gorro-Clawd', () => {
-  const crown = HAT_BLOCKS.find((b) => b.size[2] === CROWN_DEPTH)!
-  const brim = HAT_BLOCKS.find((b) => b.size[2] === BRIM_DEPTH)!
+describe('Clawd na cabeça', () => {
+  const [body, ...rest] = HAT_BLOCKS
+  const arms = rest.slice(0, 2)
+  const legs = rest.slice(2)
+  const bottomOf = (b: Block) => b.position[1] - b.size[1] / 2
+  const topOf = (b: Block) => b.position[1] + b.size[1] / 2
 
-  it('tem 10 blocos e 2 olhos', () => {
-    expect(HAT_BLOCKS).toHaveLength(10)
+  it('tem corpo, 2 braços, 4 pernas e 2 olhos', () => {
+    expect(HAT_BLOCKS).toHaveLength(7)
+    expect(arms).toHaveLength(2)
+    expect(legs).toHaveLength(4)
     expect(HAT_EYE_BLOCKS).toHaveLength(2)
   })
 
-  it('é o desenho do SVG reduzido: a copa é mais estreita que a cabeça e a aba fica na altura de HAT.brimBottom', () => {
-    expect(HAT.scale).toBeGreaterThanOrEqual(0.8)
-    expect(HAT.scale).toBeLessThanOrEqual(0.85)
-    expect(crown.size[0]).toBeCloseTo(1.16 * HAT.scale, 10)
-    expect(crown.size[0]).toBeLessThan(2 * HEAD.rx * 0.8)
-    expect(brim.position[1] - brim.size[1] / 2).toBeCloseTo(HAT.brimBottom, 10)
-    expect(crown.position[0]).toBeCloseTo(0, 10)
+  it('o corpo é mais largo que alto (~1,6:1) e bem menor que a cabeça', () => {
+    const ratio = body.size[0] / body.size[1]
+    expect(ratio).toBeGreaterThan(1.4)
+    expect(ratio).toBeLessThan(1.8)
+    expect(body.size[0]).toBeLessThan(HEAD.rx)
+    expect(body.position[0]).toBe(0)
   })
 
-  it('a copa encaixa no alto da cabeça', () => {
-    const headTop = HEAD.center[1] + HEAD.ry
-    const crownBottom = crown.position[1] - crown.size[1] / 2
-    const crownTop = crown.position[1] + crown.size[1] / 2
-    expect(crownBottom).toBeLessThan(headTop)
-    expect(crownTop).toBeGreaterThan(headTop)
+  it('as quatro pernas ficam EMBAIXO do corpo, em dois pares espaçados na largura', () => {
+    for (const leg of legs) {
+      expect(topOf(leg)).toBeCloseTo(bottomOf(body), 10)
+      expect(bottomOf(leg)).toBeLessThan(bottomOf(body))
+      expect(Math.abs(leg.position[0]) + leg.size[0] / 2).toBeLessThanOrEqual(body.size[0] / 2)
+    }
+    const xs = legs.map((l) => l.position[0]).sort((a, b) => a - b)
+    expect(new Set(xs.map((x) => x.toFixed(3))).size).toBe(4)
+    expect(xs[0]).toBeCloseTo(-xs[3], 10)
+    expect(xs[1]).toBeCloseTo(-xs[2], 10)
   })
 
-  it('a cabeça não fura a copa: acima da aba, a cabeça cabe na profundidade da copa', () => {
-    const brimTop = brim.position[1] + brim.size[1] / 2
-    const crownTop = crown.position[1] + crown.size[1] / 2
-    for (let y = brimTop; y <= crownTop; y += 0.01) {
-      expect(headFrontZ(0, y)).toBeLessThanOrEqual(CROWN_DEPTH / 2)
+  it('os pés encostam no alto da cabeça (tolerância pequena)', () => {
+    for (const leg of legs) {
+      const surface = headTopY(Math.abs(leg.position[0]) + leg.size[0] / 2)
+      expect(Math.abs(bottomOf(leg) - surface)).toBeLessThan(0.03)
+      expect(bottomOf(leg)).toBeLessThan(headTopY(0) + 0.001)
     }
   })
 
-  it('a aba fica na frente do rosto, sem fresta entre ela e a pele, e os olhos na frente da copa', () => {
-    const brimBottom = brim.position[1] - brim.size[1] / 2
-    expect(brim.size[2] / 2).toBeGreaterThan(headFrontZ(0, brimBottom, 0.015))
-    // faixa de testa escura entre a pele e a aba, como no Octocat clássico
-    expect(brimBottom - (FACE.center[1] + FACE.ry)).toBeGreaterThan(0.05)
-    expect(brimBottom - (FACE.center[1] + FACE.ry)).toBeLessThan(0.2)
-    for (const eye of HAT_EYE_BLOCKS) expect(eye.position[2]).toBeGreaterThan(CROWN_DEPTH / 2)
+  it('os braços saem das laterais, na altura do meio do corpo', () => {
+    for (const arm of arms) {
+      expect(arm.position[1]).toBeCloseTo(body.position[1], 10)
+      expect(Math.abs(arm.position[0]) - arm.size[0] / 2).toBeCloseTo(body.size[0] / 2, 10)
+      expect(arm.size[1]).toBeLessThan(body.size[1] / 2)
+    }
+  })
+
+  it('os olhos são fendas verticais na frente do corpo, na metade de cima', () => {
+    for (const eye of HAT_EYE_BLOCKS) {
+      expect(eye.size[1]).toBeGreaterThan(eye.size[0] * 2)
+      expect(eye.position[2]).toBeGreaterThan(body.size[2] / 2 - 0.01)
+      expect(eye.position[1]).toBeGreaterThan(body.position[1])
+      expect(Math.abs(eye.position[0]) + eye.size[0] / 2).toBeLessThan(body.size[0] / 2)
+    }
+  })
+
+  it('não sobra nada de gorro: o corpo ocupa só o centro e o Clawd cabe sob a cúpula', () => {
+    expect(CLAWD.body.width).toBeLessThan(2 * EAR.root[0])
+    for (const p of hatCorners()) expect(canopyContains(pilotToShip(p))).toBe(true)
   })
 })
 
 describe('orelhas e bigodes', () => {
-  const crown = HAT_BLOCKS.find((b) => b.size[2] === CROWN_DEPTH)!
   const [rx, ry] = EAR.root
   const [tx, ty] = EAR.tip
   const len = Math.hypot(tx - rx, ty - ry)
   const [px, py] = [-(ty - ry) / len, (tx - rx) / len] // perpendicular à orelha, no plano xy
 
-  it('cada orelha nasce dentro da cabeça e sai pela lateral da copa, acima das abas, bem para fora', () => {
+  it('cada orelha nasce dentro da cabeça e aponta para cima e para fora, bem longe do Clawd', () => {
     expect((rx / HEAD.rx) ** 2 + ((ry - HEAD.center[1]) / HEAD.ry) ** 2).toBeLessThan(1)
-    const crownSide = crown.position[0] + crown.size[0] / 2
-    expect(tx).toBeGreaterThan(crownSide + 0.25)
+    expect(tx).toBeGreaterThan(CLAWD.body.width / 2 + CLAWD.arm.length + 0.25)
     expect(ty).toBeGreaterThan(HEAD.center[1] + HEAD.ry) // pontuda, acima da cabeça
-    // onde o eixo da orelha cruza a lateral da copa, a base já passou do alto das abas laterais
-    const flapTop = Math.max(...HAT_BLOCKS.filter((b) => b.position[0] > crownSide).map((b) => b.position[1] + b.size[1] / 2))
-    const exitY = ry + ((crownSide - rx) / (tx - rx)) * (ty - ry)
-    expect(exitY).toBeGreaterThan(flapTop)
-    // mais da metade do comprimento fica para fora do gorro
-    expect((tx - crownSide) / (tx - rx)).toBeGreaterThan(0.5)
+  })
+
+  it('o Clawd não cobre as orelhas: corpo e braços ficam acima da face interna de cada orelha', () => {
+    // face interna: da quina de dentro da base até a ponta (no plano xy)
+    const [ix, iy] = [rx + px * EAR.radius, ry + py * EAR.radius]
+    const innerEdgeY = (x: number) => iy + ((x - ix) / (tx - ix)) * (ty - iy)
+    for (const b of HAT_BLOCKS.slice(0, 3)) {
+      const nearX = Math.abs(b.position[0]) + b.size[0] / 2
+      expect(b.position[1] - b.size[1] / 2).toBeGreaterThan(innerEdgeY(nearX))
+    }
+    // as pernas não passam da quina de dentro da orelha
+    for (const leg of HAT_BLOCKS.slice(3)) expect(Math.abs(leg.position[0]) + leg.size[0] / 2).toBeLessThan(ix + 0.1)
   })
 
   it('as duas orelhas (espelhadas) e os cantos da base cabem sob a cúpula', () => {
