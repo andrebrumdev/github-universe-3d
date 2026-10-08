@@ -107,7 +107,8 @@ Dois níveis no MVP: galáxia e planeta. No foco, a câmera acompanha o planeta 
 **Octocat 3D (revisado em 2026-10-08):** o Octocat e a nave são um modelo 3D dentro da cena, que viaja entre os planetas no estilo Astro Bot.
 
 - **Modelo `OctocatShip`:** low-poly com primitivas do Three.js, nas cores de `design/Octocat.dc.html` (coordenadas do SVG convertidas para 3D, 100 px = 1 unidade, origem no centro do casco).
-  - **Nave:** casco elipsoide e asas `#C4B5FD`, faixa `#E6EAF0` com os 7 quadradinhos de contribuição, farol `#FFF3C4`, cúpula de vidro `#A5F3FC` translúcida, propulsor ciano `#67E8F9` atrás.
+  - **Nave (revisada):** segue o **estilo** da máquina do tempo de *A Família do Futuro* (referência do usuário; modelo próprio, sem emblemas): cabine em tigela `#C4B5FD` com aro creme e os 7 quadradinhos de contribuição; bolha de vidro `#A5F3FC` quase esférica com moldura e antena em arco; dois faróis redondos `#FFF3C4`; fuselagem traseira longa que afunila (creme em cima, cinza embaixo) com 3 anéis ciano `#67E8F9` que pulsam; bocal escuro com propulsor; aleta superior inclinada e estabilizador inferior longo `#C4B5FD` com duas luzinhas.
+  - **Construção:** com a biblioteca `three-low-poly` (sweep, loft, `bevelConvexGeometry`, `EdgedBoxGeometry`, `GlowHalo`, `EmissivePulseEffect`) e `flatShading`, seguindo a skill `universe-low-poly`.
   - **Octocat:** corpo e cabeça `#1F2329`; rosto num disco com `CanvasTexture`, desenhado com os mesmos paths SVG das expressões (neutro, feliz, piscadinha, surpreso, pensando), e piscada.
   - **Gorro-Clawd:** blocos `#D97757` e aba `#B85C3E`, convertidos dos retângulos do SVG.
   - **Braços:** um no manche (cilindro com bola `#D97757`) e um livre, que acena e aponta.
