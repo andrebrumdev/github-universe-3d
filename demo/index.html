@@ -1,0 +1,609 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>GitHub Universe 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: demo 3D ao vivo no topo, depois o brief em seções de largura de leitura, num único mundo escuro espacial */
+:root {
+  --space: #060912;
+  --panel: #0d1322;
+  --panel-2: #131b2e;
+  --line: #22304b;
+  --fg: #e4e9f4;
+  --muted: #8f9ab3;
+  --green: #39d353;
+  --green-dim: #1f6b33;
+  --sun: #ffb547;
+  --cyan: #67e8f9;
+  --display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--space); color: var(--fg); }
+body { font-family: var(--body); font-size: 16px; line-height: 1.6; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; }
+
+header.top { padding-block: 28px 18px; display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--green); }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(34px, 6vw, 60px); line-height: 1; margin: 6px 0 0; letter-spacing: -.01em; text-wrap: balance; }
+h1 span { color: var(--green); }
+.lede { color: var(--muted); max-width: 46ch; margin: 0; font-size: 15px; }
+
+/* ---------- demo ---------- */
+.stage { position: relative; height: clamp(440px, 68vh, 620px); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: radial-gradient(ellipse at 50% 45%, #0f1830 0%, var(--space) 70%); }
+.stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.stage canvas:active { cursor: grabbing; }
+.hud { position: absolute; left: 14px; top: 14px; display: flex; gap: 8px; flex-wrap: wrap; pointer-events: none; }
+.chip { font-family: var(--mono); font-size: 11px; color: var(--muted); background: rgba(13,19,34,.82); border: 1px solid var(--line); padding: 4px 8px; border-radius: 6px; }
+.chip b { color: var(--fg); font-weight: 500; }
+.sample { position: absolute; right: 14px; top: 14px; font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--sun); border: 1px dashed rgba(255,181,71,.5); padding: 3px 7px; border-radius: 5px; background: rgba(6,9,18,.7); }
+
+.tip { position: absolute; pointer-events: none; font-family: var(--mono); font-size: 12px; background: var(--panel-2); border: 1px solid var(--line); color: var(--fg); padding: 6px 9px; border-radius: 6px; white-space: nowrap; transform: translate(12px, 12px); }
+.tip .sq { display: inline-block; width: 9px; height: 9px; border-radius: 2px; background: var(--green); margin-right: 6px; vertical-align: 0; }
+
+.card { position: absolute; left: 14px; bottom: 14px; width: min(300px, calc(100% - 28px)); background: rgba(13,19,34,.94); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; backdrop-filter: blur(6px); }
+.card h3 { font-family: var(--display); font-size: 20px; margin: 0; }
+.card .kind { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.card p { margin: 6px 0 10px; color: var(--muted); font-size: 14px; line-height: 1.45; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 12px; }
+.stats div { background: var(--panel-2); border-radius: 6px; padding: 6px 8px; }
+.stats b { display: block; font-size: 15px; color: var(--fg); font-weight: 500; }
+.stats span { color: var(--muted); }
+.langs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.lang { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); display: inline-flex; align-items: center; gap: 6px; }
+.lang i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.card button.x { position: absolute; right: 8px; top: 6px; background: none; border: 0; color: var(--muted); font-size: 18px; cursor: pointer; padding: 4px 8px; }
+
+/* Octocat guia */
+.guide { position: absolute; right: 12px; bottom: 10px; display: flex; align-items: flex-end; gap: 6px; }
+.bubble { max-width: 230px; background: var(--fg); color: #0b1020; font-size: 13.5px; line-height: 1.4; padding: 10px 12px; border-radius: 12px 12px 2px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.4); margin-bottom: 64px; }
+.bubble .steps { font-family: var(--mono); font-size: 10px; color: #4a5470; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 3px; }
+.bubble .row { display: flex; gap: 6px; margin-top: 8px; }
+.bubble button { font: 600 12px var(--body); border-radius: 6px; padding: 4px 9px; cursor: pointer; border: 1px solid #0b1020; background: #0b1020; color: var(--fg); }
+.bubble button.ghost { background: transparent; color: #0b1020; }
+.pilot { width: 112px; height: 120px; cursor: pointer; background: none; border: 0; padding: 0; animation: hover 3.4s ease-in-out infinite; }
+.pilot:focus-visible, button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; border-radius: 8px; }
+.pilot:hover .tent-wave { animation: wave .5s ease-in-out 2; }
+@keyframes hover { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+@keyframes wave { 0%,100% { transform: rotate(0); } 50% { transform: rotate(-28deg); } }
+.tent-wave { transform-origin: 30px 58px; transform-box: view-box; }
+
+/* ---------- brief ---------- */
+main section { padding-block: 44px 8px; }
+h2 { font-family: var(--display); font-size: clamp(24px, 3.2vw, 32px); font-weight: 600; margin: 0 0 6px; text-wrap: balance; }
+.sub { color: var(--muted); margin: 0 0 22px; max-width: 64ch; }
+
+.map { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.map article { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; min-width: 0; }
+.map .is { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--green); }
+.map h3 { font-family: var(--display); font-size: 21px; margin: 2px 0 6px; }
+.map p { margin: 0; color: var(--muted); font-size: 14.5px; }
+
+.contrib { display: grid; grid-template-columns: repeat(26, 1fr); gap: 3px; max-width: 420px; margin-top: 12px; }
+.contrib i { aspect-ratio: 1; border-radius: 2px; background: var(--panel-2); }
+.contrib i.l1 { background: #0e4429; } .contrib i.l2 { background: #006d32; } .contrib i.l3 { background: #26a641; } .contrib i.l4 { background: var(--green); }
+
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.split > div { min-width: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+td:first-child { font-family: var(--mono); color: var(--sun); white-space: nowrap; }
+.tbl { overflow-x: auto; }
+
+ul.lines { list-style: none; margin: 0; padding: 0; }
+ul.lines li { padding: 9px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 150px 1fr; gap: 12px; font-size: 14.5px; }
+ul.lines li span:first-child { color: var(--muted); font-size: 13.5px; }
+ul.lines li span:last-child { min-width: 0; }
+
+.zoom { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.zoom div { padding: 16px 18px; border-right: 1px solid var(--line); min-width: 0; }
+.zoom div:last-child { border-right: 0; }
+.zoom .lvl { font-family: var(--mono); font-size: 12px; color: var(--cyan); }
+.zoom h3 { font-family: var(--display); font-size: 19px; margin: 2px 0 4px; }
+.zoom p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+kbd { font-family: var(--mono); font-size: 12px; background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 2px 7px; color: var(--fg); }
+.controls span { color: var(--muted); font-size: 14px; display: inline-flex; gap: 6px; align-items: center; margin-right: 10px; }
+
+.scope { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.scope article { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; min-width: 0; }
+.scope h3 { font-family: var(--display); font-size: 20px; margin: 0 0 8px; display: flex; gap: 10px; align-items: baseline; }
+.scope h3 small { font-family: var(--mono); font-size: 11px; color: var(--muted); font-weight: 400; letter-spacing: .08em; text-transform: uppercase; }
+.scope ul { margin: 0; padding-left: 18px; color: var(--fg); font-size: 14.5px; }
+.scope li { padding: 3px 0; }
+.scope li::marker { color: var(--green); }
+.scope article.v2 li::marker { color: var(--muted); }
+
+.stack { display: flex; flex-wrap: wrap; gap: 8px; }
+.stack span { font-family: var(--mono); font-size: 13px; border: 1px solid var(--line); background: var(--panel); padding: 6px 10px; border-radius: 8px; }
+.stack span em { font-style: normal; color: var(--muted); margin-left: 6px; }
+
+ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 28px; }
+ol.steps li { counter-increment: s; padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; gap: 12px; font-size: 14.5px; }
+ol.steps li::before { content: counter(s, decimal-leading-zero); font-family: var(--mono); color: var(--green); font-size: 13px; padding-top: 2px; }
+
+.qs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.qs div { border: 1px dashed var(--line); border-radius: 10px; padding: 12px 14px; font-size: 14.5px; min-width: 0; }
+.qs div b { display: block; font-weight: 600; margin-bottom: 2px; }
+.qs div span { color: var(--muted); font-size: 13.5px; }
+
+footer { padding-block: 40px 48px; color: var(--muted); font-size: 13px; font-family: var(--mono); }
+
+@media (max-width: 820px) {
+  .map, .zoom { grid-template-columns: 1fr; }
+  .zoom div { border-right: 0; border-bottom: 1px solid var(--line); }
+  .zoom div:last-child { border-bottom: 0; }
+  .split, .scope, .qs, ol.steps { grid-template-columns: 1fr; }
+  ul.lines li { grid-template-columns: 1fr; gap: 2px; }
+}
+@media (max-width: 560px) {
+  .bubble { max-width: 170px; font-size: 12.5px; margin-bottom: 50px; }
+  .pilot { width: 84px; height: 90px; }
+  .card { bottom: auto; top: 46px; }
+  .hud .chip:nth-child(n+2) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pilot { animation: none; }
+  .pilot:hover .tent-wave { animation: none; }
+}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Projeto de portfólio · front-end 3D</div>
+      <h1>GitHub <span>Universe</span> 3D</h1>
+    </div>
+    <p class="lede">Cada perfil é uma galáxia, cada repositório é um planeta coberto de quadradinhos verdes de contribuição, e as linguagens orbitam como luas. Arraste, dê zoom e clique.</p>
+  </header>
+
+  <div class="stage" id="stage">
+    <canvas id="c" aria-label="Galáxia 3D interativa com sol, planetas e luas"></canvas>
+    <div class="hud">
+      <span class="chip"><b>arrastar</b> gira</span>
+      <span class="chip"><b>scroll</b> zoom</span>
+      <span class="chip"><b>clique</b> no sol ou num planeta</span>
+    </div>
+    <div class="sample">dados de exemplo</div>
+    <div class="tip" id="tip" hidden></div>
+    <div class="card" id="card" hidden></div>
+
+    <div class="guide">
+      <div class="bubble" id="bubble" aria-live="polite"></div>
+      <button class="pilot" id="pilot" aria-label="Octocat guia: abrir tutorial">
+        <svg viewBox="0 0 120 128" width="100%" height="100%" aria-hidden="true">
+          <defs>
+            <radialGradient id="dome" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#bfefff" stop-opacity=".55"/><stop offset="1" stop-color="#67e8f9" stop-opacity=".12"/></radialGradient>
+            <linearGradient id="hull" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f4f7fc"/><stop offset="1" stop-color="#9fb0cc"/></linearGradient>
+          </defs>
+          <!-- chama -->
+          <path d="M50 110 Q60 128 70 110 Z" fill="#67e8f9" opacity=".8"/>
+          <!-- casco da nave -->
+          <ellipse cx="60" cy="96" rx="46" ry="15" fill="url(#hull)"/>
+          <ellipse cx="60" cy="92" rx="46" ry="8" fill="#dfe7f3"/>
+          <circle cx="28" cy="98" r="3" fill="#ff5a5f"/><circle cx="60" cy="102" r="3" fill="#67e8f9"/><circle cx="92" cy="98" r="3" fill="#ff5a5f"/>
+          <!-- tentáculo acenando -->
+          <path class="tent-wave" d="M30 62 Q14 54 16 40" stroke="#20242c" stroke-width="7" fill="none" stroke-linecap="round"/>
+          <!-- corpo do octocat -->
+          <path d="M38 88 Q36 62 60 60 Q84 62 82 88 Z" fill="#20242c"/>
+          <!-- cabeça -->
+          <ellipse cx="60" cy="56" rx="22" ry="19" fill="#20242c"/>
+          <path d="M40 48 L42 30 L52 40 Z" fill="#20242c"/><path d="M80 48 L78 30 L68 40 Z" fill="#20242c"/>
+          <!-- rosto -->
+          <ellipse cx="60" cy="60" rx="16" ry="12" fill="#f1c9a5"/>
+          <ellipse cx="53" cy="59" rx="2.6" ry="3.6" fill="#7a2f2f"/><ellipse cx="67" cy="59" rx="2.6" ry="3.6" fill="#7a2f2f"/>
+          <circle cx="60" cy="65" r="1.4" fill="#7a2f2f"/>
+          <path d="M56 68 Q60 71 64 68" stroke="#7a2f2f" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+          <!-- gorro de neve (Claude Code) -->
+          <path d="M38 44 Q40 20 60 18 Q80 20 82 44 Z" fill="#d97757"/>
+          <rect x="36" y="40" width="48" height="8" rx="4" fill="#f4ede6"/>
+          <circle cx="60" cy="14" r="6" fill="#f4ede6"/>
+          <g transform="translate(60 31)" stroke="#f4ede6" stroke-width="2" stroke-linecap="round">
+            <line x1="0" y1="-6" x2="0" y2="6"/><line x1="-6" y1="0" x2="6" y2="0"/><line x1="-4.2" y1="-4.2" x2="4.2" y2="4.2"/><line x1="-4.2" y1="4.2" x2="4.2" y2="-4.2"/>
+          </g>
+          <!-- cúpula -->
+          <path d="M22 92 Q22 20 60 20 Q98 20 98 92 Z" fill="url(#dome)" stroke="#9feaf7" stroke-opacity=".5"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<main class="wrap">
+  <section>
+    <div class="eyebrow">Mapa do universo</div>
+    <h2>Cada peça do GitHub vira um corpo celeste</h2>
+    <p class="sub">A metáfora precisa ser lida em segundos por um recrutador. Cada objeto 3D corresponde a um dado real do perfil.</p>
+    <div class="map">
+      <article><div class="is">Perfil</div><h3>Galáxia</h3><p>Cada username vira uma galáxia. Você começa na sua e pode adicionar outras pelo nome de usuário.</p></article>
+      <article><div class="is">Repositório</div><h3>Planeta</h3><p>Um planeta por repo. O tamanho reflete a popularidade (stars e forks) e a órbita é distribuída em volta do sol.</p></article>
+      <article><div class="is">Linguagem</div><h3>Lua</h3><p>Cada linguagem do repo orbita o planeta, na cor oficial da linguagem. Um repo em Java e JavaScript ganha duas luas.</p></article>
+      <article><div class="is">Commits</div><h3>Superfície</h3><p>A esfera é coberta pela malha de quadradinhos verdes do GitHub, 52 semanas por 7 dias. Girar o planeta mostra outros períodos.</p>
+        <div class="contrib" id="contrib" aria-hidden="true"></div></article>
+      <article><div class="is">Você</div><h3>Sol</h3><p>Um globo brincalhão no centro. Segue o mouse, pisca, fica feliz quando você chega perto e triste quando você vai embora. Clicar abre seu perfil.</p></article>
+      <article><div class="is">Guia</div><h3>Octocat piloto</h3><p>O Octocat numa nave estilo Astro Bot, de gorro de neve do Claude Code. Fica no canto, faz o tutorial e comenta o que você faz.</p></article>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Personagens</div>
+    <h2>O sol e o Octocat têm personalidade</h2>
+    <p class="sub">É aqui que o projeto deixa de ser um gráfico e vira uma experiência. Os dois reagem ao usuário.</p>
+    <div class="split">
+      <div>
+        <h3 style="font-family:var(--display);font-size:20px;margin:0 0 8px">Estados do sol</h3>
+        <div class="tbl"><table>
+          <thead><tr><th>Estado</th><th>Gatilho</th><th>Reação</th></tr></thead>
+          <tbody>
+            <tr><td>idle</td><td>Ninguém por perto</td><td>Respira, pisca a cada 3–5 s, olhos seguem o mouse</td></tr>
+            <tr><td>hover</td><td>Mouse em cima</td><td>Sorriso largo, brilho mais forte, gira um pouco</td></tr>
+            <tr><td>click</td><td>Clique</td><td>Pula, cara de surpresa, abre o painel de perfil</td></tr>
+            <tr><td>away</td><td>Mouse longe</td><td>Fica tristinho, brilho diminui, volta ao centro</td></tr>
+          </tbody>
+        </table></div>
+        <p class="sub" style="margin-top:12px;font-size:14px">Painel do perfil: avatar, nome, bio, seguidores, total de repos, stars somadas, top linguagens e último commit.</p>
+      </div>
+      <div>
+        <h3 style="font-family:var(--display);font-size:20px;margin:0 0 8px">Falas do Octocat</h3>
+        <ul class="lines">
+          <li><span>Entrou no site</span><span>A nave desce e ele acena: "Bem-vindo ao seu universo!"</span></li>
+          <li><span>Clicou no sol</span><span>"Esse é você! Seu perfil GitHub."</span></li>
+          <li><span>Clicou num planeta</span><span>"Olha que legal esse repo aqui!"</span></li>
+          <li><span>Primeiro zoom</span><span>"Uau, dá pra ver os commits de perto!"</span></li>
+          <li><span>Nova galáxia</span><span>"Ooh, mais uma galáxia!"</span></li>
+          <li><span>Parado muito tempo</span><span>"Ei, se precisar de ajuda, é comigo!"</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Navegação</div>
+    <h2>Três níveis de zoom</h2>
+    <p class="sub">O scroll é a viagem. Afastar demais sai da galáxia e mostra as outras.</p>
+    <div class="zoom">
+      <div><div class="lvl">zoom 1 · longe</div><h3>Universo</h3><p>Várias galáxias, uma por perfil. Clique numa para viajar até ela.</p></div>
+      <div><div class="lvl">zoom 2 · médio</div><h3>Galáxia</h3><p>O sol no centro, planetas em órbita e as luas girando em volta de cada um.</p></div>
+      <div><div class="lvl">zoom 3 · perto</div><h3>Planeta</h3><p>Os quadradinhos ficam legíveis. Passar o mouse mostra o dia e o número de commits.</p></div>
+    </div>
+    <div class="controls">
+      <span><kbd>arrastar</kbd> gira a câmera</span>
+      <span><kbd>scroll</kbd> zoom e troca de nível</span>
+      <span><kbd>clique</kbd> foca e abre detalhes</span>
+      <span><kbd>Esc</kbd> volta ao sol</span>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Escopo</div>
+    <h2>O que entra primeiro</h2>
+    <p class="sub">O MVP já precisa impressionar sozinho. O resto vem depois sem reescrever nada.</p>
+    <div class="scope">
+      <article><h3>MVP <small>v1</small></h3><ul>
+        <li>Galáxia do seu perfil com dados reais</li>
+        <li>Planetas com luas de linguagens</li>
+        <li>Textura de quadradinhos verdes com tooltip</li>
+        <li>Drag, zoom e foco por clique</li>
+        <li>Sol com olhos, piscada e 4 expressões</li>
+        <li>Octocat com tutorial de 4 passos</li>
+        <li>Deploy na Vercel com README e GIF</li>
+      </ul></article>
+      <article class="v2"><h3>Depois <small>v2</small></h3><ul>
+        <li>Adicionar outros perfis (novas galáxias)</li>
+        <li>Visão de universo navegável</li>
+        <li>Link compartilhável <code>/&lt;username&gt;</code></li>
+        <li>Partículas, bloom e transições cinematográficas</li>
+        <li>LOD e instancing para perfis com centenas de repos</li>
+        <li>Imagem de preview (Open Graph) da galáxia</li>
+      </ul></article>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Stack</div>
+    <h2>Tecnologia</h2>
+    <p class="sub">Escolhas que mostram nível pleno: tipagem, 3D declarativo, cache no servidor e performance medida.</p>
+    <div class="stack">
+      <span>Next.js<em>app router + API routes</em></span>
+      <span>TypeScript</span>
+      <span>React Three Fiber<em>+ drei</em></span>
+      <span>Three.js</span>
+      <span>Zustand<em>estado global</em></span>
+      <span>Framer Motion<em>sol e Octocat</em></span>
+      <span>Tailwind CSS<em>UI</em></span>
+      <span>GitHub GraphQL API</span>
+      <span>Cache<em>SWR ou Redis</em></span>
+      <span>Vercel</span>
+      <span>Vitest + Playwright</span>
+      <span>GitHub Actions<em>CI</em></span>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Plano</div>
+    <h2>Próximos passos</h2>
+    <p class="sub">Uma ordem que deixa algo visível já nos primeiros dias.</p>
+    <ol class="steps">
+      <li>Criar o projeto Next.js com React Three Fiber</li>
+      <li>Montar a cena: câmera, luz, fundo estrelado</li>
+      <li>API route consultando o GitHub GraphQL</li>
+      <li>Gerar planetas e luas a partir dos dados</li>
+      <li>Textura de contribuições em canvas</li>
+      <li>Drag, zoom, clique e foco no planeta</li>
+      <li>Sol interativo com expressões</li>
+      <li>Octocat guia e tutorial</li>
+      <li>Painéis de info e versão mobile</li>
+      <li>Performance, testes e deploy</li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="eyebrow">Em aberto</div>
+    <h2>Decisões que ainda faltam</h2>
+    <p class="sub">Vale fechar antes de começar o código das galáxias.</p>
+    <div class="qs">
+      <div><b>Como as galáxias convivem?</b><span>Lado a lado no espaço, ou um índice para trocar de perfil.</span></div>
+      <div><b>Intensidade dos quadradinhos</b><span>Tons de verde por número de commits, ou um verde único.</span></div>
+      <div><b>Tamanho das luas</b><span>Bytes de código, número de arquivos, ou só presença da linguagem.</span></div>
+      <div><b>Detalhe do planeta</b><span>Card flutuante como na demo, painel lateral, ou modal com README.</span></div>
+      <div><b>Posição dos planetas</b><span>Distância ao sol por idade do repo, por stars ou por último commit.</span></div>
+      <div><b>Arte do Octocat</b><span>Modelo 3D próprio ou ilustração 2D. O Octocat é marca do GitHub, então prefira uma versão autoral.</span></div>
+    </div>
+  </section>
+
+  <footer>GitHub Universe 3D · brief de projeto · a demo acima usa dados de exemplo</footer>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+  // mini grid decorativo no card "Superfície"
+  const cg = document.getElementById('contrib');
+  let s0 = 7;
+  const r0 = () => (s0 = (s0 * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 26 * 7; i++) { const el = document.createElement('i'); const v = r0(); if (v > .45) el.className = 'l' + (1 + Math.floor((v - .45) / .1375)); cg.appendChild(el); }
+
+  if (!window.THREE) return;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const speed = reduce ? 0.25 : 1;
+
+  const stage = document.getElementById('stage');
+  const canvas = document.getElementById('c');
+  const tip = document.getElementById('tip');
+  const card = document.getElementById('card');
+  const bubble = document.getElementById('bubble');
+
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+  camera.position.set(0, 9, 22);
+  const controls = new THREE.OrbitControls(camera, canvas);
+  controls.enableDamping = true; controls.dampingFactor = 0.08;
+  controls.minDistance = 3; controls.maxDistance = 48; controls.enablePan = false;
+
+  scene.add(new THREE.AmbientLight(0x8899cc, 0.55));
+  const sunLight = new THREE.PointLight(0xffd9a0, 1.6, 120); scene.add(sunLight);
+
+  // estrelas
+  { const g = new THREE.BufferGeometry(); const n = 1400; const p = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { const r = 80 + Math.random() * 120, t = Math.random() * Math.PI * 2, f = Math.acos(2 * Math.random() - 1);
+      p[i*3] = r * Math.sin(f) * Math.cos(t); p[i*3+1] = r * Math.cos(f); p[i*3+2] = r * Math.sin(f) * Math.sin(t); }
+    g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+    scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xcfd8ff, size: 0.5, sizeAttenuation: true }))); }
+
+  // ---------- SOL ----------
+  const sunCanvas = document.createElement('canvas'); sunCanvas.width = 1024; sunCanvas.height = 512;
+  const sctx = sunCanvas.getContext('2d');
+  const sunTex = new THREE.CanvasTexture(sunCanvas);
+  const sun = new THREE.Mesh(new THREE.SphereGeometry(2, 64, 48), new THREE.MeshBasicMaterial({ map: sunTex }));
+  sun.userData.kind = 'sun';
+  const sunGroup = new THREE.Group(); sunGroup.add(sun); scene.add(sunGroup);
+
+  const glowC = document.createElement('canvas'); glowC.width = glowC.height = 256;
+  { const g = glowC.getContext('2d'); const gr = g.createRadialGradient(128,128,40,128,128,128);
+    gr.addColorStop(0, 'rgba(255,190,90,.55)'); gr.addColorStop(1, 'rgba(255,150,60,0)'); g.fillStyle = gr; g.fillRect(0,0,256,256); }
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(glowC), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+  glow.scale.set(9, 9, 1); sunGroup.add(glow);
+
+  const face = { ex: 0, ey: 0, mood: 'idle', blink: 0, surprised: 0 };
+  function drawSun() {
+    const W = 1024, H = 512, c = sctx;
+    const g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#ffd27a'); g.addColorStop(.5, '#ffb547'); g.addColorStop(1, '#f08a3c');
+    c.fillStyle = g; c.fillRect(0, 0, W, H);
+    // linhas de globo
+    c.strokeStyle = 'rgba(160,80,20,.22)'; c.lineWidth = 2;
+    for (let i = 1; i < 8; i++) { c.beginPath(); c.moveTo(0, i * H / 8); c.lineTo(W, i * H / 8); c.stroke(); }
+    for (let i = 0; i < 16; i++) { c.beginPath(); c.moveTo(i * W / 16, 0); c.lineTo(i * W / 16, H); c.stroke(); }
+    const cx = 256, cy = 250; // u=0.25 encara +z
+    const happy = face.mood === 'hover', sad = face.mood === 'away', sur = face.surprised > 0;
+    // bochechas
+    c.fillStyle = 'rgba(255,110,110,' + (happy ? .55 : .3) + ')';
+    c.beginPath(); c.ellipse(cx - 78, cy + 34, 22, 13, 0, 0, 7); c.fill();
+    c.beginPath(); c.ellipse(cx + 78, cy + 34, 22, 13, 0, 0, 7); c.fill();
+    // olhos
+    const eyeR = sur ? 30 : 26;
+    for (const dx of [-48, 48]) {
+      const x = cx + dx, y = cy - 26;
+      c.fillStyle = '#fff'; c.beginPath(); c.ellipse(x, y, eyeR * .8, eyeR, 0, 0, 7); c.fill();
+      c.fillStyle = '#1b1f2a'; c.beginPath(); c.arc(x + face.ex * 9, y + face.ey * 10, sur ? 9 : 12, 0, 7); c.fill();
+      c.fillStyle = '#fff'; c.beginPath(); c.arc(x + face.ex * 9 - 4, y + face.ey * 10 - 5, 3.5, 0, 7); c.fill();
+      if (face.blink > 0) { c.fillStyle = '#ffb547'; c.fillRect(x - eyeR, y - eyeR - 2, eyeR * 2, (eyeR * 2 + 4) * face.blink); }
+      if (sad) { c.strokeStyle = '#7a3b12'; c.lineWidth = 5; c.beginPath(); c.moveTo(x - 20, y - eyeR - 4 + (dx < 0 ? 8 : 0)); c.lineTo(x + 20, y - eyeR - 4 + (dx < 0 ? 0 : 8)); c.stroke(); }
+    }
+    // boca
+    c.strokeStyle = '#6b2a0c'; c.fillStyle = '#6b2a0c'; c.lineWidth = 7; c.lineCap = 'round';
+    c.beginPath();
+    if (sur) { c.ellipse(cx, cy + 46, 14, 18, 0, 0, 7); c.fill(); }
+    else if (happy) { c.arc(cx, cy + 22, 40, .15 * Math.PI, .85 * Math.PI); c.stroke(); }
+    else if (sad) { c.arc(cx, cy + 74, 30, 1.2 * Math.PI, 1.8 * Math.PI); c.stroke(); }
+    else { c.arc(cx, cy + 30, 26, .2 * Math.PI, .8 * Math.PI); c.stroke(); }
+    sunTex.needsUpdate = true;
+  }
+
+  // ---------- PLANETAS ----------
+  const LANG = { TypeScript: '#3178c6', JavaScript: '#f1e05a', Go: '#00add8', Python: '#3572a5', Java: '#b07219', Shell: '#89e051', Dockerfile: '#384d54', HCL: '#844fba', CSS: '#563d7c' };
+  const repos = [
+    { name: 'portfolio-next', desc: 'Portfólio em Next.js com animações e SSR.', stars: 42, forks: 7, commits: 318, langs: [['TypeScript', .7], ['CSS', .3]], orbit: 6, size: 1.0 },
+    { name: 'k8s-gitops', desc: 'Manifests e ArgoCD para deploy contínuo.', stars: 18, forks: 3, commits: 204, langs: [['HCL', .5], ['Shell', .3], ['Dockerfile', .2]], orbit: 9, size: .8 },
+    { name: 'go-queue', desc: 'Fila de jobs com retries e dead letter.', stars: 64, forks: 11, commits: 412, langs: [['Go', .9], ['Dockerfile', .1]], orbit: 12.5, size: 1.25 },
+    { name: 'nest-auth', desc: 'API de autenticação com JWT e refresh tokens.', stars: 9, forks: 2, commits: 151, langs: [['TypeScript', .85], ['JavaScript', .15]], orbit: 16, size: .7 },
+    { name: 'py-scraper', desc: 'Coletor de dados com filas e Elasticsearch.', stars: 25, forks: 4, commits: 96, langs: [['Python', .8], ['Java', .2]], orbit: 19.5, size: .85 },
+  ];
+  const COLS = 52, ROWS = 26, LV = ['#0e2a1a', '#0e4429', '#006d32', '#26a641', '#39d353'];
+  const days = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  const planets = [];
+  repos.forEach((r, idx) => {
+    let seed = 11 + idx * 97; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const grid = []; const activity = .3 + r.commits / 700;
+    for (let y = 0; y < ROWS; y++) { const row = []; for (let x = 0; x < COLS; x++) {
+      const wave = .5 + .5 * Math.sin(x / 6 + idx);
+      const v = rnd() * activity * (0.6 + wave * .8); const n = v < .35 ? 0 : Math.round((v - .3) * 14); row.push(n); } grid.push(row); }
+    const cv = document.createElement('canvas'); cv.width = 1040; cv.height = 520; const x2 = cv.getContext('2d');
+    x2.fillStyle = '#05140c'; x2.fillRect(0, 0, 1040, 520);
+    const cw = 1040 / COLS, ch = 520 / ROWS;
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+      const n = grid[y][x]; x2.fillStyle = LV[n === 0 ? 0 : n < 3 ? 1 : n < 6 ? 2 : n < 9 ? 3 : 4];
+      x2.fillRect(x * cw + 2, y * ch + 2, cw - 4, ch - 4);
+    }
+    const tex = new THREE.CanvasTexture(cv); tex.anisotropy = 4;
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(r.size, 48, 32), new THREE.MeshStandardMaterial({ map: tex, roughness: .7, metalness: .05, emissive: 0x0a3d1c, emissiveIntensity: .35 }));
+    mesh.userData = { kind: 'planet', repo: r, grid };
+    const pivot = new THREE.Group(); pivot.rotation.y = idx * 1.3; scene.add(pivot);
+    const holder = new THREE.Group(); holder.position.x = r.orbit; pivot.add(holder); holder.add(mesh);
+    // órbita
+    const ring = new THREE.Mesh(new THREE.RingGeometry(r.orbit - .02, r.orbit + .02, 128), new THREE.MeshBasicMaterial({ color: 0x2a3a5c, side: THREE.DoubleSide, transparent: true, opacity: .6 }));
+    ring.rotation.x = -Math.PI / 2; scene.add(ring);
+    // luas
+    const moons = [];
+    r.langs.forEach(([lang, share], j) => {
+      const mp = new THREE.Group(); mp.rotation.z = .25 * (j - 1); holder.add(mp);
+      const m = new THREE.Mesh(new THREE.SphereGeometry(.12 + share * .22, 20, 16), new THREE.MeshStandardMaterial({ color: LANG[lang], emissive: LANG[lang], emissiveIntensity: .25 }));
+      m.position.x = r.size + .6 + j * .45; m.userData = { kind: 'moon', lang, share, repo: r }; mp.add(m);
+      const lc = document.createElement('canvas'); lc.width = 256; lc.height = 64; const lx = lc.getContext('2d');
+      lx.font = '500 30px "JetBrains Mono", monospace'; lx.fillStyle = '#e4e9f4'; lx.textAlign = 'center'; lx.fillText(lang, 128, 42);
+      const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(lc), transparent: true, depthWrite: false }));
+      label.scale.set(1.2, .3, 1); label.position.set(0, .45, 0); m.add(label);
+      moons.push({ pivot: mp, speed: .6 + j * .25 });
+    });
+    planets.push({ mesh, pivot, holder, moons, speed: .5 / Math.sqrt(r.orbit) });
+  });
+
+  // ---------- Octocat / falas ----------
+  const tutorial = [
+    'Bem-vindo ao seu universo! Esse sol no meio é você. Clica nele.',
+    'Cada planeta é um repositório. Quanto maior, mais stars ele tem.',
+    'As luas são as linguagens. A cor segue a cor oficial de cada uma.',
+    'Os quadradinhos verdes são seus commits. Gira o planeta e passa o mouse!'
+  ];
+  let step = -1, idleTimer = 0, sayTimeout;
+  function say(text, t = 4200) {
+    clearTimeout(sayTimeout); step = -1;
+    bubble.innerHTML = ''; bubble.textContent = text; bubble.hidden = false;
+    sayTimeout = setTimeout(() => { if (step < 0) bubble.hidden = true; }, t);
+  }
+  function showStep(i) {
+    clearTimeout(sayTimeout); step = i; bubble.hidden = false;
+    bubble.innerHTML = '<div class="steps">tutorial ' + (i + 1) + ' / ' + tutorial.length + '</div>' + tutorial[i] +
+      '<div class="row"><button id="nx">' + (i < tutorial.length - 1 ? 'Próximo' : 'Explorar') + '</button>' + (i < tutorial.length - 1 ? '<button class="ghost" id="sk">Pular</button>' : '') + '</div>';
+    bubble.querySelector('#nx').onclick = () => i < tutorial.length - 1 ? showStep(i + 1) : (step = -1, say('Bora! Se precisar, é só clicar em mim.'));
+    const sk = bubble.querySelector('#sk'); if (sk) sk.onclick = () => (step = -1, bubble.hidden = true);
+  }
+  document.getElementById('pilot').addEventListener('click', () => showStep(0));
+  bubble.innerHTML = 'Oi! Eu sou o piloto daqui. Clica em mim que eu te mostro o universo.';
+
+  // ---------- interação ----------
+  const ray = new THREE.Raycaster(); const ndc = new THREE.Vector2(9, 9);
+  const pickables = [sun, ...planets.map(p => p.mesh)];
+  let hoverObj = null, focus = null, firstZoom = true, mouseIn = false;
+  const target = new THREE.Vector3();
+
+  function setNdc(e) { const b = canvas.getBoundingClientRect(); ndc.set(((e.clientX - b.left) / b.width) * 2 - 1, -((e.clientY - b.top) / b.height) * 2 + 1); return b; }
+  canvas.addEventListener('pointermove', e => {
+    mouseIn = true; idleTimer = 0; const b = setNdc(e);
+    ray.setFromCamera(ndc, camera); const hit = ray.intersectObjects(pickables, false)[0];
+    hoverObj = hit ? hit.object : null;
+    if (hit && hit.object.userData.kind === 'planet' && hit.uv) {
+      const { grid, repo } = hit.object.userData;
+      const col = Math.min(COLS - 1, Math.floor(hit.uv.x * COLS)), row = Math.min(ROWS - 1, Math.floor((1 - hit.uv.y) * ROWS));
+      const n = grid[row][col];
+      tip.innerHTML = '<span class="sq" style="opacity:' + (n ? 1 : .25) + '"></span>' + repo.name + ' · semana ' + (col + 1) + ', ' + days[row % 7] + ' · <b>' + n + '</b> commit' + (n === 1 ? '' : 's');
+      tip.style.left = (e.clientX - b.left) + 'px'; tip.style.top = (e.clientY - b.top) + 'px'; tip.hidden = false;
+    } else tip.hidden = true;
+    canvas.style.cursor = hit ? 'pointer' : '';
+  });
+  canvas.addEventListener('pointerleave', () => { mouseIn = false; hoverObj = null; tip.hidden = true; ndc.set(9, 9); });
+  let down = null;
+  canvas.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+  canvas.addEventListener('pointerup', e => {
+    if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) return;
+    setNdc(e); ray.setFromCamera(ndc, camera); const hit = ray.intersectObjects(pickables, false)[0];
+    if (!hit) { focus = null; card.hidden = true; return; }
+    if (hit.object === sun) { face.surprised = 1.2; bounce = 1; focus = null; showProfile(); say('Esse é você! Seu perfil GitHub.'); }
+    else { focus = hit.object; showRepo(hit.object.userData.repo); say('Olha que legal esse repo aqui!'); }
+  });
+  controls.addEventListener('change', () => { if (firstZoom && camera.position.distanceTo(controls.target) < 9) { firstZoom = false; say('Uau, dá pra ver os commits de perto!'); } });
+  addEventListener('keydown', e => { if (e.key === 'Escape') { focus = null; card.hidden = true; } });
+
+  const langPills = langs => '<div class="langs">' + langs.map(([l, s]) => '<span class="lang"><i style="background:' + LANG[l] + '"></i>' + l + ' ' + Math.round(s * 100) + '%</span>').join('') + '</div>';
+  function showRepo(r) {
+    card.innerHTML = '<button class="x" aria-label="Fechar">×</button><div class="kind">planeta · repositório</div><h3>' + r.name + '</h3><p>' + r.desc + '</p>' +
+      '<div class="stats"><div><b>' + r.stars + '</b><span>stars</span></div><div><b>' + r.forks + '</b><span>forks</span></div><div><b>' + r.commits + '</b><span>commits</span></div></div>' + langPills(r.langs);
+    card.hidden = false; card.querySelector('.x').onclick = () => { card.hidden = true; focus = null; };
+  }
+  function showProfile() {
+    const tot = repos.reduce((a, r) => a + r.stars, 0);
+    card.innerHTML = '<button class="x" aria-label="Fechar">×</button><div class="kind">sol · perfil</div><h3>@andre</h3><p>Dev full stack · Next.js, Go, NestJS, Kubernetes. Manaus, AM.</p>' +
+      '<div class="stats"><div><b>' + repos.length + '</b><span>repos</span></div><div><b>' + tot + '</b><span>stars</span></div><div><b>128</b><span>seguidores</span></div></div>' +
+      langPills([['TypeScript', .41], ['Go', .27], ['Python', .14], ['HCL', .1]]) + '<p style="margin:10px 0 0;font-size:12.5px">Último commit há 2 h · <code>fix: retry on 429</code></p>';
+    card.hidden = false; card.querySelector('.x').onclick = () => { card.hidden = true; };
+  }
+
+  // ---------- loop ----------
+  function resize() { const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+  addEventListener('resize', resize); resize();
+
+  let last = performance.now(), blinkT = 3, bounce = 0, lastMood = '';
+  const wp = new THREE.Vector3();
+  function tick(now) {
+    const dt = Math.min(.05, (now - last) / 1000); last = now; idleTimer += dt;
+    // planetas e luas
+    planets.forEach(p => { p.pivot.rotation.y += p.speed * dt * speed; p.mesh.rotation.y += .15 * dt * speed; p.moons.forEach(m => m.pivot.rotation.y += m.speed * dt * speed); });
+    // olhar do sol
+    const tx = mouseIn ? THREE.MathUtils.clamp(ndc.x, -1, 1) : 0, ty = mouseIn ? THREE.MathUtils.clamp(-ndc.y, -1, 1) : 0;
+    face.ex += (tx - face.ex) * .12; face.ey += (ty - face.ey) * .12;
+    sun.rotation.y += ((-Math.PI / 2 + tx * .35) - sun.rotation.y) * .06;
+    sun.rotation.x += (ty * .25 - sun.rotation.x) * .06;
+    sunGroup.position.x += (tx * .5 - sunGroup.position.x) * .04;
+    sunGroup.position.y += ((mouseIn ? -ty * .3 : 0) - sunGroup.position.y) * .04;
+    // humor
+    const dist = Math.hypot(ndc.x, ndc.y);
+    face.mood = hoverObj === sun ? 'hover' : (!mouseIn || dist > 1.1) ? 'away' : 'idle';
+    if (face.surprised > 0) face.surprised -= dt;
+    blinkT -= dt; if (blinkT < 0) { face.blink = 1; blinkT = 3 + Math.random() * 2; }
+    if (face.blink > 0) face.blink = Math.max(0, face.blink - dt * 7);
+    // pulo e brilho
+    if (bounce > 0) bounce = Math.max(0, bounce - dt * 1.6);
+    const breathe = 1 + Math.sin(now / 900) * .02 * speed;
+    const sc = breathe + Math.sin(bounce * Math.PI * 3) * bounce * .18;
+    sun.scale.setScalar(sc);
+    const glowTarget = face.mood === 'hover' ? 11 : face.mood === 'away' ? 7.5 : 9;
+    glow.scale.x += (glowTarget - glow.scale.x) * .06; glow.scale.y = glow.scale.x;
+    const moodKey = face.mood + (face.surprised > 0) + face.blink.toFixed(1) + face.ex.toFixed(2) + face.ey.toFixed(2);
+    if (moodKey !== lastMood) { drawSun(); lastMood = moodKey; }
+    // foco
+    if (focus) focus.getWorldPosition(wp); else wp.set(0, 0, 0);
+    target.lerp(wp, .08); controls.target.copy(target);
+    if (idleTimer > 25 && bubble.hidden) { idleTimer = 0; say('Ei, se precisar de ajuda, é comigo!'); }
+    controls.update(); renderer.render(scene, camera);
+    requestAnimationFrame(tick);
+  }
+  drawSun(); requestAnimationFrame(tick);
+})();
+</script>
+
+</body></html>

@@ -1,0 +1,51 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Animacoes.dc.html": {
+      "h": 940,
+      "title": "4 · Movimento e specs 3D",
+      "w": 1440,
+      "x": 1520,
+      "y": 1060
+    },
+    "Gorro.dc.html": {
+      "h": 940,
+      "title": "2 · Gorro com o Clawd",
+      "w": 1440,
+      "x": 1520,
+      "y": 0
+    },
+    "Main.dc.html": {
+      "h": 940,
+      "title": "1 · Nave",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "Octocat.dc.html": {
+      "h": 926,
+      "title": "3 · Octocat piloto",
+      "w": 1366,
+      "x": -23,
+      "y": 749
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-08T12:55:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {},
+  "order": [
+    "Main.dc.html",
+    "Gorro.dc.html",
+    "Octocat.dc.html",
+    "Animacoes.dc.html"
+  ],
+  "pages": [],
+  "title": "Octocat Piloto"
+}

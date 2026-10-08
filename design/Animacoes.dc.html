@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Movimento e specs 3D</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#67E8F9}a:hover{color:#A5F3FC}
+</style>
+</helmet>
+<div style="width: 1440px; height: 940px; box-sizing: border-box; padding: 64px 72px; background: #0A0E1A; color: #E8ECF5; font-family: 'IBM Plex Sans', system-ui, sans-serif; display: flex; flex-direction: column; gap: 32px">
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 32px">
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: #67E8F9">Parte 4 · Movimento</div>
+      <h1 style="margin: 0; font-family: 'Chakra Petch', sans-serif; font-weight: 700; font-size: 56px; line-height: 1">Como ele se mexe</h1>
+    </div>
+    <p style="margin: 0; max-width: 460px; color: #9AA3B8; font-size: 16px; line-height: 1.55">Seis animações cobrem tudo o que o guia faz. A nave fica numa camada fixa da tela, por cima da galáxia.</p>
+  </div>
+
+  <div style="display: flex; gap: 24px; flex-grow: 1">
+    <div style="flex-grow: 1; min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+
+      <div style="background: #121829; border: 1px solid #222C45; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 8px">
+        <svg viewBox="0 0 220 90" width="100%" height="90" aria-label="Nave descendo em curva até o canto">
+          <path d="M30 10 Q60 80 170 60" stroke="#3A4460" stroke-width="2" stroke-dasharray="5 5" fill="none"></path>
+          <ellipse cx="170" cy="60" rx="26" ry="8" fill="#EEF2F8"></ellipse>
+          <path d="M152 58 Q152 38 170 38 Q188 38 188 58" fill="#A5F3FC" fill-opacity="0.25" stroke="#A5F3FC" stroke-width="1.5"></path>
+        </svg>
+        <div style="font-family: 'Chakra Petch', sans-serif; font-size: 20px; font-weight: 600">Entrada</div>
+        <div style="font-size: 14px; color: #C9D0DE; line-height: 1.5">Entra pelo alto em curva, freia com um quique e acena.</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #9AA3B8">1.200 ms · spring, leve overshoot</div>
+      </div>
+
+      <div style="background: #121829; border: 1px solid #222C45; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 8px">
+        <svg viewBox="0 0 220 90" width="100%" height="90" aria-label="Nave flutuando para cima e para baixo">
+          <path d="M110 18 L110 72" stroke="#3A4460" stroke-width="2" stroke-dasharray="5 5"></path>
+          <path d="M104 24 L110 16 L116 24 M104 66 L110 74 L116 66" stroke="#67E8F9" stroke-width="2" fill="none"></path>
+          <ellipse cx="110" cy="50" rx="26" ry="8" fill="#EEF2F8"></ellipse>
+          <path d="M92 48 Q92 28 110 28 Q128 28 128 48" fill="#A5F3FC" fill-opacity="0.25" stroke="#A5F3FC" stroke-width="1.5"></path>
+        </svg>
+        <div style="font-family: 'Chakra Petch', sans-serif; font-size: 20px; font-weight: 600">Idle</div>
+        <div style="font-size: 14px; color: #C9D0DE; line-height: 1.5">Flutua 8 px, inclina 3°, luzes do anel acendem em onda. Pisca a cada 4–5 s.</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #9AA3B8">3.400 ms · loop, ease-in-out</div>
+      </div>
+
+      <div style="background: #121829; border: 1px solid #222C45; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 8px">
+        <svg viewBox="0 0 220 90" width="100%" height="90" aria-label="Tentáculo acenando">
+          <path d="M80 70 Q60 50 66 24" stroke="#1F2329" stroke-width="10" fill="none" stroke-linecap="round"></path>
+          <path d="M58 30 Q50 18 60 10" stroke="#67E8F9" stroke-width="2" fill="none"></path>
+          <path d="M76 22 Q86 12 80 4" stroke="#67E8F9" stroke-width="2" fill="none"></path>
+          <ellipse cx="120" cy="60" rx="36" ry="10" fill="#EEF2F8"></ellipse>
+          <path d="M96 58 Q96 30 120 30 Q144 30 144 58" fill="#A5F3FC" fill-opacity="0.25" stroke="#A5F3FC" stroke-width="1.5"></path>
+        </svg>
+        <div style="font-family: 'Chakra Petch', sans-serif; font-size: 20px; font-weight: 600">Hover</div>
+        <div style="font-size: 14px; color: #C9D0DE; line-height: 1.5">Tentáculo acena duas vezes, cara feliz, a nave chega 6 px mais perto.</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #9AA3B8">500 ms × 2 · ease-out</div>
+      </div>
+
+      <div style="background: #121829; border: 1px solid #222C45; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 8px">
+        <svg viewBox="0 0 220 90" width="100%" height="90" aria-label="Balão de fala saindo da nave">
+          <rect x="20" y="10" width="110" height="40" rx="10" fill="#E8ECF5"></rect>
+          <path d="M110 50 L124 64 L100 50 Z" fill="#E8ECF5"></path>
+          <rect x="32" y="22" width="70" height="5" rx="2" fill="#4A5878"></rect>
+          <rect x="32" y="33" width="48" height="5" rx="2" fill="#4A5878"></rect>
+          <ellipse cx="160" cy="72" rx="30" ry="9" fill="#EEF2F8"></ellipse>
+          <circle cx="160" cy="44" r="5" fill="#39D353"></circle>
+        </svg>
+        <div style="font-family: 'Chakra Petch', sans-serif; font-size: 20px; font-weight: 600">Falando</div>
+        <div style="font-size: 14px; color: #C9D0DE; line-height: 1.5">Balão abre com o texto digitando. A antena pisca verde enquanto ele fala.</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #9AA3B8">30 ms por letra · balão 220 ms</div>
+      </div>
+
+      <div style="background: #121829; border: 1px solid #222C45; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 8px">
+        <svg viewBox="0 0 220 90" width="100%" height="90" aria-label="Nave inclinando e apontando para um planeta">
+          <circle cx="40" cy="40" r="22" fill="#0E4429" stroke="#39D353" stroke-width="2"></circle>
+          <path d="M70 46 L130 52" stroke="#67E8F9" stroke-width="2" stroke-dasharray="4 4"></path>
+          <path d="M70 46 L80 40 M70 46 L79 53" stroke="#67E8F9" stroke-width="2"></path>
+          <g transform="rotate(-10 165 58)">
+            <ellipse cx="165" cy="60" rx="30" ry="9" fill="#EEF2F8"></ellipse>
+            <path d="M145 58 Q145 34 165 34 Q185 34 185 58" fill="#A5F3FC" fill-opacity="0.25" stroke="#A5F3FC" stroke-width="1.5"></path>
+          </g>
+        </svg>
+        <div style="font-family: 'Chakra Petch', sans-serif; font-size: 20px; font-weight: 600">Apontar</div>
+        <div style="font-size: 14px; color: #C9D0DE; line-height: 1.5">No tutorial, inclina a nave e aponta para o sol, um planeta ou uma lua.</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #9AA3B8">400 ms · ease-in-out</div>
+      </div>
+
+      <div style="background: #121829; border: 1px solid #222C45; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 8px">
+        <svg viewBox="0 0 220 90" width="100%" height="90" aria-label="Nave cochilando com letras Z">
+          <ellipse cx="100" cy="64" rx="34" ry="10" fill="#EEF2F8" opacity="0.7"></ellipse>
+          <path d="M76 62 Q76 34 100 34 Q124 34 124 62" fill="#A5F3FC" fill-opacity="0.15" stroke="#A5F3FC" stroke-opacity="0.6" stroke-width="1.5"></path>
+          <text x="134" y="40" fill="#9AA3B8" font-family="JetBrains Mono, monospace" font-size="16">z</text>
+          <text x="148" y="26" fill="#9AA3B8" font-family="JetBrains Mono, monospace" font-size="20">z</text>
+          <text x="166" y="14" fill="#9AA3B8" font-family="JetBrains Mono, monospace" font-size="24">Z</text>
+        </svg>
+        <div style="font-family: 'Chakra Petch', sans-serif; font-size: 20px; font-weight: 600">Inatividade</div>
+        <div style="font-size: 14px; color: #C9D0DE; line-height: 1.5">Após 25 s parado, cochila. Depois acorda e pergunta se precisa de ajuda.</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #9AA3B8">gatilho 25 s · acorda em 600 ms</div>
+      </div>
+    </div>
+
+    <div style="width: 400px; flex-shrink: 0; background: #121829; border: 1px solid #222C45; border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 14px">
+      <h2 style="margin: 0; font-family: 'Chakra Petch', sans-serif; font-size: 26px; font-weight: 600">Specs 3D</h2>
+      <div style="display: flex; flex-direction: column; font-size: 14px">
+        <div style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #222C45"><span style="color: #9AA3B8">Ferramenta</span><span>Blender</span></div>
+        <div style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #222C45"><span style="color: #9AA3B8">Exportação</span><span style="font-family: 'JetBrains Mono', monospace">.glb + Draco</span></div>
+        <div style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #222C45"><span style="color: #9AA3B8">Orçamento</span><span style="font-family: 'JetBrains Mono', monospace">&lt; 5k triângulos</span></div>
+        <div style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #222C45"><span style="color: #9AA3B8">Estilo</span><span>Toon, contorno fino</span></div>
+        <div style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #222C45"><span style="color: #9AA3B8">Gorro</span><span>Voxel, cubos arredondados</span></div>
+        <div style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #222C45"><span style="color: #9AA3B8">Rosto</span><span>Textura trocável por expressão</span></div>
+        <div style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #222C45"><span style="color: #9AA3B8">Ossos</span><span>Tentáculos + cabeça</span></div>
+        <div style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #222C45"><span style="color: #9AA3B8">Camada</span><span style="font-family: 'JetBrains Mono', monospace">drei &lt;Hud&gt;</span></div>
+        <div style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #222C45"><span style="color: #9AA3B8">Tamanho na tela</span><span style="font-family: 'JetBrains Mono', monospace">~140 px · 96 no mobile</span></div>
+      </div>
+      <div style="margin-top: auto; font-size: 13.5px; color: #9AA3B8; line-height: 1.5">Com movimento reduzido ativado no sistema, a nave fica parada e só o balão de fala aparece.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":940}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
