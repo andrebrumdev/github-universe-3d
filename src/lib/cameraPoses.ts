@@ -8,15 +8,27 @@ export interface Pose {
   target: Vec3
 }
 
-export function overviewPose(system: OrbitSystem): Pose {
+export interface Viewport {
+  aspect: number
+  /** Campo de visão vertical, em graus (como na câmera do three). */
+  fov: number
+}
+
+export const DEFAULT_VIEWPORT: Viewport = { aspect: 16 / 10, fov: 50 }
+
+export function overviewPose(system: OrbitSystem, viewport: Viewport = DEFAULT_VIEWPORT): Pose {
   const outer = system.rings[system.rings.length - 1]
   const reach = outer ? outer.a * (1 + outer.e) + outer.maxRadius : 12
-  const d = reach * 1.5 + 10
+  const vertical = reach * 1.5 + 10
+  // A câmera fica em x = 0: a extensão do anel em X vira a extensão horizontal da tela.
+  const halfTan = Math.tan((viewport.fov * Math.PI) / 360) * viewport.aspect
+  const fitH = (reach * 1.1) / halfTan
+  const d = Math.max(vertical, fitH)
   return { position: [0, d * 0.6, d], target: [0, 0, 0] }
 }
 
-export function maxCameraDistance(system: OrbitSystem): number {
-  const [x, y, z] = overviewPose(system).position
+export function maxCameraDistance(system: OrbitSystem, viewport: Viewport = DEFAULT_VIEWPORT): number {
+  const [x, y, z] = overviewPose(system, viewport).position
   return Math.hypot(x, y, z) * 1.4
 }
 
@@ -50,8 +62,14 @@ export function planetFocusPose(system: OrbitSystem, name: string, time: number,
   return planetPose(planetPosition(system.rings[orbit.ring], orbit, time), orbit.radius, layout)
 }
 
-export function selectionPose(sel: UniverseSelection, system: OrbitSystem, time: number, layout: PanelLayout): Pose {
+export function selectionPose(
+  sel: UniverseSelection,
+  system: OrbitSystem,
+  time: number,
+  layout: PanelLayout,
+  viewport: Viewport = DEFAULT_VIEWPORT,
+): Pose {
   if (sel.kind === 'profile') return sunPose(layout)
   const name = selectedPlanet(sel)
-  return (name && planetFocusPose(system, name, time, layout)) || overviewPose(system)
+  return (name && planetFocusPose(system, name, time, layout)) || overviewPose(system, viewport)
 }
