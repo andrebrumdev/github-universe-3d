@@ -3,6 +3,7 @@ import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useCursor } from '@react-three/drei'
 import { useReducedMotion } from 'framer-motion'
 import * as THREE from 'three'
+import { GlowHalo } from 'three-low-poly'
 import { FACE_AT_REST, faceTarget, stepFaceSpring, type FaceSpring } from '@/lib/sun/faceSpring'
 import {
   CLICK_DURATION,
@@ -19,12 +20,13 @@ import { drawSunFace, SUN_TEX_H, SUN_TEX_W } from './sunFace'
 
 const NEAR_DISTANCE = 9
 const FOLLOW_MAX = 1.5
+const HALO_SIZE = SUN_RADIUS * 3.2
+const HALO_OPACITY = 0.55
 
 export function Sun() {
   const body = useRef<THREE.Group>(null)
   const bounce = useRef<THREE.Group>(null)
   const face = useRef<THREE.Mesh>(null)
-  const glow = useRef<THREE.MeshBasicMaterial>(null)
   const light = useRef<THREE.PointLight>(null)
   const machine = useRef<SunState>(INITIAL_SUN_STATE)
   const spring = useRef<FaceSpring>(FACE_AT_REST)
@@ -52,6 +54,9 @@ export function Sun() {
   }, [mode, blink, texture])
 
   useEffect(() => () => texture.dispose(), [texture])
+
+  const halo = useMemo(() => new GlowHalo({ color: '#FFC400', size: HALO_SIZE, opacity: HALO_OPACITY }), [])
+  useEffect(() => () => halo.dispose(), [halo])
 
   useEffect(() => {
     let timer = 0
@@ -107,7 +112,7 @@ export function Sun() {
     }
 
     const k = 1 - Math.exp(-6 * dt)
-    if (glow.current) glow.current.opacity += (0.22 * look.glow - glow.current.opacity) * k
+    halo.setOpacity(halo.opacity + (Math.min(1, HALO_OPACITY * look.glow) - halo.opacity) * k)
     if (light.current) light.current.intensity += (2.2 * look.glow - light.current.intensity) * k
   })
 
@@ -132,20 +137,9 @@ export function Sun() {
           onPointerOut={() => setHovered(false)}
         >
           <sphereGeometry args={[SUN_RADIUS, 64, 32]} />
-          <meshStandardMaterial map={texture} emissiveMap={texture} emissive="#ffffff" emissiveIntensity={0.85} roughness={0.7} />
+          <meshStandardMaterial map={texture} emissiveMap={texture} emissive="#ffffff" emissiveIntensity={0.7} roughness={0.7} toneMapped={false} />
         </mesh>
-        <mesh scale={1.25}>
-          <sphereGeometry args={[SUN_RADIUS, 32, 16]} />
-          <meshBasicMaterial
-            ref={glow}
-            color="#FFC400"
-            transparent
-            opacity={0.22}
-            side={THREE.BackSide}
-            blending={THREE.AdditiveBlending}
-            depthWrite={false}
-          />
-        </mesh>
+        <primitive object={halo} />
       </group>
     </group>
   )
