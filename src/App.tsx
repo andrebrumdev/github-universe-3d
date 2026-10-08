@@ -1,9 +1,12 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
+import { ActivityTooltip } from '@/components/ui/ActivityTooltip'
 import { LoadError } from '@/components/ui/LoadError'
 import { Loader } from '@/components/ui/Loader'
 import { StaticFallback } from '@/components/ui/StaticFallback'
 import { useUniverseData } from '@/hooks/useUniverseData'
 import { supportsWebGL } from '@/hooks/webgl'
+
+const Scene = lazy(() => import('@/components/three/Scene').then((m) => ({ default: m.Scene })))
 
 export function App() {
   const { state, retry } = useUniverseData()
@@ -12,9 +15,14 @@ export function App() {
   if (state.status === 'error') return <LoadError message={state.message} onRetry={retry} />
   if (state.status === 'loading') return <Loader />
   if (!webgl) return <StaticFallback universe={state.universe} />
+  const { universe } = state
+
   return (
-    <main className="fixed inset-0 grid place-items-center bg-space text-slate-300">
-      {state.universe.repos.length} planetas carregados
+    <main className="fixed inset-0 overflow-hidden bg-space text-slate-100">
+      <Suspense fallback={<Loader />}>
+        <Scene universe={universe} />
+      </Suspense>
+      <ActivityTooltip />
     </main>
   )
 }
