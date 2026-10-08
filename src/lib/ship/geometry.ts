@@ -347,45 +347,50 @@ export const NOZZLE = {
 export const THRUSTER = { radius: 0.33, length: 0.9 } as const
 
 /**
- * Seção lateral de uma asa em z: bordas de baixo e de cima (y), espessura e distância do eixo (x) do centro.
+ * Corte de uma asa no plano z: uma lente da borda de dentro (`inner`, na lateral do casco ou, atrás da
+ * raiz, no bordo de fuga) até a de fora (`outer`, o bordo de ataque enflechado), com espessura no meio.
+ * `y` é a altura da superfície média na linha da raiz (WING.root.x); para fora dela a asa sobe com o diedro.
  * Da frente para trás.
  */
 export interface WingStation {
   z: number
-  lower: number
-  upper: number
+  inner: number
+  outer: number
+  y: number
   thickness: number
-  x: number
 }
 
 /**
- * Asas: par espelhado de lâminas encorpadas e curvas (um "swoosh"), uma de cada lado. A raiz abraça a
- * parte de baixo da proa; a lâmina corre para trás colada no casco e no motor, curva para cima e abre
- * para fora ao passar do bocal, terminando numa ponta mais alta que a raiz, atrás dele.
- * Seção em lente (elipse achatada), inclinada para fora (`cant`); a faixa verde-água é a parte de baixo
- * da lente (ângulos de `stripe.from` a `stripe.to`), correndo pela borda inferior da lâmina.
+ * Asas: par espelhado de lâminas que ABREM para os lados, como na foto. A raiz corre pela lateral de baixo
+ * do casco, da frente sob a cabine até o motor; a lâmina sai para fora com envergadura de cerca de uma
+ * largura de casco, sobe com diedro de ~24° e é enflechada, com a ponta atrás do bocal. Visto de lado, o
+ * contorno continua um "swoosh" que nasce baixo na frente e sobe até a ponta. A faixa verde-água corre por
+ * baixo, perto do bordo de ataque (ângulos de `stripe.from` a `stripe.to` da lente).
  */
 export const WING = {
+  /** Linha da raiz: a meia largura do casco onde a asa sai dele (dentro disso a lâmina fica embutida). */
+  root: { x: 0.6 },
+  /** Diedro: a lâmina sobe este ângulo da raiz para fora. */
+  dihedral: (24 * Math.PI) / 180,
   stations: [
-    { z: 1.05, lower: -0.42, upper: -0.28, thickness: 0.08, x: 0.4 },
-    { z: 0.7, lower: -0.6, upper: -0.14, thickness: 0.18, x: 0.66 },
-    { z: 0.2, lower: -0.68, upper: -0.08, thickness: 0.24, x: 0.8 },
-    { z: -0.4, lower: -0.68, upper: -0.1, thickness: 0.23, x: 0.8 },
-    { z: -0.9, lower: -0.66, upper: -0.1, thickness: 0.21, x: 0.72 },
-    { z: -1.4, lower: -0.6, upper: -0.1, thickness: 0.17, x: 0.7 },
-    { z: -1.85, lower: -0.46, upper: -0.02, thickness: 0.13, x: 0.6 },
-    { z: -2.2, lower: -0.28, upper: 0.06, thickness: 0.09, x: 0.68 },
-    { z: -2.5, lower: -0.04, upper: 0.18, thickness: 0.05, x: 0.76 },
-    { z: -2.8, lower: 0.22, upper: 0.26, thickness: 0.012, x: 0.86 },
+    { z: 0.9, inner: 0.35, outer: 0.45, y: -0.34, thickness: 0.06 },
+    { z: 0.55, inner: 0.5, outer: 0.66, y: -0.37, thickness: 0.12 },
+    { z: 0.1, inner: 0.6, outer: 0.86, y: -0.39, thickness: 0.18 },
+    { z: -0.5, inner: 0.6, outer: 1.14, y: -0.4, thickness: 0.22 },
+    { z: -1.1, inner: 0.45, outer: 1.52, y: -0.39, thickness: 0.21 },
+    { z: -1.45, inner: 0.5, outer: 1.82, y: -0.38, thickness: 0.19 },
+    { z: -1.75, inner: 1.0, outer: 2.12, y: -0.36, thickness: 0.16 },
+    { z: -2.05, inner: 1.6, outer: 2.42, y: -0.33, thickness: 0.12 },
+    { z: -2.3, inner: 2.15, outer: 2.62, y: -0.3, thickness: 0.08 },
+    { z: -2.5, inner: 2.55, outer: 2.72, y: -0.27, thickness: 0.04 },
+    { z: -2.62, inner: 2.74, outer: 2.78, y: -0.26, thickness: 0.015 },
   ] as WingStation[],
-  /** Inclinação da seção para fora (o topo da lâmina abre). */
-  cant: (15 * Math.PI) / 180,
-  /** Ângulos (rad) da lente: 0 = face de fora, π/2 = borda de cima, π = face de dentro. */
-  stripe: { from: (200 * Math.PI) / 180, to: (340 * Math.PI) / 180 },
-  /** Duas luzinhas em domo na face de cima/fora, perto da ponta: z e ângulo na lente. */
+  /** Ângulos (rad) da lente: 0 = borda de fora, π/2 = face de cima, π = borda de dentro, 3π/2 = face de baixo. */
+  stripe: { from: (290 * Math.PI) / 180, to: (350 * Math.PI) / 180 },
+  /** Duas luzinhas em domo na face de cima, perto da ponta: z e ângulo na lente. */
   lights: [
-    { z: -2.15, angle: Math.PI / 3 },
-    { z: -2.4, angle: Math.PI / 3 },
+    { z: -2.24, angle: Math.PI / 3 },
+    { z: -2.38, angle: Math.PI / 3 },
   ],
   lightRadius: 0.045,
 } as const
@@ -401,23 +406,27 @@ export function wingStationAt(z: number): WingStation {
       const mix = (u: number, v: number) => u * (1 - t) + v * t
       return {
         z,
-        lower: mix(a.lower, b.lower),
-        upper: mix(a.upper, b.upper),
+        inner: mix(a.inner, b.inner),
+        outer: mix(a.outer, b.outer),
+        y: mix(a.y, b.y),
         thickness: mix(a.thickness, b.thickness),
-        x: mix(a.x, b.x),
       }
     }
   }
   return { ...list[list.length - 1], z }
 }
 
+/** Altura da superfície média da asa na seção `station`, à distância |x| do eixo (diedro da raiz para fora). */
+export function wingMidY(station: WingStation, x: number): number {
+  return station.y + Math.tan(WING.dihedral) * Math.max(0, x - WING.root.x)
+}
+
 /** Ponto da superfície da asa na seção `station`, no ângulo `angle` da lente; side = 1 é a asa de +x. */
 export function wingPoint(side: 1 | -1, station: WingStation, angle: number): Vec3 {
-  const h = (station.upper - station.lower) / 2
-  const w = station.thickness / 2
-  const [dx, dy] = [w * Math.cos(angle), h * Math.sin(angle)]
-  const [cos, sin] = [Math.cos(WING.cant), Math.sin(WING.cant)]
-  return [side * (station.x + dx * cos + dy * sin), (station.lower + station.upper) / 2 - dx * sin + dy * cos, station.z]
+  const mid = (station.inner + station.outer) / 2
+  const half = (station.outer - station.inner) / 2
+  const x = mid + half * Math.cos(angle)
+  return [side * x, wingMidY(station, x) + (station.thickness / 2) * Math.sin(angle), station.z]
 }
 
 /** Comprimento total: da proa (frente do aro) até o fim do lábio do bocal. */
@@ -429,5 +438,5 @@ export const SHIP_HEIGHT =
   Math.min(
     TUB.rings[0].y,
     ...FUSELAGE.map((f) => f.cy - f.ry),
-    ...WING.stations.map((st) => st.lower),
+    ...WING.stations.map((st) => st.y - st.thickness / 2),
   )

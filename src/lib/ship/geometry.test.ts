@@ -36,6 +36,7 @@ import {
   TUB,
   tubHalfWidth,
   WING,
+  wingMidY,
   wingPoint,
   wingStationAt,
 } from './geometry'
@@ -263,8 +264,17 @@ describe('motor', () => {
 describe('asas', () => {
   const nozzleBack = NOZZLE.z - NOZZLE.length
   const stations = WING.stations
-  const center = (st: (typeof stations)[number]) => (st.lower + st.upper) / 2
+  const tip = stations.at(-1)!
   const angles = Array.from({ length: 12 }, (_, i) => (i / 12) * Math.PI * 2)
+  const hullWidth = 2 * PLAN.a
+
+  /** Meia largura do casco ou do motor (o que for mais largo) em (z, y). */
+  function bodyHalfWidth(z: number, y: number): number {
+    const f = fuselageSection(z)
+    const onEngine = z <= FUSELAGE[0].z && z >= FUSELAGE.at(-1)!.z
+    const engine = onEngine ? f.rx * Math.sqrt(Math.max(0, 1 - ((y - f.cy) / f.ry) ** 2)) : 0
+    return Math.max(tubHalfWidth(z, y), engine)
+  }
 
   it('são um par espelhado em x', () => {
     for (const st of stations)
@@ -274,52 +284,62 @@ describe('asas', () => {
       }
   })
 
-  it('a raiz abraça a parte de baixo da proa, colada no casco', () => {
-    const front = stations.filter((st) => st.z >= 0)
-    expect(front.length).toBeGreaterThan(1)
-    for (const st of front) {
-      expect(st.upper).toBeLessThan(RIM.bottom)
-      const [x, y, z] = wingPoint(1, st, Math.PI) // face de dentro
-      expect(x).toBeLessThanOrEqual(tubHalfWidth(z, y) + 0.01)
+  it('a raiz corre pela lateral de baixo do casco, da frente sob a cabine até o motor, embutida nele', () => {
+    const root = stations.filter((st) => st.inner <= WING.root.x)
+    expect(root[0].z).toBeGreaterThan(0.5) // começa na frente, sob a cabine
+    expect(root.at(-1)!.z).toBeLessThan(-1.4) // e vai até o motor
+    for (const st of root) {
+      const [x, y, z] = wingPoint(1, st, Math.PI) // borda de dentro
+      expect(y).toBeLessThan(RIM.bottom)
+      expect(x).toBeLessThan(bodyHalfWidth(z, y))
     }
   })
 
-  it('fica colada no motor ao longo dele', () => {
-    for (const st of stations.filter((s) => s.z <= -1.2 && s.z >= FUSELAGE.at(-1)!.z)) {
-      const [x, y] = wingPoint(1, st, Math.PI)
-      const f = fuselageSection(st.z)
-      const hullX = f.rx * Math.sqrt(Math.max(0, 1 - ((y - f.cy) / f.ry) ** 2))
-      expect(Math.abs(x - hullX)).toBeLessThan(0.12)
-    }
+  it('abre para os lados: envergadura de cerca de uma largura de casco para cada lado', () => {
+    const [tipX] = wingPoint(1, tip, 0)
+    expect(tipX).toBeGreaterThanOrEqual(PLAN.a + 0.8 * hullWidth)
+    expect(tipX).toBeLessThanOrEqual(PLAN.a + 1.3 * hullWidth)
   })
 
-  it('curva para cima até uma ponta mais alta que a raiz, atrás do bocal', () => {
-    const tip = stations.at(-1)!
+  it('tem diedro de 20–25°: a lâmina sobe da raiz para fora e a ponta fica bem mais alta', () => {
+    expect(WING.dihedral).toBeGreaterThanOrEqual((20 * Math.PI) / 180)
+    expect(WING.dihedral).toBeLessThanOrEqual((25 * Math.PI) / 180)
+    const mid = stations[3]
+    const [xOut, yOut] = wingPoint(1, mid, 0)
+    const slope = (yOut - wingMidY(mid, WING.root.x)) / (xOut - WING.root.x)
+    expect(Math.atan(slope)).toBeCloseTo(WING.dihedral, 10)
+    const [, tipY] = wingPoint(1, tip, 0)
+    expect(tipY - stations[0].y).toBeGreaterThan(0.6)
+  })
+
+  it('é enflechada: o bordo de ataque recua para fora e a ponta fica atrás do bocal', () => {
+    for (let i = 1; i < stations.length; i++) {
+      expect(stations[i].z).toBeLessThan(stations[i - 1].z)
+      expect(stations[i].outer).toBeGreaterThan(stations[i - 1].outer)
+    }
     expect(tip.z).toBeLessThan(nozzleBack)
-    expect(center(tip)).toBeGreaterThan(center(stations[0]))
-    const lowest = stations.reduce((a, b) => (center(b) < center(a) ? b : a))
-    const rising = stations.slice(stations.indexOf(lowest))
-    for (let i = 1; i < rising.length; i++) expect(center(rising[i])).toBeGreaterThan(center(rising[i - 1]))
+    expect(tip.outer - tip.inner).toBeLessThan(0.1) // termina em ponta
   })
 
-  it('é encorpada na frente e afina para a cauda', () => {
+  it('é encorpada na raiz e afina para a ponta', () => {
     const thickest = stations.reduce((a, b) => (b.thickness > a.thickness ? b : a))
     expect(thickest.thickness).toBeGreaterThanOrEqual(0.18)
     expect(thickest.z).toBeGreaterThan(-1)
     const tail = stations.slice(stations.indexOf(thickest))
-    for (let i = 1; i < tail.length; i++) {
-      expect(tail[i].thickness).toBeLessThan(tail[i - 1].thickness)
-      expect(tail[i].upper - tail[i].lower).toBeLessThanOrEqual(tail[i - 1].upper - tail[i - 1].lower)
-    }
+    for (let i = 1; i < tail.length; i++) expect(tail[i].thickness).toBeLessThan(tail[i - 1].thickness)
   })
 
-  it('a faixa é a borda de baixo e as luzes ficam perto da ponta, por cima', () => {
-    expect(Math.sin(WING.stripe.from)).toBeLessThan(0)
-    expect(Math.sin(WING.stripe.to)).toBeLessThan(0)
+  it('a faixa corre por baixo, perto do bordo de ataque, e as luzes ficam perto da ponta, por cima', () => {
+    for (const a of [WING.stripe.from, WING.stripe.to]) {
+      expect(Math.sin(a)).toBeLessThan(0)
+      expect(Math.cos(a)).toBeGreaterThan(0)
+    }
     for (const { z, angle } of WING.lights) {
-      expect(z).toBeLessThan(FUSELAGE.at(-1)!.z)
-      expect(z).toBeGreaterThan(stations.at(-1)!.z)
+      expect(z).toBeLessThan(nozzleBack)
+      expect(z).toBeGreaterThan(tip.z)
       expect(Math.sin(angle)).toBeGreaterThan(0)
+      const [x] = wingPoint(1, wingStationAt(z), angle)
+      expect(x).toBeGreaterThan(PLAN.a + 0.5 * hullWidth)
     }
     expect(wingStationAt(stations[2].z)).toEqual(stations[2])
   })

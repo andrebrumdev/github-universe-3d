@@ -201,7 +201,7 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
       />
       <primitive object={thrusterHalo} position={THRUSTER_ORIGIN} visible={thrusterOn} />
 
-      {/* asas espelhadas: lâminas curvas em "swoosh", lilás com a borda de baixo verde-água, 2 luzinhas */}
+      {/* asas espelhadas abertas para os lados (diedro, enflechadas): lilás, faixa verde-água por baixo, 2 luzinhas */}
       {WINGS.map(({ side, blade, stripe, lights }) => (
         <group key={side}>
           <mesh geometry={blade} material={HULL_MATERIAL} />

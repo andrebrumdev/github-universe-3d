@@ -256,7 +256,7 @@ export const FLAME_GEOMETRY = new THREE.ConeGeometry(THRUSTER.radius, THRUSTER.l
   .rotateX(-Math.PI / 2)
   .scale(1, NOZZLE.squash, 1)
 
-// ─── Asas: loft de seções em lente ao longo do "swoosh" (WING.stations) ───
+// ─── Asas: loft das seções em lente (WING.stations), da raiz no casco até a ponta aberta para o lado ───
 
 export type WingSide = 1 | -1
 
@@ -276,21 +276,21 @@ function wingPiece(side: WingSide, from: number, to: number, steps: number): THR
 }
 
 /** Lâmina lilás: a lente toda menos a faixa de baixo. */
-const bladeArc = (side: WingSide) => wingPiece(side, WING.stripe.to - Math.PI * 2, WING.stripe.from, 6)
-/** Faixa verde-água: a borda de baixo da lente. */
+const bladeArc = (side: WingSide) => wingPiece(side, WING.stripe.to - Math.PI * 2, WING.stripe.from, 8)
+/** Faixa verde-água: por baixo, perto do bordo de ataque. */
 const stripeArc = (side: WingSide) => wingPiece(side, WING.stripe.from, WING.stripe.to, 3)
 
-/** Luzinha em domo apoiada na superfície da asa, virada para a normal da lente naquele ponto. */
+/**
+ * Luzinha em domo apoiada na face de cima, virada para a normal da lente naquele ponto (tangente da lente
+ * por diferença finita, girada para fora; na asa de −x o sentido da lente inverte junto com o x).
+ */
 function wingLights(side: WingSide) {
-  const [cos, sin] = [Math.cos(WING.cant), Math.sin(WING.cant)]
   return WING.lights.map(({ z, angle }) => {
     const station = wingStationAt(z)
-    const [x, y] = wingPoint(side, station, angle)
-    // normal da elipse (cos/w, sin/h), girada pelo cant como os pontos
-    const [nx, ny] = [Math.cos(angle) / station.thickness, Math.sin(angle) / (station.upper - station.lower)]
-    const normal = new THREE.Vector3(side * (nx * cos + ny * sin), -nx * sin + ny * cos, 0).normalize()
+    const [a, b] = [wingPoint(side, station, angle - 0.01), wingPoint(side, station, angle + 0.01)]
+    const normal = new THREE.Vector3(side * (b[1] - a[1]), -side * (b[0] - a[0]), 0).normalize()
     return {
-      position: [x, y, z] as [number, number, number],
+      position: wingPoint(side, station, angle),
       quaternion: new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal),
     }
   })
