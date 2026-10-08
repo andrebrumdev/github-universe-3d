@@ -28,4 +28,13 @@ describe('loadUniverse', () => {
   it('corpo que não é JSON vira UniverseLoadError', async () => {
     await expect(loadUniverse(respond('<html>'), '/')).rejects.toThrow(UniverseLoadError)
   })
+
+  it('página HTML no lugar do JSON (fallback do servidor) conta como arquivo ausente', async () => {
+    const impl = (async () => new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } })) as typeof fetch
+    await expect(loadUniverse(impl, '/')).rejects.toThrow(/não encontrado/)
+  })
+
+  it.each(['null', '42', '"texto"'])('JSON que não é objeto (%s) vira UniverseLoadError', async (body) => {
+    await expect(loadUniverse(respond(body), '/')).rejects.toThrow(UniverseLoadError)
+  })
 })
