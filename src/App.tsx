@@ -3,10 +3,12 @@ import { ActivityTooltip } from '@/components/ui/ActivityTooltip'
 import { BackButton } from '@/components/ui/BackButton'
 import { LoadError } from '@/components/ui/LoadError'
 import { Loader } from '@/components/ui/Loader'
+import { OctocatSpeech } from '@/components/ui/OctocatSpeech'
 import { PlanetPanel } from '@/components/ui/PlanetPanel'
 import { ProfilePanel } from '@/components/ui/ProfilePanel'
 import { StaticFallback } from '@/components/ui/StaticFallback'
 import { Tutorial } from '@/components/ui/Tutorial'
+import { TutorialButton } from '@/components/ui/TutorialButton'
 import { useUniverseData } from '@/hooks/useUniverseData'
 import { supportsWebGL } from '@/hooks/webgl'
 
@@ -30,6 +32,8 @@ export function App() {
       <BackButton />
       <PlanetPanel universe={universe} />
       <ProfilePanel profile={universe.profile} />
+      <OctocatSpeech profileName={universe.profile.name} />
+      <TutorialButton />
       <Tutorial profileName={universe.profile.name} />
     </main>
   )

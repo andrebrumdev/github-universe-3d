@@ -6,6 +6,7 @@ import { buildOrbits } from '@/lib/universe/orbits'
 import { planetRadius } from '@/lib/universe/planets'
 import { useUniverse } from '@/store/universe'
 import { CameraRig } from './CameraRig'
+import { ShipRig } from './octocat/ShipRig'
 import { OrbitLines } from './OrbitLines'
 import { Planet } from './Planet'
 import { SimClockDriver } from './SimClockDriver'
@@ -34,6 +35,7 @@ export function Scene({ universe }: { universe: Universe }) {
         <Planet key={orbit.name} repo={universe.repos[i]} ring={system.rings[orbit.ring]} orbit={orbit} />
       ))}
       <CameraRig system={system} repos={universe.repos} />
+      <ShipRig system={system} repos={universe.repos} profileName={universe.profile.name} />
       {SHOW_STATS && <Stats />}
     </Canvas>
   )

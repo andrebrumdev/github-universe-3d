@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildOrbits, planetPosition, SUN_RADIUS, type Vec3 } from '../universe/orbits'
-import { bankAngle, chasePose, escortPosition, MAX_BANK, targetAnchor, visitPosition } from './escort'
+import { bankAngle, CHASE_SPRING, chasePose, escortPosition, MAX_BANK, springLead, springStep, targetAnchor, visitPosition } from './escort'
 import { SUN_SAFE_DISTANCE } from './travel'
 import { cross, dot, length, sub } from './vec'
 
@@ -30,6 +30,15 @@ describe('visitPosition', () => {
       }
       expect(length(visitPosition([0, 0, 0], SUN_RADIUS, cam))).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
     }
+  })
+
+  it('o lado escolhido é o da visão da câmera', () => {
+    const anchor: Vec3 = [20, 0, 0]
+    const cam: Vec3 = [20, 0, 30]
+    const right = cross([0, 0, -1], [0, 1, 0])
+    expect(dot(sub(visitPosition(anchor, 1, cam), anchor), right)).toBeLessThan(0)
+    expect(dot(sub(visitPosition(anchor, 1, cam, 1), anchor), right)).toBeGreaterThan(0)
+    expect(dot(sub(visitPosition(anchor, 1, cam, 0), anchor), right)).toBeCloseTo(0)
   })
 })
 
@@ -64,5 +73,95 @@ describe('bankAngle', () => {
     expect(Math.sign(bankAngle(straight, left, 1 / 60))).not.toBe(0)
     expect(Math.abs(bankAngle(straight, [1, 0, 0], 1 / 60))).toBe(MAX_BANK)
     expect(bankAngle(straight, left, 0)).toBe(0)
+  })
+})
+
+describe('springStep', () => {
+  const goal: Vec3 = [10, -4, 2]
+  const rest = { position: [0, 0, 0] as Vec3, velocity: [0, 0, 0] as Vec3 }
+  const run = (dt: number, steps: number) => {
+    let s = rest
+    for (let i = 0; i < steps; i++) s = springStep(s, goal, CHASE_SPRING, dt)
+    return s
+  }
+
+  it('converge para o alvo', () => {
+    expect(length(sub(run(1 / 60, 600).position, goal))).toBeLessThan(1e-3)
+  })
+
+  it('sai do repouso devagar: puxada com atraso, sem salto', () => {
+    const first = springStep(rest, goal, CHASE_SPRING, 1 / 60)
+    expect(length(first.position)).toBeLessThan(0.02 * length(goal))
+  })
+
+  it('não passa do alvo, nem com dt enorme', () => {
+    for (const dt of [1 / 60, 0.1, 1, 10, 1000]) {
+      let s = rest
+      for (let i = 0; i < 50; i++) {
+        s = springStep(s, goal, CHASE_SPRING, dt)
+        for (let k = 0; k < 3; k++) {
+          const along = goal[k] === 0 ? 0 : s.position[k] / goal[k]
+          expect(along).toBeLessThanOrEqual(1 + 1e-9)
+          expect(along).toBeGreaterThanOrEqual(0)
+        }
+      }
+    }
+  })
+
+  it('independe da taxa de quadros', () => {
+    const coarse = run(1 / 30, 20)
+    const fine = run(1 / 60, 40)
+    expect(length(sub(coarse.position, fine.position))).toBeLessThan(1e-6)
+    expect(length(sub(coarse.velocity, fine.velocity))).toBeLessThan(1e-6)
+  })
+
+  it('dt zero ou negativo não mexe', () => {
+    expect(springStep(rest, goal, CHASE_SPRING, 0)).toBe(rest)
+  })
+})
+
+describe('springLead', () => {
+  it('com o alvo andando reto, a mola com antecipação alcança o alvo (sem o atraso 2v/ω)', () => {
+    const v: Vec3 = [30, 0, 0]
+    const dt = 1 / 60
+    let goal: Vec3 = [0, 0, 0]
+    let plain = { position: [0, 0, 0] as Vec3, velocity: [0, 0, 0] as Vec3 }
+    let led = plain
+    for (let i = 0; i < 300; i++) {
+      goal = [goal[0] + v[0] * dt, 0, 0]
+      plain = springStep(plain, goal, CHASE_SPRING, dt)
+      led = springStep(led, springLead(goal, v, CHASE_SPRING), CHASE_SPRING, dt)
+    }
+    // sem antecipação: atraso de regime ≈ 2v/ω (menos meio passo, pela discretização)
+    expect(Math.abs(goal[0] - plain.position[0] - (2 * v[0]) / CHASE_SPRING)).toBeLessThan(v[0] * dt)
+    // com antecipação: sobra só o meio passo de discretização (o alvo anda dentro do dt), em vez de 15 unidades
+    expect(Math.abs(goal[0] - led.position[0])).toBeLessThan(v[0] * dt)
+  })
+})
+
+describe('escortPosition com viewport', () => {
+  it('fica dentro da tela também num celular estreito', () => {
+    const cam: Vec3 = [0, 10, 30]
+    const forward: Vec3 = [0, 0, -1]
+    const up: Vec3 = [0, 1, 0]
+    for (const aspect of [0.45, 1, 1.6, 2.4]) {
+      const offset = sub(escortPosition(cam, forward, up, { aspect, fov: 50 }), cam)
+      const depth = dot(offset, forward)
+      const halfTan = Math.tan((50 * Math.PI) / 360)
+      expect(dot(offset, cross(forward, up)) / depth).toBeLessThan(halfTan * aspect * 0.75)
+      expect(dot(offset, cross(forward, up))).toBeGreaterThan(0)
+      expect(-dot(offset, up) / depth).toBeLessThan(halfTan * 0.75)
+    }
+  })
+
+  it('sem viewport, mantém o deslocamento do plano', () => {
+    const p = escortPosition([0, 0, 0], [0, 0, -1], [0, 1, 0])
+    expect(p[0]).toBeCloseTo(1.6)
+    expect(p[1]).toBeCloseTo(-0.9)
+    expect(p[2]).toBeCloseTo(-4.5)
+  })
+
+  it('na tela larga, o lado fica o do plano', () => {
+    expect(escortPosition([0, 0, 0], [0, 0, -1], [0, 1, 0], { aspect: 16 / 10, fov: 50 })[0]).toBeCloseTo(1.6)
   })
 })
