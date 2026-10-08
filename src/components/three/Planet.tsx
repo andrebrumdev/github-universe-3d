@@ -8,7 +8,7 @@ import { planetPosition, type PlanetOrbit, type Ring } from '@/lib/universe/orbi
 import { moonOrbits, planetSpin } from '@/lib/universe/planets'
 import { simClock } from '@/store/simClock'
 import { useUniverse } from '@/store/universe'
-import { PLANET_GEOMETRY_HI, PLANET_GEOMETRY_LO } from './geometries'
+import { ATMOSPHERE_MATERIAL, ATMOSPHERE_SCALE, PLANET_GEOMETRY_HI, PLANET_GEOMETRY_LO } from './geometries'
 import { cellFromUv } from './grid'
 import { Moon } from './Moon'
 import { usePlanetTexture } from './usePlanetTexture'
@@ -75,11 +75,17 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
               map={texture}
               emissiveMap={texture}
               emissive="#ffffff"
-              emissiveIntensity={0.25}
+              emissiveIntensity={0.35}
               roughness={0.85}
               metalness={0.05}
             />
           </mesh>
+          <mesh
+            geometry={PLANET_GEOMETRY_LO}
+            material={ATMOSPHERE_MATERIAL}
+            scale={orbit.radius * ATMOSPHERE_SCALE}
+            raycast={() => null}
+          />
           {moons.map((moon) => (
             <Moon key={moon.language} spec={moon} planet={repo.name} />
           ))}
