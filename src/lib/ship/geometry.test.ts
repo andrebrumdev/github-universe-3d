@@ -1,40 +1,47 @@
 import { describe, expect, it } from 'vitest'
 import {
   ANTENNA,
-  ARM_RADIUS,
   ARM_Z,
   BRIM_DEPTH,
   CANOPY,
   canopyContains,
   COCKPIT,
   CROWN_DEPTH,
+  DASH_TENTACLE,
   DASHBOARD,
   DECK_Y,
+  EAR,
   ENGINE_RINGS_Z,
   FACE,
-  FREE_ARM,
+  FACE_PATCH,
+  FREE_TENTACLE,
   FUSELAGE,
   fuselageSection,
+  HAT,
   HAT_BLOCKS,
-  HAND_RADIUS,
   HAT_EYE_BLOCKS,
   HEAD,
   headFrontZ,
   JOYSTICK,
+  LEG_TENTACLES,
   NOZZLE,
   PILLAR,
   PLAN,
   planFacet,
   RIM,
   SEAT,
+  type Tentacle,
   SHIP_HEIGHT,
   SHIP_LENGTH,
+  STICK_TENTACLE,
   svgTo3d,
-  STICK_ARM,
+  TENTACLE,
+  tentacleRadius,
   THOUGHTS,
   TORSO,
   TUB,
   tubHalfWidth,
+  WHISKERS,
   WING,
   wingMidY,
   wingPoint,
@@ -120,6 +127,9 @@ describe('casco e cúpula', () => {
   })
 })
 
+const ALL_TENTACLES: Tentacle[] = [FREE_TENTACLE, STICK_TENTACLE, DASH_TENTACLE, ...LEG_TENTACLES]
+const radiusAt = (points: Tentacle['points'], i: number) => tentacleRadius(i / (points.length - 1))
+
 describe('piloto na cabine', () => {
   it('o corpo senta no piso da cabine', () => {
     expect(pilotToShip([0, TORSO.base[1], 0])[1]).toBeCloseTo(DECK_Y, 10)
@@ -144,9 +154,8 @@ describe('piloto na cabine', () => {
     expect(DASHBOARD.z + DASHBOARD.depth / 2).toBeLessThan(PLAN.b * TUB.rings.at(-1)!.f)
   })
 
-  it('a mão livre, a bola do manche e as bolhas de pensamento cabem sob a cúpula', () => {
+  it('a bola do manche e as bolhas de pensamento cabem sob a cúpula', () => {
     const spheres: [number, number, number, number][] = [
-      [FREE_ARM.to[0], FREE_ARM.to[1], ARM_Z, HAND_RADIUS],
       [JOYSTICK.knob[0], JOYSTICK.knob[1], ARM_Z, JOYSTICK.knobRadius],
       ...THOUGHTS,
     ]
@@ -162,6 +171,53 @@ describe('piloto na cabine', () => {
     }
   })
 
+  it('os tentáculos inteiros (com a grossura) ficam dentro da cabine, sem furar vidro nem casco', () => {
+    for (const { points } of ALL_TENTACLES) {
+      points.forEach(([x, y, z], i) => {
+        const r = tentacleRadius(i / (points.length - 1))
+        for (const [dx, dy, dz] of [
+          [r, 0, 0],
+          [-r, 0, 0],
+          [0, r, 0],
+          [0, -r, 0],
+          [0, 0, r],
+          [0, 0, -r],
+        ])
+          expect(insideCabin(pilotToShip([x + dx, y + dy, z + dz]))).toBe(true)
+      })
+    }
+  })
+
+  it('as pernas ficam no fundo da cabine: acima do piso, abaixo do aro, na frente da almofada e atrás do painel', () => {
+    const cushionTop = DECK_Y + 2 * SEAT.shell + SEAT.cushion.height
+    const cushionFront = SEAT.z + SEAT.cushion.depth / 2
+    // painel inclinado: a face de trás nunca vem mais para trás que o centro menos a meia diagonal da caixa
+    const dashBack = DASHBOARD.z - Math.hypot(DASHBOARD.depth / 2, DASHBOARD.height / 2)
+    for (const { points } of LEG_TENTACLES) {
+      points.forEach((p, i) => {
+        const r = radiusAt(points, i) * COCKPIT.scale
+        const [x, y, z] = pilotToShip(p)
+        expect(y - r).toBeGreaterThan(DECK_Y)
+        expect(z + r).toBeLessThan(dashBack)
+        if (i > 0) expect(z - r > cushionFront || y - r > cushionTop || Math.abs(x) - r > SEAT.width / 2).toBe(true)
+      })
+      const tip = pilotToShip(points.at(-1)!)
+      expect(tip[1]).toBeLessThan(RIM.bottom) // a ponta fica dentro da banheira, abaixo do aro
+      expect(insideCabin(tip)).toBe(true)
+      expect(points.at(-1)![1]).toBeGreaterThan(points.at(-3)![1]) // a ponta enrola para cima
+    }
+  })
+
+  it('o terceiro braço chega ao painel por cima, sem atravessá-lo', () => {
+    const tip = DASH_TENTACLE.points.at(-1)!
+    const [x, y, z] = pilotToShip(tip)
+    const r = tentacleRadius(1) * COCKPIT.scale
+    expect(y - r).toBeGreaterThan(DECK_Y + DASHBOARD.height)
+    expect(y - r).toBeLessThan(DECK_Y + DASHBOARD.height + 0.06) // encostado
+    expect(Math.abs(z - DASHBOARD.z)).toBeLessThan(DASHBOARD.depth)
+    expect(Math.abs(x)).toBeLessThan(DASHBOARD.width / 2)
+  })
+
   it('o manche fica em pé no piso da cabine', () => {
     const bottom = pilotToShip([JOYSTICK.base[0], JOYSTICK.base[1] - JOYSTICK.height / 2, ARM_Z])
     expect(Math.abs(bottom[1] - DECK_Y)).toBeLessThan(0.03)
@@ -174,10 +230,49 @@ describe('Octocat', () => {
     return (x / (TORSO.rx + grow)) ** 2 + ((y - TORSO.base[1]) / (TORSO.ry + grow)) ** 2 + (z / (TORSO.rz + grow)) ** 2
   }
 
-  it('os ombros encostam no corpo (o tubo do braço toca a superfície)', () => {
-    for (const arm of [FREE_ARM, STICK_ARM]) {
-      expect(torsoLevel([arm.from[0], arm.from[1], ARM_Z], ARM_RADIUS)).toBeLessThan(1)
+  it('os tentáculos nascem nos ombros, encostados no corpo, um de cada lado', () => {
+    for (const tentacle of ALL_TENTACLES) {
+      expect(torsoLevel(tentacle.points[0], TENTACLE.baseRadius)).toBeLessThan(1)
     }
+    expect(ALL_TENTACLES).toHaveLength(5) // 3 braços e 2 pernas
+    expect(LEG_TENTACLES[1].points.map(([x, y, z]) => [-x, y, z])).toEqual(LEG_TENTACLES[0].points)
+    expect(FREE_TENTACLE.points[0][0]).toBeLessThan(0)
+    expect(STICK_TENTACLE.points[0][0]).toBeGreaterThan(0)
+  })
+
+  it('o tentáculo é grosso na base e afina sem parar até a ponta arredondada', () => {
+    expect(tentacleRadius(0)).toBeCloseTo(TENTACLE.baseRadius, 10)
+    expect(tentacleRadius(1)).toBeCloseTo(TENTACLE.tipRadius, 10)
+    expect(TENTACLE.baseRadius).toBeGreaterThan(2.5 * TENTACLE.tipRadius)
+    for (let t = 0.05; t <= 1; t += 0.05) expect(tentacleRadius(t)).toBeLessThan(tentacleRadius(t - 0.05))
+  })
+
+  it('o tentáculo livre é longo e a ponta se enrola de volta', () => {
+    const pts = FREE_TENTACLE.points
+    let length = 0
+    for (let i = 1; i < pts.length; i++) length += Math.hypot(...([0, 1, 2].map((k) => pts[i][k] - pts[i - 1][k]) as Vec3))
+    expect(length).toBeGreaterThan(1.4)
+    // a ponta volta para dentro (x cresce) depois do ponto mais afastado do corpo
+    const far = pts.reduce((a, b) => (b[0] < a[0] ? b : a))
+    expect(pts.at(-1)![0]).toBeGreaterThan(far[0] + 0.2)
+  })
+
+  it('o tentáculo do manche se enrola em volta da bola sem atravessá-la', () => {
+    const [kx, ky] = JOYSTICK.knob
+    const wrap = STICK_TENTACLE.points.slice(2)
+    const angles = wrap.map(([x, y]) => Math.atan2(y - ky, x - kx))
+    let swept = 0
+    for (let i = 1; i < angles.length; i++) {
+      let d = angles[i] - angles[i - 1]
+      if (d > Math.PI) d -= Math.PI * 2
+      if (d < -Math.PI) d += Math.PI * 2
+      swept += d
+    }
+    expect(Math.abs(swept)).toBeGreaterThan(Math.PI) // mais de meia volta
+    STICK_TENTACLE.points.forEach(([x, y, z], i) => {
+      const r = tentacleRadius(i / (STICK_TENTACLE.points.length - 1))
+      expect(Math.hypot(x - kx, y - ky, z - ARM_Z)).toBeGreaterThan(JOYSTICK.knobRadius + r * 0.6)
+    })
   })
 
   it('a cabeça apoia no corpo', () => {
@@ -186,13 +281,17 @@ describe('Octocat', () => {
     expect(HEAD.center[1]).toBeGreaterThan(torsoTop)
   })
 
-  it('o contorno do rosto fica todo sobre a frente da cabeça', () => {
+  it('o rosto pêssego é grande e fica todo sobre a frente da cabeça; o pedaço texturizado não sai da silhueta', () => {
     for (let i = 0; i < 32; i++) {
       const a = (i / 32) * Math.PI * 2
       const x = FACE.rx * Math.cos(a)
       const y = FACE.center[1] + FACE.ry * Math.sin(a)
       expect(headFrontZ(x, y)).toBeGreaterThan(0.15)
+      const [px, py] = [FACE_PATCH.rx * Math.cos(a), FACE_PATCH.center[1] + FACE_PATCH.ry * Math.sin(a)]
+      expect(headFrontZ(px, py, 0.015)).toBeGreaterThan(0)
     }
+    expect(FACE.rx / HEAD.rx).toBeGreaterThan(0.8) // quase toda a largura da frente
+    expect(FACE.center[1]).toBeLessThan(HEAD.center[1])
     expect(headFrontZ(0, HEAD.center[1])).toBeCloseTo(HEAD.rz, 10)
     expect(headFrontZ(HEAD.rx + 0.1, HEAD.center[1])).toBe(0)
     expect(headFrontZ(0, HEAD.center[1], 0.02)).toBeCloseTo(HEAD.rz + 0.02, 10)
@@ -354,6 +453,15 @@ describe('gorro-Clawd', () => {
     expect(HAT_EYE_BLOCKS).toHaveLength(2)
   })
 
+  it('é o desenho do SVG reduzido: a copa é mais estreita que a cabeça e a aba fica na altura de HAT.brimBottom', () => {
+    expect(HAT.scale).toBeGreaterThanOrEqual(0.8)
+    expect(HAT.scale).toBeLessThanOrEqual(0.85)
+    expect(crown.size[0]).toBeCloseTo(1.16 * HAT.scale, 10)
+    expect(crown.size[0]).toBeLessThan(2 * HEAD.rx * 0.8)
+    expect(brim.position[1] - brim.size[1] / 2).toBeCloseTo(HAT.brimBottom, 10)
+    expect(crown.position[0]).toBeCloseTo(0, 10)
+  })
+
   it('a copa encaixa no alto da cabeça', () => {
     const headTop = HEAD.center[1] + HEAD.ry
     const crownBottom = crown.position[1] - crown.size[1] / 2
@@ -370,8 +478,54 @@ describe('gorro-Clawd', () => {
     }
   })
 
-  it('a aba fica na frente do rosto e os olhos na frente da copa', () => {
-    expect(brim.size[2] / 2).toBeGreaterThan(FACE.z)
+  it('a aba fica na frente do rosto, sem fresta entre ela e a pele, e os olhos na frente da copa', () => {
+    const brimBottom = brim.position[1] - brim.size[1] / 2
+    expect(brim.size[2] / 2).toBeGreaterThan(headFrontZ(0, brimBottom, 0.015))
+    // faixa de testa escura entre a pele e a aba, como no Octocat clássico
+    expect(brimBottom - (FACE.center[1] + FACE.ry)).toBeGreaterThan(0.05)
+    expect(brimBottom - (FACE.center[1] + FACE.ry)).toBeLessThan(0.2)
     for (const eye of HAT_EYE_BLOCKS) expect(eye.position[2]).toBeGreaterThan(CROWN_DEPTH / 2)
+  })
+})
+
+describe('orelhas e bigodes', () => {
+  const crown = HAT_BLOCKS.find((b) => b.size[2] === CROWN_DEPTH)!
+  const [rx, ry] = EAR.root
+  const [tx, ty] = EAR.tip
+  const len = Math.hypot(tx - rx, ty - ry)
+  const [px, py] = [-(ty - ry) / len, (tx - rx) / len] // perpendicular à orelha, no plano xy
+
+  it('cada orelha nasce dentro da cabeça e sai pela lateral da copa, acima das abas, bem para fora', () => {
+    expect((rx / HEAD.rx) ** 2 + ((ry - HEAD.center[1]) / HEAD.ry) ** 2).toBeLessThan(1)
+    const crownSide = crown.position[0] + crown.size[0] / 2
+    expect(tx).toBeGreaterThan(crownSide + 0.25)
+    expect(ty).toBeGreaterThan(HEAD.center[1] + HEAD.ry) // pontuda, acima da cabeça
+    // onde o eixo da orelha cruza a lateral da copa, a base já passou do alto das abas laterais
+    const flapTop = Math.max(...HAT_BLOCKS.filter((b) => b.position[0] > crownSide).map((b) => b.position[1] + b.size[1] / 2))
+    const exitY = ry + ((crownSide - rx) / (tx - rx)) * (ty - ry)
+    expect(exitY).toBeGreaterThan(flapTop)
+    // mais da metade do comprimento fica para fora do gorro
+    expect((tx - crownSide) / (tx - rx)).toBeGreaterThan(0.5)
+  })
+
+  it('as duas orelhas (espelhadas) e os cantos da base cabem sob a cúpula', () => {
+    for (const side of [1, -1])
+      for (const [x, y, z] of [
+        [tx, ty, 0],
+        [rx + px * EAR.radius, ry + py * EAR.radius, 0],
+        [rx - px * EAR.radius, ry - py * EAR.radius, 0],
+        [rx, ry, EAR.radius * EAR.depth],
+        [rx, ry, -EAR.radius * EAR.depth],
+      ] as Vec3[])
+        expect(canopyContains(pilotToShip([side * x, y, z]))).toBe(true)
+  })
+
+  it('os bigodes saem da bochecha e passam da silhueta da cabeça, dentro da cúpula', () => {
+    for (const [inner, outer] of WHISKERS) {
+      expect(Math.abs(inner[2] - headFrontZ(inner[0], inner[1]))).toBeLessThan(0.03)
+      expect(headFrontZ(outer[0], outer[1])).toBeLessThan(outer[2])
+      expect(Math.abs(outer[0])).toBeGreaterThan(HEAD.rx * Math.sqrt(1 - ((outer[1] - HEAD.center[1]) / HEAD.ry) ** 2))
+      for (const side of [1, -1]) expect(canopyContains(pilotToShip([side * outer[0], outer[1], outer[2]]))).toBe(true)
+    }
   })
 })

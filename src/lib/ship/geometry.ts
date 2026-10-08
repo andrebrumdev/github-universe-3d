@@ -24,10 +24,19 @@ export const COLORS = {
   dome: '#A5F3FC',
   thruster: '#67E8F9',
   headlight: '#FFF3C4',
-  body: '#1F2329',
-  skin: '#F2C9A6',
-  face: '#7A2F2F',
+  /** Octocat clássico: corpo roxo quase preto; tentáculos com a face de baixo mais clara e ventosas verde-água. */
+  body: '#211A2B',
+  tentacleUnder: '#3B2D50',
+  sucker: '#9BC4C8',
+  /** Rosto: pele pêssego, olhos verde-claros com íris marrom, boca aberta roxa com língua rosa. */
+  skin: '#FAD4AC',
+  sclera: '#DCECEC',
+  iris: '#9C4B3B',
+  faceLine: '#5E2A26',
+  mouth: '#45204F',
+  tongue: '#E7A9B4',
   blush: '#F29C8A',
+  whisker: '#141018',
   hat: '#D97757',
   hatBrim: '#B85C3E',
   hatEyes: '#141413',
@@ -39,10 +48,19 @@ export const CONTRIBUTION_COLORS = ['#39D353', '#26A641', '#39D353', '#0E4429', 
 
 /** Corpo: path M150 296 Q146 232 200 226 Q254 232 250 296. */
 export const TORSO = { base: svgTo3d(200, 296), rx: 0.5, ry: 0.7, rz: 0.42 } as const
-/** Cabeça: elipse cx 200, cy 190, rx 62, ry 54. */
-export const HEAD = { center: svgTo3d(200, 190), rx: 0.62, ry: 0.54, rz: 0.5 } as const
-/** Rosto: elipse cx 200, cy 204, rx 46, ry 34; disco logo à frente da cabeça. */
-export const FACE = { center: svgTo3d(200, 204), rx: 0.46, ry: 0.34, z: 0.49 } as const
+/**
+ * Cabeça: a elipse do SVG (cx 200, cy 190, rx 62, ry 54) um pouco maior e mais baixa, para o rosto pêssego
+ * do Octocat clássico caber, grande, sob a aba do gorro.
+ */
+export const HEAD = { center: svgTo3d(200, 194), rx: 0.64, ry: 0.58, rz: 0.5 } as const
+
+/**
+ * Rosto: a mancha pêssego (contorno desenhado na textura) cabe nesta elipse; acima dela fica uma faixa de
+ * testa escura até a aba do gorro, como no Octocat clássico. O pedaço curvado que leva a textura
+ * (FACE_PATCH) cobre a frente inteira da cabeça; fora da mancha a textura é transparente.
+ */
+export const FACE = { center: svgTo3d(200, 210), rx: 0.55, ry: 0.36 } as const
+export const FACE_PATCH = { center: HEAD.center, rx: HEAD.rx - 0.02, ry: HEAD.ry - 0.02 } as const
 
 /**
  * Profundidade (z) da frente da cabeça no ponto (x, y) do piloto; 0 fora da silhueta.
@@ -53,16 +71,119 @@ export function headFrontZ(x: number, y: number, grow = 0): number {
   return (HEAD.rz + grow) * Math.sqrt(Math.max(0, k))
 }
 
-/** Braço livre (acena): M160 254 Q124 236 120 198. */
-export const FREE_ARM = { from: svgTo3d(160, 254), control: svgTo3d(124, 236), to: svgTo3d(120, 198) } as const
-/** Braço no manche: M238 262 Q256 250 262 262. */
-export const STICK_ARM = { from: svgTo3d(238, 262), control: svgTo3d(256, 250), to: svgTo3d(262, 262) } as const
+/**
+ * Orelhas de gato (a da direita, +x; a outra é o espelho em x): pirâmides de base retangular que nascem
+ * dentro da cabeça e saem pelas laterais da copa do gorro, acima das abas laterais, apontando para cima e
+ * para fora; a face da frente tem o miolo mais claro (`inner`, fração da face).
+ */
+export const EAR = {
+  root: [0.28, 1.68] as [number, number],
+  tip: [0.78, 2.22] as [number, number],
+  radius: 0.24,
+  depth: 0.5,
+  inner: 0.62,
+} as const
+
+/** Bigodes: dois de cada lado, da bochecha para fora da silhueta da cabeça (x, y, z de cada ponta; lado +x). */
+export const WHISKERS: [[number, number, number], [number, number, number]][] = [
+  [
+    [0.5, 1.0, 0.26],
+    [0.86, 1.06, 0.14],
+  ],
+  [
+    [0.5, 0.92, 0.21],
+    [0.85, 0.88, 0.16],
+  ],
+]
+export const WHISKER_RADIUS = 0.008
+
+/** Plano dos ombros e do manche (z). */
+export const ARM_Z = 0.2
+
+/**
+ * Tentáculo: curva (pontos de controle no frame do piloto, o primeiro é o ombro) varrida com seção hexagonal
+ * que afina da base à ponta. `under` é o ângulo (rad) da face de baixo na seção, a partir da normal do
+ * transporte (≈ +z, de frente): ali vão a cor clara e a fila de ventosas.
+ */
+export interface Tentacle {
+  points: [number, number, number][]
+  under: number
+}
+export const TENTACLE = { baseRadius: 0.13, tipRadius: 0.04, segments: 12, suckers: 5 } as const
+
+/** Raio do tentáculo na fração t ∈ [0, 1] do comprimento: grosso no ombro, afinando até a ponta. */
+export function tentacleRadius(t: number): number {
+  const { baseRadius, tipRadius } = TENTACLE
+  return tipRadius + (baseRadius - tipRadius) * (1 - t) ** 1.15
+}
+
+/** Tentáculo livre (Parte D acena com ele, girando no ombro): sobe pela esquerda e a ponta se enrola para dentro. */
+export const FREE_TENTACLE: Tentacle = {
+  points: [
+    [-0.32, 0.6, 0.15],
+    [-0.66, 0.62, 0.26],
+    [-0.94, 0.78, 0.32],
+    [-1.12, 1.02, 0.34],
+    [-1.16, 1.28, 0.32],
+    [-1.06, 1.46, 0.3],
+    [-0.92, 1.47, 0.28],
+    [-0.87, 1.37, 0.28],
+  ],
+  under: 0.6,
+}
+
 /** Manche: rect x 262, y 262, 8 × 32; bola cx 266, cy 258, r 10. */
 export const JOYSTICK = { base: svgTo3d(266, 278), height: 0.32, knob: svgTo3d(266, 258), knobRadius: 0.1 } as const
-export const ARM_RADIUS = 0.065
-export const ARM_Z = 0.2
-/** Mão na ponta do braço livre (a ponta redonda do traço do SVG). */
-export const HAND_RADIUS = ARM_RADIUS * 1.4
+
+/** Tentáculo no manche: sai do ombro direito, passa por cima da bola e se enrola em volta dela. */
+export const STICK_TENTACLE: Tentacle = {
+  points: [
+    [0.32, 0.6, 0.15],
+    [0.52, 0.76, 0.27],
+    [0.7, 0.76, 0.26],
+    [0.82, 0.6, 0.22],
+    [0.76, 0.44, 0.19],
+    [0.6, 0.4, 0.22],
+    [0.53, 0.5, 0.26],
+  ],
+  under: -0.6,
+}
+
+/** Terceiro braço (parado): sai do lado esquerdo do corpo e se estica até o painel, com a ponta num botão. */
+export const DASH_TENTACLE: Tentacle = {
+  points: [
+    [-0.3, 0.5, 0.3],
+    [-0.52, 0.56, 0.5],
+    [-0.6, 0.66, 0.78],
+    [-0.5, 0.76, 1.0],
+    [-0.38, 0.77, 1.08],
+    [-0.33, 0.73, 1.1],
+  ],
+  under: 0.9,
+}
+
+/**
+ * Pernas (a da direita; a outra é o espelho em x): saem de baixo do corpo, passam na frente da almofada do
+ * assento, descem até perto do piso e correm para a frente, com a ponta enrolando para cima — pose sentada.
+ */
+export const LEG_TENTACLE: Tentacle = {
+  points: [
+    [0.18, 0.45, 0.25],
+    [0.26, 0.5, 0.5],
+    [0.3, 0.34, 0.7],
+    [0.32, 0.25, 0.84],
+    [0.3, 0.3, 0.93],
+    [0.25, 0.4, 0.9],
+  ],
+  under: 2.4,
+}
+
+/** Espelho de um tentáculo em x (o ângulo da face de baixo também espelha). */
+export function mirrorTentacle({ points, under }: Tentacle): Tentacle {
+  return { points: points.map(([x, y, z]) => [-x, y, z]), under: -under }
+}
+
+export const LEG_TENTACLES: Tentacle[] = [LEG_TENTACLE, mirrorTentacle(LEG_TENTACLE)]
 
 /**
  * Bolhas de pensamento (x, y, z, raio). Na folha de expressões ficam em (276, 114), (292, 96), (310, 74) com
@@ -81,9 +202,9 @@ export interface Block {
 }
 
 /** A copa abraça a cabeça: funda o bastante para a cabeça não furar a frente acima da aba. */
-export const CROWN_DEPTH = 0.9
-/** A aba é mais funda que o rosto (FACE.z) para cobrir a testa, como no SVG. */
-export const BRIM_DEPTH = 1.05
+export const CROWN_DEPTH = 0.8
+/** A aba é mais funda que a frente da cabeça na altura dela. */
+export const BRIM_DEPTH = 0.95
 
 /** Retângulos do gorro-Clawd (dentro de translate(80 44)): x, y, w, h, profundidade 3D, cor. */
 const HAT_RECTS: [number, number, number, number, number, string][] = [
@@ -103,9 +224,17 @@ const HAT_EYE_RECTS: [number, number, number, number][] = [
   [134, 66, 10, 24],
 ]
 
+/**
+ * O gorro é o desenho do SVG reduzido (`scale`) e assentado no alto da cabeça: a borda de baixo da aba
+ * (y 134 no SVG do gorro) fica em `brimBottom`, deixando a testa escura, os olhos e as orelhas à mostra.
+ */
+export const HAT = { scale: 0.82, brimBottom: 1.5 } as const
+const HAT_BRIM_SVG_Y = 134
+
 function rectToBlock(x: number, y: number, w: number, h: number, depth: number, color: string, z = 0): Block {
-  const [cx, cy] = svgTo3d(80 + x + w / 2, 44 + y + h / 2)
-  return { position: [cx, cy, z], size: [w / PX, h / PX, depth], color }
+  const k = HAT.scale / PX
+  const [cx, cy] = [x + w / 2 - 120, HAT.brimBottom + (HAT_BRIM_SVG_Y - (y + h / 2)) * k]
+  return { position: [cx * k, cy, z], size: [w * k, h * k, depth], color }
 }
 
 export const HAT_BLOCKS: Block[] = HAT_RECTS.map(([x, y, w, h, depth, color]) => rectToBlock(x, y, w, h, depth, color))
