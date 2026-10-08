@@ -33,7 +33,7 @@ export function Scene({ universe }: { universe: Universe }) {
       {system.orbits.map((orbit, i) => (
         <Planet key={orbit.name} repo={universe.repos[i]} ring={system.rings[orbit.ring]} orbit={orbit} />
       ))}
-      <CameraRig system={system} />
+      <CameraRig system={system} repos={universe.repos} />
       {SHOW_STATS && <Stats />}
     </Canvas>
   )

@@ -6,6 +6,7 @@ import { Loader } from '@/components/ui/Loader'
 import { PlanetPanel } from '@/components/ui/PlanetPanel'
 import { ProfilePanel } from '@/components/ui/ProfilePanel'
 import { StaticFallback } from '@/components/ui/StaticFallback'
+import { Tutorial } from '@/components/ui/Tutorial'
 import { useUniverseData } from '@/hooks/useUniverseData'
 import { supportsWebGL } from '@/hooks/webgl'
 
@@ -29,6 +30,7 @@ export function App() {
       <BackButton />
       <PlanetPanel universe={universe} />
       <ProfilePanel profile={universe.profile} />
+      <Tutorial profileName={universe.profile.name} />
     </main>
   )
 }

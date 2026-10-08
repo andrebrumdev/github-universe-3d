@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildOrbits, planetPosition, type Vec3 } from './universe/orbits'
-import { DEFAULT_VIEWPORT, maxCameraDistance, overviewPose, planetPose, selectionPose, sunPose } from './cameraPoses'
+import { DEFAULT_VIEWPORT, maxCameraDistance, overviewPose, planetPose, selectionPose, showcasePlanet, sunPose, tutorialPose } from './cameraPoses'
 
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2])
@@ -86,5 +86,31 @@ describe('selectionPose', () => {
     const expected = planetPose(at, orbit.radius, 'side')
     expect(selectionPose({ kind: 'planet', name: orbit.name }, system, 42, 'side')).toEqual(expected)
     expect(selectionPose({ kind: 'moon', planet: orbit.name, language: 'Go' }, system, 42, 'side')).toEqual(expected)
+  })
+})
+
+describe('tutorial', () => {
+  const repos = [
+    { name: 'p0', languages: [{ name: 'Go', color: '#0af', bytes: 10 }] },
+    { name: 'p1', languages: [{ name: 'Go', color: '#0af', bytes: 10 }, { name: 'Shell', color: '#8e5', bytes: 5 }] },
+  ]
+
+  it('o planeta de vitrine é o primeiro com 2+ linguagens, senão o primeiro', () => {
+    expect(showcasePlanet(repos)).toBe('p1')
+    expect(showcasePlanet([repos[0]])).toBe('p0')
+    expect(showcasePlanet([])).toBeNull()
+  })
+
+  it('cada passo tem a pose certa', () => {
+    expect(tutorialPose('welcome', system, repos, 0, 'side')).toEqual(sunPose('side'))
+    expect(tutorialPose('repos', system, repos, 0, 'side')).toEqual(overviewPose(system))
+    expect(tutorialPose('free', system, repos, 0, 'side')).toEqual(overviewPose(system))
+    expect(tutorialPose('tech', system, repos, 7, 'side')).toEqual(selectionPose({ kind: 'planet', name: 'p1' }, system, 7, 'side'))
+  })
+
+  it('a visão geral do tutorial respeita a proporção da tela', () => {
+    const narrow = { aspect: 0.5, fov: 50 }
+    expect(tutorialPose('repos', system, repos, 0, 'side', narrow)).toEqual(overviewPose(system, narrow))
+    expect(tutorialPose('free', system, repos, 0, 'side', narrow)).toEqual(overviewPose(system, narrow))
   })
 })

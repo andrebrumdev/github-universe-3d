@@ -1,4 +1,6 @@
 import { selectedPlanet, type UniverseSelection } from './interaction'
+import type { TutorialStep } from './tutorial'
+import type { RepoBase } from './types'
 import { planetPosition, type OrbitSystem, type Vec3 } from './universe/orbits'
 
 export type PanelLayout = 'side' | 'bottom'
@@ -72,4 +74,24 @@ export function selectionPose(
   if (sel.kind === 'profile') return sunPose(layout)
   const name = selectedPlanet(sel)
   return (name && planetFocusPose(system, name, time, layout)) || overviewPose(system, viewport)
+}
+
+export function showcasePlanet(repos: Pick<RepoBase, 'name' | 'languages'>[]): string | null {
+  return (repos.find((r) => r.languages.length >= 2) ?? repos[0])?.name ?? null
+}
+
+export function tutorialPose(
+  step: TutorialStep,
+  system: OrbitSystem,
+  repos: Pick<RepoBase, 'name' | 'languages'>[],
+  time: number,
+  layout: PanelLayout,
+  viewport: Viewport = DEFAULT_VIEWPORT,
+): Pose {
+  if (step === 'welcome') return sunPose(layout)
+  if (step === 'tech') {
+    const name = showcasePlanet(repos)
+    return (name && planetFocusPose(system, name, time, layout)) || overviewPose(system, viewport)
+  }
+  return overviewPose(system, viewport)
 }
