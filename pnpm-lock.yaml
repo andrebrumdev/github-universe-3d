@@ -26,6 +26,9 @@ importers:
       three:
         specifier: ^0.186.1
         version: 0.186.1
+      three-low-poly:
+        specifier: ^1.2.6
+        version: 1.2.6(three@0.186.1)
       zustand:
         specifier: ^5.0.15
         version: 5.0.15(@types/react@19.3.0)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
@@ -1120,6 +1123,11 @@ packages:
     resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
 
+  three-low-poly@1.2.6:
+    resolution: {integrity: sha512-lkjFbuAkwtX1mPmWJzG6hv25wa7WEsWkUiW17NiN5OTfm8oKuO3GwHpc85WZvnDlrVRKCPMY4CTTS1K3aOq4Xw==}
+    peerDependencies:
+      three: '>=0.180.0'
+
   three-mesh-bvh@0.8.3:
     resolution: {integrity: sha512-4G5lBaF+g2auKX3P0yqx+MJC6oVt6sB5k+CchS6Ob0qvH0YIhuUk1eYr7ktsIpY+albCqE80/FVQGV190PmiAg==}
     peerDependencies:
@@ -2091,6 +2099,10 @@ snapshots:
   tailwindcss@4.3.3: {}
 
   tapable@2.3.3: {}
+
+  three-low-poly@1.2.6(three@0.186.1):
+    dependencies:
+      three: 0.186.1
 
   three-mesh-bvh@0.8.3(three@0.186.1):
     dependencies:

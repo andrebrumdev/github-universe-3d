@@ -1,90 +1,193 @@
-import { useRef } from 'react'
+import { useEffect, useMemo } from 'react'
+import { useFrame } from '@react-three/fiber'
+import { useReducedMotion } from 'framer-motion'
 import * as THREE from 'three'
-import { COLORS, CONTRIBUTION_COLORS, DOME, HEADLIGHT, HULL, LOWER_FIN, SQUARES_X, UPPER_FIN } from '@/lib/ship/geometry'
+import { EmissivePulseEffect, GlowHalo } from 'three-low-poly'
+import {
+  bowlRadiusAt,
+  BUBBLE,
+  COLORS,
+  CONTRIBUTION_COLORS,
+  facetDistance,
+  HEADLIGHTS,
+  RIM,
+  SQUARES,
+  STABILIZER,
+} from '@/lib/ship/geometry'
+import {
+  ANTENNA_GEOMETRY,
+  ANTENNA_TIP_GEOMETRY,
+  ANTENNA_TIP_POSITION,
+  BOWL_GEOMETRY,
+  BUBBLE_FRAME_GEOMETRY,
+  BUBBLE_GEOMETRY,
+  ENGINE_BAND_GEOMETRIES,
+  FLAME_GEOMETRY,
+  FUSELAGE_BOTTOM_GEOMETRY,
+  FUSELAGE_TOP_GEOMETRY,
+  HEADLIGHT_BEZEL_GEOMETRY,
+  HEADLIGHT_GEOMETRY,
+  KEEL_GEOMETRY,
+  NOZZLE_GEOMETRY,
+  NOZZLE_LIP_GEOMETRY,
+  RIM_GEOMETRY,
+  SQUARE_GEOMETRY,
+  STABILIZER_GEOMETRY,
+  STABILIZER_LIGHT_GEOMETRY,
+  THRUSTER_ORIGIN,
+  TOP_FIN_GEOMETRY,
+} from './shipParts'
 
-const HULL_GEOMETRY = new THREE.SphereGeometry(1, 48, 24)
-const DOME_GEOMETRY = new THREE.SphereGeometry(1, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2)
-const FLAME_LENGTH = 0.9
-const FLAME_GEOMETRY = new THREE.ConeGeometry(0.22, FLAME_LENGTH, 16).translate(0, FLAME_LENGTH / 2, 0)
+// Materiais opacos compartilhados: cor sólida + flatShading (as faces aparecem).
+const solid = (color: string, roughness = 0.6, metalness = 0.05) =>
+  new THREE.MeshStandardMaterial({ color, roughness, metalness, flatShading: true })
+const HULL_MATERIAL = solid(COLORS.ship, 0.5, 0.1)
+const CREAM_MATERIAL = solid(COLORS.cream, 0.55)
+const ENGINE_MATERIAL = solid(COLORS.engine, 0.75, 0)
+const NOZZLE_MATERIAL = solid(COLORS.nozzle, 0.7, 0.3)
+const HEADLIGHT_MATERIAL = new THREE.MeshStandardMaterial({
+  color: COLORS.headlight,
+  emissive: COLORS.headlight,
+  emissiveIntensity: 1.3,
+  flatShading: true,
+})
+const STABILIZER_LIGHT_MATERIAL = new THREE.MeshStandardMaterial({
+  color: COLORS.thruster,
+  emissive: COLORS.thruster,
+  emissiveIntensity: 1.4,
+  flatShading: true,
+})
+const SQUARE_MATERIALS = CONTRIBUTION_COLORS.map(
+  (color) => new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, flatShading: true }),
+)
+const GLASS_MATERIAL = new THREE.MeshStandardMaterial({
+  color: COLORS.dome,
+  transparent: true,
+  opacity: 0.18,
+  roughness: 0.1,
+  metalness: 0.1,
+  flatShading: true,
+  depthWrite: false,
+})
+const FLAME_MATERIAL = new THREE.MeshBasicMaterial({
+  color: COLORS.thruster,
+  transparent: true,
+  opacity: 0.85,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+})
 
-function finGeometry(points: [number, number][], mirror: boolean): THREE.ExtrudeGeometry {
-  const shape = new THREE.Shape(points.map(([x, y]) => new THREE.Vector2(mirror ? -x : x, y)))
-  const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.08, bevelEnabled: false })
-  geometry.translate(0, 0, -0.04)
-  return geometry
-}
-
-const FIN_GEOMETRIES = [UPPER_FIN, LOWER_FIN].flatMap((fin) => [finGeometry(fin, false), finGeometry(fin, true)])
-
-/** Ponto da superfície frontal do casco na altura y, para encostar peças nele. */
-function hullFrontZ(x: number, y: number): number {
-  const k = 1 - (x / HULL.rx) ** 2 - (y / HULL.ry) ** 2
-  return HULL.rz * Math.sqrt(Math.max(0, k))
-}
+const RING_PULSE = { speed: 2.2, min: 0.45, max: 1.2 } as const
+const SQUARE_Z = facetDistance(RIM.outer) + SQUARES.depth / 2 - 0.005
+const HEADLIGHT_WALL = bowlRadiusAt(HEADLIGHTS.y)
+const HEADLIGHT_Z = facetDistance(HEADLIGHT_WALL.radius) + 0.01
 
 export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
-  const flame = useRef<THREE.Mesh>(null)
+  const reducedMotion = useReducedMotion()
+
+  // Anéis do motor: um material emissivo só, pulsado pelo EmissivePulseEffect.
+  // Com movimento reduzido o pulso não anda e os anéis ficam acesos no máximo (o valor inicial).
+  const ringPulse = useMemo(
+    () =>
+      new EmissivePulseEffect({
+        // base escura + emissivo ciano: a faixa brilha ciano em vez de estourar para branco
+        material: new THREE.MeshStandardMaterial({
+          color: COLORS.engine,
+          emissive: COLORS.thruster,
+          emissiveIntensity: RING_PULSE.max,
+          flatShading: true,
+        }),
+        speed: RING_PULSE.speed,
+        minIntensity: RING_PULSE.min,
+        maxIntensity: RING_PULSE.max,
+      }),
+    [],
+  )
+  useEffect(() => () => ringPulse.material.dispose(), [ringPulse])
+  useFrame((_, delta) => {
+    if (!reducedMotion) ringPulse.update(delta)
+  })
+
+  // Brilhos (sprites aditivos): um por farol e um na boca do bocal.
+  const headlightHalos = useMemo(
+    () => HEADLIGHTS.angles.map(() => new GlowHalo({ color: COLORS.headlight, size: 0.55, opacity: 0.6 })),
+    [],
+  )
+  const thrusterHalo = useMemo(() => new GlowHalo({ color: COLORS.thruster, size: 1.1, opacity: 0 }), [])
+  useEffect(
+    () => () => {
+      for (const halo of headlightHalos) halo.dispose()
+      thrusterHalo.dispose()
+    },
+    [headlightHalos, thrusterHalo],
+  )
+  useEffect(() => {
+    thrusterHalo.setOpacity(0.8 * thrusterLevel)
+  }, [thrusterHalo, thrusterLevel])
+
+  const thrusterOn = thrusterLevel > 0.01
 
   return (
     <group>
-      <mesh geometry={HULL_GEOMETRY} scale={[HULL.rx, HULL.ry, HULL.rz]}>
-        <meshStandardMaterial color={COLORS.ship} roughness={0.45} metalness={0.15} />
-      </mesh>
-
-      {/* faixa clara em volta do casco */}
-      <mesh position={[0, 0.06, 0]} rotation={[Math.PI / 2, 0, 0]} scale={[HULL.rx, HULL.rz, 1]}>
-        <torusGeometry args={[1, 0.035, 8, 64]} />
-        <meshStandardMaterial color={COLORS.stripe} roughness={0.5} />
-      </mesh>
-
-      {/* quadradinhos de contribuição na frente da faixa */}
-      {SQUARES_X.map((x, i) => {
-        const z = hullFrontZ(x, 0.03) + 0.03
-        const yaw = Math.atan2(x / HULL.rx ** 2, z / HULL.rz ** 2)
-        return (
-          <mesh key={i} position={[x, 0.03, z]} rotation={[0, yaw, 0]}>
-            <boxGeometry args={[0.1, 0.1, 0.04]} />
-            <meshStandardMaterial color={CONTRIBUTION_COLORS[i]} emissive={CONTRIBUTION_COLORS[i]} emissiveIntensity={0.35} />
-          </mesh>
-        )
-      })}
-
-      {/* farol */}
-      <mesh position={[HEADLIGHT[0], HEADLIGHT[1], hullFrontZ(HEADLIGHT[0], HEADLIGHT[1]) + 0.02]}>
-        <sphereGeometry args={[0.08, 16, 8]} />
-        <meshStandardMaterial color={COLORS.headlight} emissive={COLORS.headlight} emissiveIntensity={1.2} />
-      </mesh>
-
-      {FIN_GEOMETRIES.map((geometry, i) => (
-        <mesh key={i} geometry={geometry}>
-          <meshStandardMaterial color={COLORS.ship} roughness={0.5} metalness={0.1} />
-        </mesh>
+      {/* cabine: tigela, aro e quadradinhos de contribuição na frente do aro */}
+      <mesh geometry={BOWL_GEOMETRY} material={HULL_MATERIAL} />
+      <mesh geometry={RIM_GEOMETRY} material={CREAM_MATERIAL} />
+      {SQUARES.angles.map((angle, i) => (
+        <group key={i} rotation={[0, angle, 0]}>
+          <mesh geometry={SQUARE_GEOMETRY} material={SQUARE_MATERIALS[i]} position={[0, SQUARES.y, SQUARE_Z]} />
+        </group>
       ))}
 
-      {/* propulsor atrás do casco */}
-      <mesh
-        ref={flame}
-        geometry={FLAME_GEOMETRY}
-        position={[0, 0, -HULL.rz + 0.05]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        scale={[1, Math.max(thrusterLevel, 0.001), 1]}
-        visible={thrusterLevel > 0.01}
-      >
-        <meshBasicMaterial color={COLORS.thruster} transparent opacity={0.85} blending={THREE.AdditiveBlending} depthWrite={false} />
-      </mesh>
+      {/* faróis: disco emissivo com aro creme, colado na parede da tigela */}
+      {HEADLIGHTS.angles.map((angle, i) => (
+        <group key={i} rotation={[0, angle, 0]}>
+          <group position={[0, HEADLIGHTS.y, HEADLIGHT_Z]} rotation={[HEADLIGHT_WALL.tilt, 0, 0]}>
+            <mesh geometry={HEADLIGHT_GEOMETRY} material={HEADLIGHT_MATERIAL} />
+            <mesh geometry={HEADLIGHT_BEZEL_GEOMETRY} material={CREAM_MATERIAL} position={[0, 0, 0.02]} />
+            <primitive object={headlightHalos[i]} position={[0, 0, 0.1]} />
+          </group>
+        </group>
+      ))}
 
-      {/* cúpula de vidro */}
-      <mesh geometry={DOME_GEOMETRY} position={[0, DOME.base[1], 0]} scale={[DOME.rx, DOME.ry, DOME.rz]}>
-        <meshStandardMaterial
-          color={COLORS.dome}
-          transparent
-          opacity={0.16}
-          roughness={0.1}
-          metalness={0.1}
-          depthWrite={false}
-          side={THREE.DoubleSide}
+      {/* antena em arco com bolinha na ponta, moldura da bolha */}
+      <mesh geometry={ANTENNA_GEOMETRY} material={CREAM_MATERIAL} />
+      <mesh geometry={ANTENNA_TIP_GEOMETRY} material={CREAM_MATERIAL} position={ANTENNA_TIP_POSITION} />
+      <mesh geometry={BUBBLE_FRAME_GEOMETRY} material={CREAM_MATERIAL} />
+
+      {/* fuselagem traseira: creme em cima, cinza embaixo, anéis ciano */}
+      <mesh geometry={FUSELAGE_TOP_GEOMETRY} material={CREAM_MATERIAL} />
+      <mesh geometry={FUSELAGE_BOTTOM_GEOMETRY} material={ENGINE_MATERIAL} />
+      {ENGINE_BAND_GEOMETRIES.map((geometry, i) => (
+        <mesh key={i} geometry={geometry} material={ringPulse.material} />
+      ))}
+
+      {/* bocal com lábio creme e o propulsor */}
+      <mesh geometry={NOZZLE_GEOMETRY} material={NOZZLE_MATERIAL} />
+      <mesh geometry={NOZZLE_LIP_GEOMETRY} material={CREAM_MATERIAL} />
+      <mesh
+        geometry={FLAME_GEOMETRY}
+        material={FLAME_MATERIAL}
+        position={THRUSTER_ORIGIN}
+        scale={[1, 1, Math.max(thrusterLevel, 0.001)]}
+        visible={thrusterOn}
+      />
+      <primitive object={thrusterHalo} position={THRUSTER_ORIGIN} visible={thrusterOn} />
+
+      {/* aleta de cima, quilha e estabilizador com duas luzinhas */}
+      <mesh geometry={TOP_FIN_GEOMETRY} material={HULL_MATERIAL} />
+      <mesh geometry={KEEL_GEOMETRY} material={HULL_MATERIAL} />
+      <mesh geometry={STABILIZER_GEOMETRY} material={HULL_MATERIAL} />
+      {STABILIZER.lights.map(([x, z], i) => (
+        <mesh
+          key={i}
+          geometry={STABILIZER_LIGHT_GEOMETRY}
+          material={STABILIZER_LIGHT_MATERIAL}
+          position={[x, STABILIZER.top + STABILIZER.lightRadius * 0.5, z]}
         />
-      </mesh>
+      ))}
+
+      {/* bolha de vidro por último: transparente, sem escrever profundidade */}
+      <mesh geometry={BUBBLE_GEOMETRY} material={GLASS_MATERIAL} position={BUBBLE.center} />
     </group>
   )
 }

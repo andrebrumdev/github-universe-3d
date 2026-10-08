@@ -16,14 +16,14 @@ export function OctocatPreview() {
 
   return (
     <main className="fixed inset-0 bg-space text-slate-100">
-      <Canvas dpr={[1, 2]} camera={{ position: [0, 1.4, 6.5], fov: 45 }}>
+      <Canvas dpr={[1, 2]} camera={{ position: [5.5, 2.6, 4.5], fov: 45 }}>
         <color attach="background" args={['#0a0e27']} />
         <ambientLight intensity={0.5} />
         <directionalLight position={[3, 5, 4]} intensity={1.6} />
         <pointLight position={[-4, 2, 3]} intensity={20} color="#22d3ee" />
         <Stars radius={60} depth={30} count={1500} factor={3} fade />
         <OctocatShip thrusterLevel={thruster} parts={parts} />
-        <OrbitControls target={[0, 0.9, 0]} autoRotate={spin} autoRotateSpeed={0.8} enablePan={false} minDistance={2.5} maxDistance={14} />
+        <OrbitControls target={[0, 0.4, -1.2]} autoRotate={spin} autoRotateSpeed={0.8} enablePan={false} minDistance={2.5} maxDistance={14} />
       </Canvas>
 
       <aside className="fixed left-4 top-4 w-64 space-y-4 rounded-2xl border border-neon/30 bg-panel/90 p-4 text-sm backdrop-blur">
