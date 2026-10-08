@@ -91,15 +91,20 @@ describe('buildOrbits', () => {
     const planets = Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: radiusOf(i) }))
     const { rings, orbits } = buildOrbits(planets)
     const outer = rings[rings.length - 1]
+    // menor folga (distância − soma dos raios) ao Sol e entre planetas; um expect só no fim
+    let sunGap = Infinity
+    let pairGap = Infinity
     for (let s = 0; s < 400; s++) {
       const t = (s / 400) * outer.period
       const pos = orbits.map((o) => planetPosition(rings[o.ring], o, t))
       for (let i = 0; i < orbits.length; i++) {
-        expect(len(pos[i])).toBeGreaterThan(SUN_RADIUS + orbits[i].radius)
+        sunGap = Math.min(sunGap, len(pos[i]) - SUN_RADIUS - orbits[i].radius)
         for (let j = i + 1; j < orbits.length; j++) {
-          expect(dist(pos[i], pos[j])).toBeGreaterThan(orbits[i].radius + orbits[j].radius)
+          pairGap = Math.min(pairGap, dist(pos[i], pos[j]) - orbits[i].radius - orbits[j].radius)
         }
       }
     }
-  }, 60_000)
+    expect(sunGap).toBeGreaterThan(0)
+    expect(pairGap).toBeGreaterThan(0)
+  })
 })
