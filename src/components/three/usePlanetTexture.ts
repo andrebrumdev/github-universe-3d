@@ -11,7 +11,13 @@ export function usePlanetTexture(weeks: number[][]): THREE.CanvasTexture {
     if (ctx) drawActivityGrid(ctx, weeks)
     const tex = new THREE.CanvasTexture(canvas)
     tex.colorSpace = THREE.SRGBColorSpace
-    tex.anisotropy = 4
+    // Sem linha na emenda u = 0/1: a amostragem dá a volta (a coluna 51 encosta na 0 com a folga normal).
+    tex.wrapS = THREE.RepeatWrapping
+    tex.wrapT = THREE.ClampToEdgeWrapping
+    tex.generateMipmaps = true
+    tex.minFilter = THREE.LinearMipmapLinearFilter
+    tex.magFilter = THREE.LinearFilter
+    tex.anisotropy = 8
     return tex
   }, [weeks])
   useEffect(() => () => texture.dispose(), [texture])
