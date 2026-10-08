@@ -3,7 +3,7 @@ import { Canvas } from '@react-three/fiber'
 import { Stats } from '@react-three/drei'
 import type { Universe } from '@/lib/types'
 import { buildOrbits } from '@/lib/universe/orbits'
-import { planetRadius } from '@/lib/universe/planets'
+import { maxPlanetWeight, planetRadius } from '@/lib/universe/planets'
 import { useUniverse } from '@/store/universe'
 import { CameraRig } from './CameraRig'
 import { ShipRig } from './octocat/ShipRig'
@@ -17,10 +17,11 @@ const SHOW_STATS = new URLSearchParams(window.location.search).has('perf')
 
 export function Scene({ universe }: { universe: Universe }) {
   const clearSelection = useUniverse((s) => s.clearSelection)
-  const system = useMemo(
-    () => buildOrbits(universe.repos.map((r) => ({ name: r.name, radius: planetRadius(r.stars, r.forks) }))),
-    [universe.repos],
-  )
+  const system = useMemo(() => {
+    // tamanho relativo ao próprio perfil: o repo de maior peso fica com o raio máximo
+    const maxWeight = maxPlanetWeight(universe.repos)
+    return buildOrbits(universe.repos.map((r) => ({ name: r.name, radius: planetRadius(r.stars, r.forks, maxWeight) })))
+  }, [universe.repos])
 
   return (
     <Canvas dpr={[1, 2]} camera={{ position: [0, 40, 70], fov: 50, near: 0.1, far: 1000 }} onPointerMissed={clearSelection}>
