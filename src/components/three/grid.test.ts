@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { emptyWeeks } from '@/lib/universe/activity'
 import {
   CELL_GAP,
-  CELL_PX,
   cellAlpha,
   cellFromUv,
+  cellRect,
+  COL_PX,
   drawActivityGrid,
+  GRID_COLS,
+  GRID_ROWS,
   POLAR_CAP_DEG,
   POLAR_CAP_PX,
   rowTop,
@@ -13,9 +16,12 @@ import {
   TEX_W,
 } from './grid'
 
+/** uv do centro da célula desenhada para (semana, dia). */
+function uvOf(week: number, day: number): [number, number] {
+  const [x, y, w, h] = cellRect(week, day)
+  return [(x + w / 2) / TEX_W, 1 - (y + h / 2) / TEX_H]
+}
 const vOfY = (y: number) => 1 - y / TEX_H
-const vOfRow = (row: number) => vOfY((rowTop(row) + rowTop(row + 1)) / 2)
-const uOfWeek = (week: number) => (week * CELL_PX + CELL_PX / 2) / TEX_W
 
 function drawEmpty() {
   const rects: number[][] = []
@@ -24,38 +30,58 @@ function drawEmpty() {
   return { rects, ctx }
 }
 
-describe('textura 2:1 com a grade de polo a polo', () => {
-  it('proporção equiretangular 2:1, 52 colunas inteiras', () => {
-    expect(TEX_W).toBe(52 * CELL_PX)
+describe('textura 2:1 com a grade em dois hemisférios (26×14)', () => {
+  it('proporção equiretangular 2:1, 26 colunas inteiras', () => {
+    expect(GRID_COLS).toBe(26)
+    expect(GRID_ROWS).toBe(14)
+    expect(COL_PX).toBe(TEX_W / 26)
+    expect(Number.isInteger(COL_PX)).toBe(true)
     expect(TEX_H * 2).toBe(TEX_W)
   })
 
-  it('7 faixas de latitude cobrem tudo entre as calotas polares', () => {
+  it('14 faixas de latitude cobrem tudo entre as calotas polares', () => {
     expect(POLAR_CAP_DEG).toBeGreaterThanOrEqual(6)
     expect(POLAR_CAP_DEG).toBeLessThanOrEqual(8)
     expect(rowTop(0)).toBe(POLAR_CAP_PX)
-    expect(rowTop(7)).toBe(TEX_H - POLAR_CAP_PX)
-    for (let d = 0; d < 7; d++) {
-      const h = rowTop(d + 1) - rowTop(d)
-      expect(Number.isInteger(rowTop(d))).toBe(true)
-      expect(Math.abs(h - (TEX_H - 2 * POLAR_CAP_PX) / 7)).toBeLessThan(1)
+    expect(rowTop(GRID_ROWS)).toBe(TEX_H - POLAR_CAP_PX)
+    for (let r = 0; r < GRID_ROWS; r++) {
+      expect(Number.isInteger(rowTop(r))).toBe(true)
+      expect(Math.abs(rowTop(r + 1) - rowTop(r) - (TEX_H - 2 * POLAR_CAP_PX) / GRID_ROWS)).toBeLessThan(1)
     }
   })
 
-  it('cellFromUv acha semana e dia nas linhas junto às calotas', () => {
-    expect(cellFromUv(uOfWeek(10), vOfRow(0))).toEqual({ week: 10, day: 0 })
-    expect(cellFromUv(uOfWeek(10), vOfRow(6))).toEqual({ week: 10, day: 6 })
-    // logo abaixo da calota norte e logo acima da calota sul
-    expect(cellFromUv(0.5, vOfY(POLAR_CAP_PX + 0.5))).toEqual({ week: 26, day: 0 })
-    expect(cellFromUv(0.5, vOfY(TEX_H - POLAR_CAP_PX - 0.5))).toEqual({ week: 26, day: 6 })
+  it('células quase quadradas no equador (em graus na esfera)', () => {
+    const lonDeg = (COL_PX / TEX_W) * 360
+    const latDeg = ((rowTop(8) - rowTop(7)) / TEX_H) * 180
+    expect(lonDeg / latDeg).toBeGreaterThan(0.85)
+    expect(lonDeg / latDeg).toBeLessThan(1.25)
   })
 
-  it('colunas da emenda: 0 e 51 nas pontas de u, e u = 1 volta para a coluna 0', () => {
-    expect(cellFromUv(uOfWeek(0), vOfRow(3))).toEqual({ week: 0, day: 3 })
-    expect(cellFromUv(uOfWeek(51), vOfRow(3))).toEqual({ week: 51, day: 3 })
-    expect(cellFromUv(0.001, vOfRow(3))).toEqual({ week: 0, day: 3 })
-    expect(cellFromUv(0.999, vOfRow(3))).toEqual({ week: 51, day: 3 })
-    expect(cellFromUv(1, vOfRow(3))).toEqual({ week: 0, day: 3 })
+  it('hemisfério norte: semanas 0–25; sul: semanas 26–51', () => {
+    expect(cellFromUv(...uvOf(0, 0))).toEqual({ week: 0, day: 0 })
+    expect(cellFromUv(...uvOf(25, 6))).toEqual({ week: 25, day: 6 })
+    expect(cellFromUv(...uvOf(26, 0))).toEqual({ week: 26, day: 0 })
+    expect(cellFromUv(...uvOf(51, 6))).toEqual({ week: 51, day: 6 })
+    // posição: semana 0 no canto norte-oeste, semana 26 logo abaixo do equador na mesma coluna
+    expect(cellRect(0, 0)[0]).toBe(cellRect(26, 0)[0])
+    expect(cellRect(0, 0)[1]).toBeLessThan(TEX_H / 2)
+    expect(cellRect(26, 0)[1]).toBeGreaterThanOrEqual(TEX_H / 2)
+  })
+
+  it('ida e volta: o centro de cada uma das 364 células volta para a mesma semana e dia', () => {
+    for (let week = 0; week < 52; week++) {
+      for (let day = 0; day < 7; day++) expect(cellFromUv(...uvOf(week, day))).toEqual({ week, day })
+    }
+  })
+
+  it('colunas da emenda: u ≈ 0 e u ≈ 1 nas colunas 0 e 25, e u = 1 volta para a coluna 0', () => {
+    const vNorth = uvOf(0, 3)[1]
+    const vSouth = uvOf(26, 3)[1]
+    expect(cellFromUv(0.001, vNorth)).toEqual({ week: 0, day: 3 })
+    expect(cellFromUv(0.999, vNorth)).toEqual({ week: 25, day: 3 })
+    expect(cellFromUv(0.001, vSouth)).toEqual({ week: 26, day: 3 })
+    expect(cellFromUv(0.999, vSouth)).toEqual({ week: 51, day: 3 })
+    expect(cellFromUv(1, vNorth)).toEqual({ week: 0, day: 3 })
   })
 
   it('dentro de uma calota polar não tem célula', () => {
@@ -79,20 +105,19 @@ describe('textura 2:1 com a grade de polo a polo', () => {
     for (const r of rects) for (const n of r) expect(Number.isInteger(n)).toBe(true)
   })
 
-  it('sem emenda: a folga entre a coluna 51 e a 0 (dando a volta) é igual à das outras', () => {
-    const cells = drawEmpty().rects.slice(1)
-    const first = cells[0] // semana 0, dia 0
-    const second = cells[7] // semana 1, dia 0
-    const last = cells[51 * 7] // semana 51, dia 0
+  it('sem emenda: a folga entre a última coluna e a primeira (dando a volta) é igual à das outras', () => {
+    const first = cellRect(0, 0)
+    const second = cellRect(1, 0)
+    const last = cellRect(25, 0)
     const gap = second[0] - (first[0] + first[2])
     expect(gap).toBe(CELL_GAP)
     expect(TEX_W - (last[0] + last[2]) + first[0]).toBe(gap)
   })
 
-  it('folga vertical igual à horizontal e grade dentro das calotas', () => {
-    const cells = drawEmpty().rects.slice(1)
-    for (let d = 0; d < 6; d++) expect(cells[d + 1][1] - (cells[d][1] + cells[d][3])).toBe(CELL_GAP)
-    expect(cells[0][1]).toBe(POLAR_CAP_PX + CELL_GAP / 2)
-    expect(cells[6][1] + cells[6][3]).toBe(TEX_H - POLAR_CAP_PX - CELL_GAP / 2)
+  it('folga vertical igual à horizontal, inclusive no equador, e grade dentro das calotas', () => {
+    const column = [0, 1, 2, 3, 4, 5, 6].map((d) => cellRect(0, d)).concat([0, 1, 2, 3, 4, 5, 6].map((d) => cellRect(26, d)))
+    for (let r = 0; r < GRID_ROWS - 1; r++) expect(column[r + 1][1] - (column[r][1] + column[r][3])).toBe(CELL_GAP)
+    expect(column[0][1]).toBe(POLAR_CAP_PX + CELL_GAP / 2)
+    expect(column[13][1] + column[13][3]).toBe(TEX_H - POLAR_CAP_PX - CELL_GAP / 2)
   })
 })

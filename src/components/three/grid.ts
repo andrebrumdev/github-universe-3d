@@ -1,22 +1,40 @@
 import { GRID_DAYS, GRID_WEEKS, maxCount } from '@/lib/universe/activity'
 
-/** Largura de uma coluna (semana): 52 meridianos dando a volta inteira, ~6,9° cada. */
-export const CELL_PX = 16
-export const TEX_W = GRID_WEEKS * CELL_PX // 832
+/**
+ * Dois hemisférios, cada um meio ano do gráfico de contribuições do GitHub:
+ * norte = semanas 0–25 (linhas 0–6 = dias 0–6), sul = semanas 26–51 (linhas 7–13 = dias 0–6).
+ * 26 colunas × 14 linhas entre as calotas → células quase quadradas no equador (~13,8° × ~11,9°).
+ */
+export const GRID_COLS = GRID_WEEKS / 2 // 26
+export const GRID_ROWS = GRID_DAYS * 2 // 14
 /** Equiretangular 2:1 (360° × 180°). */
+export const TEX_W = 832
 export const TEX_H = TEX_W / 2 // 416
-/** Folga entre células, igual na horizontal, na vertical e na emenda u = 0/1. */
+/** Largura de uma coluna (semana), em px inteiros. */
+export const COL_PX = TEX_W / GRID_COLS // 32
+/** Folga entre células, igual na horizontal, na vertical, no equador e na emenda u = 0/1. */
 export const CELL_GAP = 4
 /** Calotas polares na cor do planeta, onde sai o eixo: as células não viram fiapos no polo. */
 export const POLAR_CAP_DEG = 7
 export const POLAR_CAP_PX = Math.round((TEX_H * POLAR_CAP_DEG) / 180) // 16
-/** Altura de cada uma das 7 faixas de latitude (dias), em px (fracionária; as bordas são arredondadas). */
-export const ROW_H = (TEX_H - 2 * POLAR_CAP_PX) / GRID_DAYS
+/** Altura de cada uma das 14 faixas de latitude, em px (fracionária; as bordas são arredondadas). */
+export const ROW_H = (TEX_H - 2 * POLAR_CAP_PX) / GRID_ROWS
 
-/** Borda superior (px inteiro) da faixa do dia `d`; rowTop(7) é o início da calota sul. */
-export function rowTop(d: number): number {
-  return POLAR_CAP_PX + Math.round(d * ROW_H)
+/** Borda superior (px inteiro) da linha `r`; rowTop(14) é o início da calota sul. */
+export function rowTop(r: number): number {
+  return POLAR_CAP_PX + Math.round(r * ROW_H)
 }
+
+/** Retângulo [x, y, w, h] (px inteiros, já sem a folga) da célula de (semana, dia). */
+export function cellRect(week: number, day: number): [number, number, number, number] {
+  const south = week >= GRID_COLS
+  const col = south ? week - GRID_COLS : week
+  const row = south ? GRID_DAYS + day : day
+  const half = CELL_GAP / 2
+  const top = rowTop(row)
+  return [col * COL_PX + half, top + half, COL_PX - CELL_GAP, rowTop(row + 1) - top - CELL_GAP]
+}
+
 /** Azul-ardósia claro o bastante para o planeta destacar do fundo do espaço. */
 export const PLANET_BASE = '#3a5288'
 export const CELL_COLOR = '#10b981'
@@ -26,14 +44,14 @@ export const EMPTY_CELL = '#161b2e'
 export function cellFromUv(u: number, v: number): { week: number; day: number } | null {
   if (!Number.isFinite(u) || !Number.isFinite(v)) return null
   // A textura repete em u (a esfera dá a volta): u = 1 é o mesmo meridiano de u = 0.
-  const week = ((Math.floor((u * TEX_W) / CELL_PX) % GRID_WEEKS) + GRID_WEEKS) % GRID_WEEKS
+  const col = ((Math.floor((u * TEX_W) / COL_PX) % GRID_COLS) + GRID_COLS) % GRID_COLS
   const y = (1 - v) * TEX_H
-  if (y < rowTop(0) || y >= rowTop(GRID_DAYS)) return null
-  let day = Math.min(GRID_DAYS - 1, Math.floor((y - POLAR_CAP_PX) / ROW_H))
+  if (y < rowTop(0) || y >= rowTop(GRID_ROWS)) return null
+  let row = Math.min(GRID_ROWS - 1, Math.floor((y - POLAR_CAP_PX) / ROW_H))
   // acerta o arredondamento das bordas, para bater com o desenho
-  while (day > 0 && y < rowTop(day)) day--
-  while (day < GRID_DAYS - 1 && y >= rowTop(day + 1)) day++
-  return { week, day }
+  while (row > 0 && y < rowTop(row)) row--
+  while (row < GRID_ROWS - 1 && y >= rowTop(row + 1)) row++
+  return row < GRID_DAYS ? { week: col, day: row } : { week: GRID_COLS + col, day: row - GRID_DAYS }
 }
 
 export function cellAlpha(count: number, max: number): number {
@@ -48,8 +66,8 @@ export interface GridContext {
 }
 
 /**
- * Grade 52×7 de polo a polo: colunas = semanas (meridianos), linhas = dias (faixas de latitude),
- * com calotas polares lisas. Tudo em pixels inteiros e com a mesma folga, inclusive na emenda.
+ * Grade de polo a polo em dois hemisférios (ver GRID_COLS), com calotas polares lisas.
+ * Tudo em pixels inteiros e com a mesma folga, inclusive no equador e na emenda.
  */
 export function drawActivityGrid(ctx: GridContext, weeks: number[][]): void {
   const max = maxCount(weeks)
@@ -61,9 +79,7 @@ export function drawActivityGrid(ctx: GridContext, weeks: number[][]): void {
       const empty = weeks[w][d] <= 0 || max <= 0
       ctx.fillStyle = empty ? EMPTY_CELL : CELL_COLOR
       ctx.globalAlpha = empty ? 0.85 : cellAlpha(weeks[w][d], max)
-      const top = rowTop(d)
-      const half = CELL_GAP / 2
-      ctx.fillRect(w * CELL_PX + half, top + half, CELL_PX - CELL_GAP, rowTop(d + 1) - top - CELL_GAP)
+      ctx.fillRect(...cellRect(w, d))
     }
   }
   ctx.globalAlpha = 1
