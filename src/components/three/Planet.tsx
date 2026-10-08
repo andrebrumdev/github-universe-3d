@@ -5,10 +5,18 @@ import type * as THREE from 'three'
 import type { Repo } from '@/lib/types'
 import { cellDate } from '@/lib/universe/activity'
 import { planetPosition, type PlanetOrbit, type Ring } from '@/lib/universe/orbits'
-import { moonOrbits, planetSpin } from '@/lib/universe/planets'
+import { axisAngles, moonOrbits, planetSpin } from '@/lib/universe/planets'
 import { simClock } from '@/store/simClock'
 import { useUniverse } from '@/store/universe'
-import { ATMOSPHERE_MATERIAL, ATMOSPHERE_SCALE, PLANET_GEOMETRY_HI, PLANET_GEOMETRY_LO } from './geometries'
+import {
+  ATMOSPHERE_MATERIAL,
+  ATMOSPHERE_SCALE,
+  AXIS_GEOMETRY,
+  AXIS_LENGTH,
+  AXIS_MATERIAL,
+  PLANET_GEOMETRY_HI,
+  PLANET_GEOMETRY_LO,
+} from './geometries'
 import { cellFromUv } from './grid'
 import { Moon } from './Moon'
 import { usePlanetTexture } from './usePlanetTexture'
@@ -16,6 +24,7 @@ import { usePlanetTexture } from './usePlanetTexture'
 export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: PlanetOrbit }) {
   const root = useRef<THREE.Group>(null)
   const precession = useRef<THREE.Group>(null)
+  const tilt = useRef<THREE.Group>(null)
   const surface = useRef<THREE.Mesh>(null)
   const [hovered, setHovered] = useState(false)
   useCursor(hovered)
@@ -30,10 +39,15 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
     const t = simClock.time
     const [x, y, z] = planetPosition(ring, orbit, t)
     root.current?.position.set(x, y, z)
-    // Euler: precessão (y do sistema) → obliquidade (z) → rotação própria (y local).
-    if (precession.current) precession.current.rotation.y = spin.precessionSpeed * t
-    if (surface.current) surface.current.rotation.y = spin.spinSpeed * t
+    // Ângulos de Euler, do grupo de fora para o de dentro:
+    // precessão ψ (y do sistema) → obliquidade θ com nutação (z) → rotação própria φ (y local, o eixo).
+    const angles = axisAngles(spin, t)
+    if (precession.current) precession.current.rotation.y = angles.precession
+    if (tilt.current) tilt.current.rotation.z = angles.obliquity
+    if (surface.current) surface.current.rotation.y = angles.spin
   })
+
+  const axisWidth = Math.max(0.05, 0.04 * orbit.radius)
 
   function handleMove(e: ThreeEvent<PointerEvent>) {
     if (!isReal || !e.uv) return setHoveredCell(null)
@@ -52,7 +66,7 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
   return (
     <group ref={root}>
       <group ref={precession}>
-        <group rotation={[0, 0, spin.obliquity]}>
+        <group ref={tilt} rotation={[0, 0, spin.obliquity]}>
           <mesh
             ref={surface}
             geometry={isReal ? PLANET_GEOMETRY_HI : PLANET_GEOMETRY_LO}
@@ -84,6 +98,13 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
             geometry={PLANET_GEOMETRY_LO}
             material={ATMOSPHERE_MATERIAL}
             scale={orbit.radius * ATMOSPHERE_SCALE}
+            raycast={() => null}
+          />
+          {/* Eixo de rotação pelos polos: fica no grupo da obliquidade, então mostra a inclinação, a precessão e a nutação. */}
+          <mesh
+            geometry={AXIS_GEOMETRY}
+            material={AXIS_MATERIAL}
+            scale={[axisWidth, 2 * orbit.radius * AXIS_LENGTH, axisWidth]}
             raycast={() => null}
           />
           {moons.map((moon) => (

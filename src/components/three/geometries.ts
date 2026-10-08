@@ -15,3 +15,15 @@ export const ATMOSPHERE_MATERIAL = new THREE.MeshBasicMaterial({
   blending: THREE.AdditiveBlending,
   depthWrite: false,
 })
+
+/** Eixo de rotação: haste fina e low-poly (cilindro unitário em y), escalada por planeta. */
+export const AXIS_GEOMETRY = new THREE.CylinderGeometry(1, 1, 1, 6, 1)
+/** Comprimento do eixo em diâmetros do planeta. */
+export const AXIS_LENGTH = 1.5
+export const AXIS_MATERIAL = new THREE.MeshBasicMaterial({
+  color: '#e6fbff',
+  transparent: true,
+  opacity: 0.85,
+  depthWrite: false,
+  toneMapped: false,
+})

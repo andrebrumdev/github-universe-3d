@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { MAX_PLANET_RADIUS, MIN_PLANET_RADIUS } from './planets'
 import {
   buildOrbits,
+  MAX_ECCENTRICITY,
   MAX_INCLINATION,
+  MIN_ECCENTRICITY,
+  MIN_INCLINATION,
   orbitPosition,
+  orbitPath,
   planetPosition,
   type Ring,
+  RING_GAP,
   solveKepler,
   SUN_RADIUS,
   type Vec3,
@@ -28,7 +33,7 @@ const ring = (over: Partial<Ring> = {}): Ring => ({
 
 describe('solveKepler', () => {
   it('resolve M = E − e·sin E com erro desprezível', () => {
-    for (const e of [0, 0.02, 0.08, 0.1]) {
+    for (const e of [0, 0.02, 0.08, 0.12, 0.25, 0.3]) {
       for (let M = -Math.PI; M <= Math.PI; M += 0.37) {
         const E = solveKepler(M, e)
         expect(Math.abs(E - e * Math.sin(E) - M)).toBeLessThan(1e-9)
@@ -74,14 +79,45 @@ describe('buildOrbits', () => {
     expect(orbits.map((o) => o.name)).toEqual(planets.map((p) => p.name))
   })
 
-  it('segue a 3ª lei de Kepler e os limites de e e inclinação', () => {
-    const { rings } = buildOrbits(Array.from({ length: 20 }, (_, i) => ({ name: `p${i}`, radius: 1.5 })))
+  it('segue a 3ª lei de Kepler e os limites de e e inclinação (visíveis: elipses e planos inclinados)', () => {
+    const { rings } = buildOrbits(Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: 1.5 })))
     for (const r of rings) {
       expect(r.period / rings[0].period).toBeCloseTo(Math.pow(r.a / rings[0].a, 1.5), 9)
-      expect(r.e).toBeGreaterThanOrEqual(0.02)
-      expect(r.e).toBeLessThanOrEqual(0.08)
+      expect(r.e).toBeGreaterThanOrEqual(MIN_ECCENTRICITY)
+      expect(r.e).toBeLessThanOrEqual(MAX_ECCENTRICITY)
+      expect(Math.abs(r.inclination)).toBeGreaterThanOrEqual(MIN_INCLINATION)
       expect(Math.abs(r.inclination)).toBeLessThanOrEqual(MAX_INCLINATION)
     }
+    expect(MIN_ECCENTRICITY).toBeGreaterThanOrEqual(0.12)
+    expect(MAX_INCLINATION).toBeCloseTo((14 * Math.PI) / 180, 12)
+    // planos em direções diferentes: inclinações com sinais trocados entre os anéis
+    expect(new Set(rings.map((r) => Math.sign(r.inclination))).size).toBe(2)
+  })
+
+  it('o periélio de cada anel passa do afélio do anterior, com os dois raios máximos e a folga', () => {
+    const planets = Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: 0.45 + (i % 5) * 0.6 }))
+    const { rings } = buildOrbits(planets)
+    for (let k = 1; k < rings.length; k++) {
+      const prev = rings[k - 1]
+      const next = rings[k]
+      expect(next.a * (1 - next.e)).toBeGreaterThanOrEqual(
+        prev.a * (1 + prev.e) + prev.maxRadius + next.maxRadius + RING_GAP - 1e-9,
+      )
+    }
+  })
+
+  it('o sistema cheio (40 planetas, todos máximos) cabe dentro da casca de estrelas', () => {
+    const { rings } = buildOrbits(Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: MAX_PLANET_RADIUS })))
+    const outer = rings[rings.length - 1]
+    // pior caso: a câmera de visão geral fica a ~1,5× o alcance + 10, na borda interna da casca (260)
+    expect(outer.a * (1 + outer.e) + outer.maxRadius).toBeLessThan(170)
+  })
+
+  it('orbitPath desenha a elipse: periélio a(1−e) e afélio a(1+e)', () => {
+    const r = ring({ e: 0.2, inclination: 0.24 })
+    const radii = orbitPath(r).map(len)
+    expect(Math.min(...radii)).toBeCloseTo(r.a * (1 - r.e), 6)
+    expect(Math.max(...radii)).toBeCloseTo(r.a * (1 + r.e), 6)
   })
 
   it.each([
@@ -91,11 +127,13 @@ describe('buildOrbits', () => {
     const planets = Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: radiusOf(i) }))
     const { rings, orbits } = buildOrbits(planets)
     const outer = rings[rings.length - 1]
-    // menor folga (distância − soma dos raios) ao Sol e entre planetas; um expect só no fim
+    // menor folga (distância − soma dos raios) ao Sol e entre planetas; um expect só no fim.
+    // Passo fino o bastante para ~40 amostras por volta do anel interno (o externo é ~50× mais lento).
+    const STEPS = 2000
     let sunGap = Infinity
     let pairGap = Infinity
-    for (let s = 0; s < 400; s++) {
-      const t = (s / 400) * outer.period
+    for (let s = 0; s < STEPS; s++) {
+      const t = (s / STEPS) * outer.period
       const pos = orbits.map((o) => planetPosition(rings[o.ring], o, t))
       for (let i = 0; i < orbits.length; i++) {
         sunGap = Math.min(sunGap, len(pos[i]) - SUN_RADIUS - orbits[i].radius)
