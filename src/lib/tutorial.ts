@@ -12,7 +12,7 @@ export function tutorialReducer(step: TutorialStep | null, action: TutorialActio
 export const TUTORIAL_COPY: Record<TutorialStep, string> = {
   welcome: 'Bem-vindo ao universo GitHub de {name}! O sol no centro é o perfil: clique nele quando quiser.',
   repos: 'Cada planeta é um repositório. Quanto maior o planeta, mais stars e forks ele tem.',
-  tech: 'As luas são as linguagens do repo, na cor oficial de cada uma. Os quadradinhos verdes são os commits de cada dia.',
+  tech: 'As luas são as linguagens do repo, com a marca e a cor de cada uma. Os quadradinhos verdes são os commits de cada dia.',
   free: 'Agora é com você: arraste para girar, role para aproximar e clique em tudo. Se precisar, é só me chamar!',
 }
 
