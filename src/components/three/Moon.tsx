@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useCursor } from '@react-three/drei'
 import type * as THREE from 'three'
@@ -6,11 +6,13 @@ import type { MoonSpec } from '@/lib/universe/planets'
 import { simClock } from '@/store/simClock'
 import { useUniverse } from '@/store/universe'
 import { MOON_GEOMETRY } from './geometries'
+import { getMoonTexture } from './moonTexture'
 
 export function Moon({ spec, planet }: { spec: MoonSpec; planet: string }) {
   const pivot = useRef<THREE.Group>(null)
   const [hovered, setHovered] = useState(false)
   useCursor(hovered)
+  const map = useMemo(() => getMoonTexture(spec.language, spec.color), [spec.language, spec.color])
   const select = useUniverse((s) => s.select)
 
   useFrame(() => {
@@ -34,7 +36,7 @@ export function Moon({ spec, planet }: { spec: MoonSpec; planet: string }) {
           }}
           onPointerOut={() => setHovered(false)}
         >
-          <meshStandardMaterial color={spec.color} emissive={spec.color} emissiveIntensity={0.15} roughness={0.6} />
+          <meshStandardMaterial map={map} emissive="#ffffff" emissiveMap={map} emissiveIntensity={0.25} roughness={0.6} />
         </mesh>
       </group>
     </group>

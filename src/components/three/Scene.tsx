@@ -1,10 +1,11 @@
 import { useMemo } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { CameraControls, Stats } from '@react-three/drei'
+import { Stats } from '@react-three/drei'
 import type { Universe } from '@/lib/types'
 import { buildOrbits } from '@/lib/universe/orbits'
 import { planetRadius } from '@/lib/universe/planets'
 import { useUniverse } from '@/store/universe'
+import { CameraRig } from './CameraRig'
 import { OrbitLines } from './OrbitLines'
 import { Planet } from './Planet'
 import { SimClockDriver } from './SimClockDriver'
@@ -30,7 +31,7 @@ export function Scene({ universe }: { universe: Universe }) {
       {system.orbits.map((orbit, i) => (
         <Planet key={orbit.name} repo={universe.repos[i]} ring={system.rings[orbit.ring]} orbit={orbit} />
       ))}
-      <CameraControls makeDefault minDistance={2} maxDistance={200} />
+      <CameraRig system={system} />
       {SHOW_STATS && <Stats />}
     </Canvas>
   )

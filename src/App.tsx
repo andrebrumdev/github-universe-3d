@@ -1,7 +1,9 @@
 import { lazy, Suspense, useState } from 'react'
 import { ActivityTooltip } from '@/components/ui/ActivityTooltip'
+import { BackButton } from '@/components/ui/BackButton'
 import { LoadError } from '@/components/ui/LoadError'
 import { Loader } from '@/components/ui/Loader'
+import { PlanetPanel } from '@/components/ui/PlanetPanel'
 import { StaticFallback } from '@/components/ui/StaticFallback'
 import { useUniverseData } from '@/hooks/useUniverseData'
 import { supportsWebGL } from '@/hooks/webgl'
@@ -23,6 +25,8 @@ export function App() {
         <Scene universe={universe} />
       </Suspense>
       <ActivityTooltip />
+      <BackButton />
+      <PlanetPanel universe={universe} />
     </main>
   )
 }
