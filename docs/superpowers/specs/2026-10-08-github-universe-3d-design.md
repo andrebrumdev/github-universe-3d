@@ -1,105 +1,174 @@
 # GitHub Universe 3D — Design (MVP)
 
-Data: 2026-10-08
+Data: 2026-10-08 (revisado no mesmo dia: GitHub Pages, órbitas de Kepler)
 Base: `docs/brief.md`
 
 ## 1. Objetivo e escopo
 
-Projeto de portfólio: o perfil do GitHub do autor vira uma galáxia 3D interativa. O sucesso do MVP é uma demo online, fluida e bonita, que impressiona um recrutador em ~30 segundos.
+Projeto de portfólio: o perfil do GitHub do autor vira uma galáxia 3D interativa, publicada como site estático no GitHub Pages. O sucesso do MVP é uma demo online, fluida e bonita, que impressiona um recrutador em ~30 segundos.
 
 **Mapeamento:** galáxia = perfil · planeta = repositório · luas = linguagens · textura do planeta = grid 52×7 de atividade · sol = globo interativo do perfil · Octocat = guia em nave.
 
 ### Decisões fechadas
 | Tema | Decisão |
 |---|---|
-| Stack | Next.js, React Three Fiber + drei, TypeScript, Tailwind, Framer Motion, Zustand |
+| Stack | Vite, React 19, TypeScript, React Three Fiber 9 + drei, Tailwind v4, Framer Motion, Zustand |
+| Hospedagem | GitHub Pages, site estático, sem servidor |
+| Dados | Só o perfil do autor; snapshot `universe.json` gerado no GitHub Action (push, a cada 6h, manual) |
 | Atividade dos planetas | Híbrido: top 10 repos com commits reais por dia; demais com padrão derivado de `pushedAt` e stars |
-| Fonte de dados | Só o perfil do autor, buscado no servidor com cache (ISR, revalidate ~6h) |
-| Info do planeta | Painel lateral à direita (bottom sheet no mobile), em DOM fora do `<Canvas>`; drei cuida de câmera, estrelas e hover |
-| Superfície do planeta | `CanvasTexture` por planeta (grid 52×7), isolada em `PlanetSurface` |
-| Defaults assumidos | Lua proporcional a bytes por linguagem; posição por mix stars+recência (mais relevantes perto do sol); intensidade do quadradinho variável com commits; hover mostra data e contagem |
+| Info do planeta | Painel lateral à direita (bottom sheet no mobile), DOM fora do `<Canvas>`; drei cuida de câmera e estrelas |
+| Superfície do planeta | `CanvasTexture` 2:1 (832×416) com a grade 52×7 numa faixa do equador |
+| Movimento dos planetas | Órbitas de Kepler em anéis + eixo inclinado por ângulos de Euler |
+| Rosto do sol | Segue a câmera com atraso (mola) e inclina para cima e para baixo, como o globo de NY |
+| Octocat | SVG próprio a partir de `design/`, nave roxo claro, estilo inspirado no Jetpacktocat |
+| Defaults assumidos | Lua ∝ √bytes da linguagem; planetas mais relevantes (stars + recência) no anel interno; intensidade do quadradinho varia com os commits; hover mostra data e contagem |
 
 ### Fora do MVP (V2)
-Múltiplas galáxias, nível "universo", link `/<username>`, tema claro, LOD/instancing, Redis, username dinâmico. A arquitetura não bloqueia nenhum: `fetchUniverse(username)` já recebe o usuário, fixo no MVP.
+Múltiplas galáxias, nível "universo", link `#/username` (o Pages não tem rewrite, então a rota é por hash), tema claro, LOD/instancing, username dinâmico. `fetchUniverse(login)` já recebe o usuário.
 
 ## 2. Arquitetura e fluxo de dados
 
 ```
-src/
-  app/
-    page.tsx              # Server Component: busca dados em cache e entrega ao client
-    api/universe/route.ts # GET → JSON normalizado (debug)
-    api/repo/[name]/route.ts # detalhes sob demanda (último commit, total de commits)
-  lib/github/
-    queries.ts            # GraphQL: perfil, repos, linguagens, calendário
-    fetchUniverse.ts      # orquestra as queries, devolve o modelo de domínio
-    normalize.ts          # GraphQL cru → tipos do app (puro)
-  lib/universe/
-    layout.ts             # posições, tamanhos, órbitas (puro)
-    activity.ts           # top 10: commits reais; demais: padrão derivado (puro)
-  components/three/       # Scene, Sun, Planet, PlanetSurface, Moon, CameraRig
-  components/ui/          # ProfilePanel, PlanetPanel, Tooltip, Octocat, Tutorial
-  store/universe.ts       # Zustand: seleção, foco, tutorial, hover
+scripts/snapshot.ts        # Node, roda no build: GitHub GraphQL → public/universe.json
+src/lib/github/            # queries, cliente GraphQL, fetchUniverse, normalize (só o script usa)
+src/lib/universe/          # funções puras: activity, ranking, orbits (Kepler), layout das luas
+src/data/loadUniverse.ts   # navegador: fetch(`${import.meta.env.BASE_URL}universe.json`)
+src/components/three/      # Scene, Sun, Planet, PlanetSurface, Moon, OrbitLines, CameraRig
+src/components/ui/         # SidePanel, PlanetPanel, ProfilePanel, Tooltip, Octocat, Tutorial
+src/store/                 # Zustand: seleção, hover, tutorial, relógio de simulação
 ```
 
 **Fluxo**
-1. `page.tsx` (servidor) chama `fetchUniverse()` com `revalidate` de poucas horas. O token fica só no servidor.
-2. `fetchUniverse` faz 1 query de perfil+repos (linguagens, stars, forks, `pushedAt`) e 1 query por repo do top 10 para commits das últimas 52 semanas, em paralelo, agrupados por dia.
-3. O dado normalizado vai ao client como props. O 3D não faz fetch. Último commit e total de commits vêm sob demanda.
-4. Falha do GitHub: serve o último cache válido (stale-while-revalidate); sem cache, usa `public/universe.snapshot.json`.
+1. O workflow `deploy.yml` roda em push na `main`, no cron `17 */6 * * *` e manualmente.
+2. `pnpm snapshot` consulta o GitHub GraphQL com o token do secret `UNIVERSE_TOKEN` (o GitHub não aceita nomes de secret começando com `GITHUB_`):
+   - 1 query de perfil e repos (linguagens, stars, forks, watchers, `pushedAt`, e `history(first: 1)` para último commit e total de commits de cada repo);
+   - até 10 queries de histórico do autor nas últimas 52 semanas (top 10, paginadas), agrupadas por dia.
+3. O resultado vai para `public/universe.json`, com `schemaVersion: 1`. `vite build` usa `base: '/github-universe-3d/'` e `actions/deploy-pages` publica.
+4. O navegador baixa o JSON. Enquanto carrega, o Octocat mostra a expressão "pensando".
+5. Não existe busca sob demanda: todos os dados dos painéis estão no JSON.
 
-**Princípio:** `layout.ts` e `activity.ts` são funções puras, sem Three.js, testáveis sem GPU.
+**Dado de exemplo:** um `public/universe.json` commitado serve para o dev local e o e2e. `pnpm snapshot` o regenera quando há token em `.env.local`. No Action, o arquivo é sobrescrito antes do build e não é commitado.
+
+**Princípio:** tudo em `src/lib/universe/` é puro, sem Three.js, e testável sem GPU.
 
 **Nota técnica:** o `contributionCalendar` do GitHub existe só por usuário, não por repo. A atividade por repo exige paginar o histórico de commits, daí o limite de 10 repos reais.
 
-## 3. Cena 3D, sol e câmera
+**Limitação:** o GitHub desativa cron de repositórios sem atividade por 60 dias.
 
-**Scene:** `<Canvas>` único em tela cheia, fundo `#0a0e27`, `<Stars>` do drei, luz pontual no sol. `dpr` em `[1, 2]`, `<Suspense>` com loader.
+## 3. Cena 3D, órbitas e sol
 
-**Planeta:** raio por escala logarítmica de stars+forks com mínimo e máximo. `PlanetSurface` recebe `weeks[52][7]` e devolve o material com `CanvasTexture` (células `#10b981`, opacidade proporcional aos commits, respiro entre células). Hover: raycast → `uv` → semana/dia → tooltip (data + commits). Rotação lenta no eixo; drag gira o planeta em foco. Repos fora do top 10 usam o mesmo componente, sem tooltip de data real.
+**Scene:** `<Canvas>` único em tela cheia, fundo `#0a0e27`, `<Stars>` do drei, luz pontual no sol, `dpr` em `[1, 2]`.
 
-**Luas:** uma por linguagem, órbita em plano levemente inclinado, raio ∝ √bytes, cor oficial da linguagem. Órbita animada em `useFrame` (ângulo + velocidade). Clique abre card com linguagem e percentual.
+### Órbitas de Kepler em anéis
+- Com 40 planetas em órbitas elípticas separadas, a folga para não colidirem cresce de forma exponencial. Por isso os planetas ficam em **anéis**: os planetas do mesmo anel compartilham os elementos orbitais e o período, então mantêm a distância entre si para sempre.
+- O anel *k* (a partir de 0) comporta `3 + 2k` planetas, distribuídos em fase igual (anomalia média com espaçamento `2π/n`). Os repos mais bem ranqueados vão para o anel interno. São cerca de 6 anéis para 40 planetas.
+- Elementos por anel: excentricidade *e* entre 0,02 e 0,08, inclinação até 6°, nó Ω e argumento do periélio ω determinísticos. O semieixo *a* é calculado em sequência para que o periélio do anel externo fique além do afélio do interno, somando os maiores raios dos dois anéis e uma folga.
+- **3ª lei:** período `T = T0 · (a / a0)^1.5`, com o anel interno em `T0 ≈ 60 s`.
+- **2ª lei:** posição pela equação de Kepler `M = E − e·sin E`, com 4 iterações de Newton por frame. É uma fórmula fechada e não acumula erro.
+- A orientação da órbita usa os três ângulos de Euler clássicos (Ω, i, ω).
+- Cada anel desenha uma linha de órbita fina e translúcida.
 
-**Sol:** esfera azul e verde com glow ciano (esfera maior `BackSide`, aditiva). Rosto desenhado em `CanvasTexture`, redesenhado só quando a expressão muda. Máquina de estados `idle | hover | click | away` controla posição (lerp com delay), brilho, expressão e piscada aleatória (3–5s). Distância do mouse via pointer projetado no plano da cena. Clique: salto/vibração + `openProfile()`.
+### Eixo inclinado (ângulos de Euler)
+Cada planeta tem obliquidade de 0 a 30° (determinística pelo nome do repo), rotação própria no eixo inclinado e uma precessão lenta. As luas orbitam no plano equatorial do planeta.
 
-**Câmera (`CameraControls` do drei):** dois níveis no MVP — galáxia (órbita livre limitada) e planeta (zoom focado com alvo deslocado para abrir espaço ao painel). Clique em planeta → `setLookAt` suave. Esc, clique no vazio ou botão voltam. Scroll para longe da galáxia fica travado no MVP.
+### Tempo
+- Um relógio de simulação único move órbitas, rotações e luas.
+- Ao focar um planeta, a escala do tempo cai até 0 em ~1 s. Ao sair do foco, volta a 1.
+- Com `prefers-reduced-motion`, a escala fica em 0: posições fixas, linhas de órbita visíveis.
+
+### Planeta e superfície
+- Raio por escala logarítmica de stars + forks, com mínimo e máximo.
+- `PlanetSurface` recebe `weeks[52][7]` e devolve o material com `CanvasTexture`. A textura é equiretangular 2:1 (832×416, células de 16px), e a grade 52×7 ocupa uma faixa no equador, para cada célula ficar quadrada na esfera (52 colunas em 360° dão ~6,9° por célula). Os polos ficam na cor-base do planeta.
+- Células `#10b981` com opacidade proporcional aos commits do dia e células vazias levemente visíveis.
+- Hover: raycast → `uv` → semana e dia → tooltip (data + commits). Planetas com atividade derivada não mostram tooltip.
+- Geometria compartilhada: esfera unitária escalada; resolução menor fora do top 10.
+
+### Luas
+Até 6 por repo, raio ∝ √bytes, cor oficial da linguagem, órbitas circulares concêntricas no plano equatorial do planeta, geometria compartilhada. O clique seleciona a lua e o painel do planeta destaca a linguagem com o percentual.
+
+### Sol
+- Esfera azul e verde com glow ciano (esfera maior `BackSide`, aditiva). O rosto (olhos brancos, pupilas pretas, boca rosa) é desenhado numa `CanvasTexture`, redesenhada só quando a expressão ou a piscada mudam.
+- **O rosto segue a câmera com atraso.** Uma mola levemente subamortecida (~0,5 s, com um pequeno balanço ao chegar) leva o yaw e o pitch do rosto até a direção da câmera. O pitch é limitado a ±35°, como o globo de NY olhando para cima e para baixo sem virar.
+- A máquina de estados `idle | hover | click | away` controla a posição (segue o mouse quando ele chega perto), o brilho, a expressão, as piscadas a cada 3 a 5 s e o salto no clique, que abre o perfil.
+
+### Câmera (`CameraControls` do drei)
+Dois níveis no MVP: galáxia e planeta. No foco, a câmera acompanha o planeta a cada frame, com o alvo deslocado para abrir espaço ao painel (para a direita no desktop, para baixo no mobile). Esc, clique no vazio ou o botão "← Galáxia" voltam à visão geral. O zoom para longe é limitado.
 
 ## 4. UI, Octocat e tutorial
 
-**Camada DOM:** fora do `<Canvas>`, container com `pointer-events: none` e filhos interativos com `auto`. Tailwind + Framer Motion, dark fixo, texto branco/cinza claro, destaque ciano neon.
+**Camada DOM:** fora do `<Canvas>`. Tailwind + Framer Motion, tema escuro fixo, texto branco/cinza claro, destaque ciano neon.
 
 **Painéis**
-- `PlanetPanel`: lateral à direita. Nome, descrição, stars/forks/watchers, linguagem principal, último commit, total de commits, link. Último commit e total via `/api/repo/[name]` com skeleton. Bottom sheet no mobile.
-- `ProfilePanel`: aberto pelo sol. Avatar, nome, bio, stats, top linguagens, último commit. Mesmo contêiner/animação do `PlanetPanel`; só um painel aberto por vez.
+- `PlanetPanel`: nome, descrição, stars/forks/watchers, linguagens com percentual (a linguagem da lua selecionada fica destacada), último commit, total de commits, link para o GitHub.
+- `ProfilePanel`: avatar, nome, bio, stats (stars, forks, seguidores, repos), top linguagens, último commit.
+- Os dois usam o mesmo `SidePanel` (lateral no desktop, bottom sheet no mobile). Só um fica aberto por vez.
 - `Tooltip` do quadradinho: data e commits.
 
-**Octocat:** fixo no canto inferior direito, fora da câmera 3D; SVG/React animado com Framer Motion, arte de `design/`. Sobe/recua quando o painel está aberto; menor no mobile. Entrada com nave em parallax e aceno; hover acena e pisca; clique abre o tutorial; ~20s de inatividade → "oi, tá aí?", depois "se precisar de ajuda, é comigo!".
+**Octocat:** fixo no canto inferior direito, fora da câmera 3D. É um SVG/React animado com Framer Motion, a partir de `design/Octocat.dc.html`. Recua quando o painel abre no desktop e some no mobile.
+- Entrada com a nave descendo em parallax e aceno.
+- No hover, acena e pisca. O clique abre o tutorial.
+- Com ~20 s de inatividade diz "Oi, tá aí?" e, depois de mais tempo, "Ei, se precisar de ajuda, é comigo!".
+- Durante o carregamento do JSON, usa a expressão "pensando".
 
-**Falas:** `octocatLines.ts` mapeia eventos do store → falas (sol, planeta, lua, primeiro zoom). "Adicionou galáxia" fica na V2. Balão com fila e duração limitada; falas novas substituem as antigas; falas de "primeira vez" aparecem uma vez por sessão.
+**Falas:** `octocatLines.ts` mapeia eventos do store para falas:
+- sol → "Esse é o perfil GitHub de {nome}!" (quem visita é o recrutador, não o dono do perfil);
+- planeta → "Olha que legal esse repo aqui!";
+- lua → "Essa linguagem é importante nesse projeto!";
+- primeiro zoom → "Uau, dá pra ver bem mais de perto!".
 
-**Tutorial (máquina de passos no Zustand):** 1) Bem-vindo (câmera no sol); 2) Repos (planetas, tamanho = popularidade); 3) Tecnologias (planeta em foco, luas e cores); 4) Explore à vontade (libera controles). Controles: [Próximo] [Pular tutorial]. Câmera conduzida pelos passos até o 4. Abre sozinho na primeira visita (flag em `localStorage`) e reabre pelo Octocat.
+O balão tem duração limitada, e uma fala nova substitui a anterior. Falas de primeira vez aparecem uma vez por sessão.
 
-**Acessibilidade/mobile:** painéis navegáveis por teclado (foco, Esc). Respeita `prefers-reduced-motion`. Touch: um dedo gira, pinça dá zoom, toque seleciona.
+**Tutorial (máquina de passos no Zustand):**
+1. Bem-vindo: câmera no sol.
+2. Repos: planetas, tamanho = popularidade.
+3. Tecnologias: planeta em foco, luas e cores, quadradinhos.
+4. Explore à vontade: libera os controles.
+
+Controles: [Próximo] e [Pular tutorial]. A câmera é conduzida pelos passos até o 4. O tutorial abre sozinho na primeira visita (flag em `localStorage`) e reabre pelo Octocat.
+
+**Acessibilidade/mobile:** painéis navegáveis por teclado (foco, Esc), respeito a `prefers-reduced-motion`, e no toque um dedo gira, a pinça dá zoom e o toque seleciona.
 
 ## 5. Erros, testes, performance e deploy
 
 **Erros**
-- GitHub fora/rate limit: cache stale; sem cache, snapshot `public/universe.snapshot.json` (gerado por `pnpm snapshot` no build).
-- Histórico de um repo do top 10 falha: só aquele planeta cai no padrão derivado; falha vai ao log.
-- Token ausente/inválido: build falha cedo com mensagem clara; em runtime usa o snapshot.
-- WebGL indisponível: fallback estático (imagem + lista de repos) com aviso.
-- `/api/repo/[name]`: skeleton, erro com "tentar de novo", timeout curto; o 3D segue funcional.
+| Situação | Comportamento |
+|---|---|
+| GitHub fora do ar, rate limit ou token expirado no Action | O job falha antes do build; o Pages mantém o último deploy; o erro aparece na aba Actions |
+| Secret `UNIVERSE_TOKEN` ausente | O script falha na hora com "Defina UNIVERSE_TOKEN em Settings → Secrets" |
+| Histórico de um repo do top 10 falha | Só aquele planeta usa o padrão derivado; aviso `::warning` no log |
+| `universe.json` não carrega | Tela com mensagem e "tentar de novo"; Octocat "pensando" |
+| `schemaVersion` diferente de 1 | Erro claro em vez de quebrar a cena |
+| WebGL indisponível | Versão em lista (perfil + repos com links) com aviso |
 
 **Testes**
-- Vitest (puro): `normalize`, `layout` (sem sobreposição, escala log), `activity` (agrupamento dia/semana, padrão derivado determinístico), máquinas de estado do sol e do tutorial.
+- Vitest (puro):
+  - normalização, atividade por dia, ranking e anéis;
+  - Kepler: precisão da equação, posição igual após um período, periélio = a(1 − e), nenhuma colisão amostrada ao longo de um período;
+  - mola do rosto do sol: converge, pitch limitado;
+  - máquinas de estado do sol e do tutorial, e falas do Octocat.
 - Contrato: `fetchUniverse` com fixtures GraphQL gravadas, sem rede.
-- Playwright: 1 smoke (página carrega, canvas aparece, clique no sol abre painel, Octocat inicia tutorial). Sem teste de pixels.
-- Validação visual manual com checklist de capturas no PR.
+- Playwright: 1 smoke contra `vite preview` com o JSON commitado. O canvas aparece; pular tutorial; clicar no sol abre o perfil; o Octocat reabre o tutorial.
+- Checklist visual manual com capturas no PR.
 
-**Performance:** 60fps em notebook comum, 30fps estáveis em mobile médio. `dpr` limitado; texturas pequenas (~416×56); geometrias e materiais compartilhados entre luas; textura por planeta gerada uma vez; geometria de menor resolução fora do top 10. LOD/instancing só se o profiling pedir (V2). Código 3D via `dynamic import` com `ssr: false`. Medição: Lighthouse + `r3f-perf`.
+**Performance**
+- Orçamento: 60 fps em notebook comum, 30 fps estáveis em celular médio.
+- Kepler para 40 planetas é barato. São 6 linhas de órbita, `dpr` limitado e texturas e geometrias compartilhadas.
+- A cena 3D carrega via `React.lazy`, então o loader e o Octocat aparecem antes do Three.js. Meta: bundle inicial abaixo de 400 KB gzip.
+- Medição: Lighthouse e `<Stats />` do drei com `?perf` (o `r3f-perf` não declara suporte ao R3F 9).
 
-**Deploy:** Vercel; `GITHUB_TOKEN` somente leitura com escopos mínimos; revalidate ~6h. CI: lint, typecheck, Vitest, build; Playwright no PR.
+**Deploy**
+| Workflow | Quando roda | O que faz |
+|---|---|---|
+| `ci.yml` | PR e push | Lint, typecheck, Vitest, build, Playwright |
+| `deploy.yml` | Push na `main`, cron `17 */6 * * *`, manual | Snapshot com o token, Vitest, build com `base: '/github-universe-3d/'`, `actions/deploy-pages` |
+
+- No repositório: Settings → Pages → Source = GitHub Actions, e o secret `UNIVERSE_TOKEN`.
+- O token é fine-grained, só leitura de repositórios públicos. Ele expira em no máximo 1 ano, e o deploy agendado falha quando ele vence.
 
 ## 6. Visual
 
-Fundo `#0a0e27`; quadradinhos `#10b981`; luas na cor oficial da linguagem; sol azul e verde, olhos brancos com pupila preta, boca rosa, glow ciano; Octocat laranja com gorro branco (detalhes roxo e azul); nave branca e azul retrô com antenas e glow sutil; texto branco/cinza claro com destaques ciano neon. Referências: `demo/index.html` e `design/`.
+- **Cores gerais:** fundo `#0a0e27`; quadradinhos `#10b981`; luas na cor oficial da linguagem; texto branco/cinza claro com destaques ciano neon.
+- **Sol:** azul e verde, olhos brancos com pupila preta, boca rosa, glow ciano.
+- **Octocat e nave:** seguem a arte de `design/Octocat.dc.html` (corpo `#1F2329`, rosto `#F2C9A6`, gorro-Clawd `#D97757`, cúpula `#A5F3FC`), que substitui as cores do brief. A exceção é a nave, em roxo claro (`#C4B5FD` no casco e nas asas, em vez do vermelho `#D7263D` da arte).
+- **Referência de estilo** (não de asset): o [Jetpacktocat](https://octodex.github.com/jetpacktocat/) do Octodex, para traço, proporções e expressividade. A arte continua sendo SVG próprio, com a nave.
+- **Outras referências:** `demo/index.html` e `design/`.
