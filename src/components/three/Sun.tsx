@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useFrame, type ThreeEvent } from '@react-three/fiber'
+import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useCursor } from '@react-three/drei'
 import { useReducedMotion } from 'framer-motion'
 import * as THREE from 'three'
@@ -37,6 +37,27 @@ export function Sun() {
   const select = useUniverse((s) => s.select)
   const reduced = useReducedMotion() ?? false
 
+  // O `pointer` do R3F começa em (0,0) e nunca zera: só há "perto" com um ponteiro real no canvas.
+  const gl = useThree((s) => s.gl)
+  const pointerPresent = useRef(false)
+  useEffect(() => {
+    const el = gl.domElement
+    const onMove = (e: PointerEvent) => {
+      pointerPresent.current = e.pointerType !== 'touch'
+    }
+    const onGone = () => {
+      pointerPresent.current = false
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerleave', onGone)
+    el.addEventListener('pointercancel', onGone)
+    return () => {
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerleave', onGone)
+      el.removeEventListener('pointercancel', onGone)
+    }
+  }, [gl])
+
   const texture = useMemo(() => {
     const canvas = document.createElement('canvas')
     canvas.width = SUN_TEX_W
@@ -50,6 +71,7 @@ export function Sun() {
     const ctx = (texture.image as HTMLCanvasElement).getContext('2d')
     if (!ctx) return
     drawSunFace(ctx, SUN_LOOK[mode].expression, blink)
+    // oxlint-disable-next-line react/immutability -- API imperativa de textura do Three.js
     texture.needsUpdate = true
   }, [mode, blink, texture])
 
@@ -82,7 +104,7 @@ export function Sun() {
 
   useFrame(({ pointer, camera, clock }, dt) => {
     raycaster.setFromCamera(pointer, camera)
-    const near = raycaster.ray.intersectPlane(plane, hit) !== null && hit.length() < NEAR_DISTANCE
+    const near = pointerPresent.current && raycaster.ray.intersectPlane(plane, hit) !== null && hit.length() < NEAR_DISTANCE
     let next = sunReducer(machine.current, { type: near ? 'near' : 'far' })
     next = sunReducer(next, { type: 'tick', dt })
     if (next.mode !== machine.current.mode) setMode(next.mode)
