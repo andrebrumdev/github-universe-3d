@@ -14,11 +14,12 @@ import {
   HAT_BLOCKS,
   HAT_EYE_BLOCKS,
   HEAD,
-  KEEL,
   NOZZLE,
+  PILLAR,
+  WING,
+  wingPoint,
   RIM,
   svgTo3d,
-  TOP_FIN,
   TORSO,
 } from './geometry'
 
@@ -141,18 +142,68 @@ describe('fuselagem traseira', () => {
     expect(NOZZLE.z).toBe(FUSELAGE.at(-1)!.z)
   })
 
-  it('a aleta de cima e a quilha nascem de dentro da fuselagem', () => {
-    const base = TOP_FIN.outline.filter(([, y]) => y === Math.min(...TOP_FIN.outline.map(([, v]) => v)))
-    for (const [z, y] of base) {
-      const s = fuselageSection(z)
-      expect(y).toBeLessThan(s.cy + s.ry)
+})
+
+describe('asas', () => {
+  const nozzleBack = NOZZLE.z - NOZZLE.length
+
+  it('são um par espelhado em x', () => {
+    for (const p of WING.outline) {
+      const [x, y, z] = wingPoint(1, p)
+      expect(wingPoint(-1, p)).toEqual([-x, y, z])
     }
-    const keelTop = KEEL.outline.filter(([, y]) => y > -0.7)
-    expect(keelTop.length).toBeGreaterThan(0)
-    for (const [z, y] of keelTop) {
-      const s = fuselageSection(z)
-      expect(y).toBeGreaterThan(s.cy - s.ry)
+  })
+
+  it('a raiz fica presa na tigela/motor, abaixo do aro', () => {
+    for (const p of WING.outline.filter(([s]) => s === 0)) {
+      const [x, y, z] = wingPoint(1, p)
+      expect(y).toBeLessThan(RIM.bottom)
+      const inBowl = Math.hypot(x, z) < bowlRadiusAt(y).radius
+      const f = fuselageSection(z)
+      const inEngine = (x / f.rx) ** 2 + ((y - f.cy) / f.ry) ** 2 < 1
+      expect(inBowl || inEngine).toBe(true)
     }
+  })
+
+  it('corre ao longo do casco: começa sob a frente da cabine e a ponta passa do bocal', () => {
+    const points = WING.outline.map((p) => wingPoint(1, p))
+    const zs = points.map(([, , z]) => z)
+    expect(Math.max(...zs)).toBeGreaterThan(0)
+    expect(Math.min(...zs)).toBeLessThan(nozzleBack)
+    for (const [, y, z] of points) if (z > 0) expect(y).toBeLessThan(RIM.bottom)
+    const frontRoot = wingPoint(1, WING.outline.find(([s, z]) => s === 0 && z > 0)!)
+    const bowlMiddle = (BOWL_PROFILE[0][1] + RIM.top) / 2
+    expect(frontRoot[1]).toBeLessThan(bowlMiddle)
+    expect(Math.max(...points.map(([, y]) => y))).toBeLessThan(RIM.top)
+    const width = Math.max(...WING.outline.map(([s]) => s))
+    expect(width).toBeLessThan((Math.max(...zs) - Math.min(...zs)) / 3)
+  })
+
+  it('a ponta de trás é a parte mais traseira e fica perto do eixo (aponta para trás)', () => {
+    const tip = WING.outline.reduce((a, b) => (b[1] < a[1] ? b : a))
+    const widest = Math.max(...WING.outline.map(([s]) => s))
+    expect(tip[0]).toBeLessThan(widest / 2)
+  })
+
+  it('sobe para fora (diedro) e para trás (pitch), e as luzes ficam dentro do contorno', () => {
+    expect(wingPoint(1, [0.5, 0])[1]).toBeGreaterThan(wingPoint(1, [0, 0])[1])
+    expect(wingPoint(1, [0, -2])[1]).toBeGreaterThan(wingPoint(1, [0, 0])[1])
+    const cross = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    for (const light of WING.lights) {
+      const signs = WING.outline.map((p, i) => Math.sign(cross(p, WING.outline[(i + 1) % WING.outline.length], light)))
+      expect(new Set(signs).size).toBe(1)
+    }
+  })
+})
+
+describe('coluna da cabine', () => {
+  it('vai do piso, atrás do piloto, até o alto da bolha, sempre por dentro do vidro', () => {
+    const [first, last] = [PILLAR.points[0], PILLAR.points.at(-1)!]
+    expect(first[1]).toBe(DECK_Y)
+    expect(last[1]).toBeGreaterThan(BUBBLE.center[1] + BUBBLE.radius * 0.9)
+    for (const p of PILLAR.points.slice(1)) expect(insideBubble(p)).toBe(true)
+    const pilotBack = Math.min(...HAT_BLOCKS.map((b) => pilotToShip(b.position)[2] - (b.size[2] * COCKPIT.scale) / 2))
+    for (const p of PILLAR.points.slice(0, 2)) expect(p[2] + PILLAR.radius).toBeLessThan(pilotBack)
   })
 })
 

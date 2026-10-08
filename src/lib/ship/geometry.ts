@@ -20,6 +20,7 @@ export const COLORS = {
   cream: '#F1EAD8',
   engine: '#3A3F4B',
   nozzle: '#262A33',
+  wingStripe: '#5EC4B6',
   dome: '#A5F3FC',
   thruster: '#67E8F9',
   headlight: '#FFF3C4',
@@ -172,7 +173,7 @@ export const COCKPIT = {
   bubbleRadius: BUBBLE.radius,
 } as const
 
-/** Antena: fio em arco do topo da bolha para trás, com bolinha na ponta. */
+/** Antena: fio em arco do topo da bolha para trás, com um trecho em mola e bolinha na ponta. */
 export const ANTENNA = {
   points: [
     [0, 1.53, -0.12],
@@ -183,6 +184,8 @@ export const ANTENNA = {
   ] as Vec3[],
   radius: 0.025,
   tipRadius: 0.075,
+  /** Trecho em mola: voltas em volta do arco entre as frações `from` e `to` do comprimento. */
+  coil: { turns: 3, radius: 0.07, from: 0.3, to: 0.8 },
 } as const
 
 /** Seção elíptica da fuselagem traseira: centro (0, cy, z), semieixos rx × ry. */
@@ -230,44 +233,56 @@ export const NOZZLE = { z: FUSELAGE[FUSELAGE.length - 1].z, length: 0.4, radiusF
 /** Chama do propulsor (comprimento em thrusterLevel = 1). */
 export const THRUSTER = { radius: 0.3, length: 1.1 } as const
 
-/** Aleta superior inclinada para trás: contorno (z, y), convexo; a base fica dentro da fuselagem. */
-export const TOP_FIN = {
+/**
+ * Asas: par espelhado de lâminas longas que correm ao longo do casco, uma de cada lado. Cada uma começa
+ * baixa, embaixo da frente da cabine, corre para trás junto da tigela e do motor, passa do bocal e termina
+ * numa ponta apontada para trás. A raiz fica dentro da tigela/motor; a lâmina sobe para fora (diedro) e
+ * para trás (pitch). Mesma ordem de rotação do Euler 'XYZ' do three: primeiro o diedro, depois o pitch.
+ * Contorno no plano da asa: (s, z), com s = distância para fora a partir da raiz e z da nave; convexo.
+ */
+export const WING = {
+  root: { x: 0.55, y: -0.55 },
+  /** Sobe para fora (rotação em z da nave, espelhada por lado). */
+  dihedral: (20 * Math.PI) / 180,
+  /** Sobe para trás (rotação em x): a frente fica baixa, sob a cabine, e a ponta de trás mais alta. */
+  pitch: (3 * Math.PI) / 180,
   outline: [
-    [-2.35, 0],
-    [-3.1, -0.02],
-    [-3.85, 1.2],
-    [-3.4, 1.25],
+    [0, 0.4],
+    [0.75, 0],
+    [0.95, -2.2],
+    [0.7, -3.7],
+    [0.25, -4.5],
+    [0, -2.6],
   ] as Vec2[],
-  thickness: 0.08,
-} as const
-
-/** Quilha que prende o estabilizador por baixo: contorno (z, y), convexo; o topo fica dentro da fuselagem. */
-export const KEEL = {
-  outline: [
-    [-2.4, -0.6],
-    [-3.1, -0.5],
-    [-3.35, -1.05],
-    [-2.55, -1.05],
-  ] as Vec2[],
-  thickness: 0.07,
-} as const
-
-/** Estabilizador: lâmina horizontal longa e baixa que afunila numa ponta atrás; contorno (x, z), convexo. */
-export const STABILIZER = {
-  outline: [
-    [0, -1.9],
-    [0.55, -2.3],
-    [0.42, -3.7],
-    [0, -4.7],
-    [-0.42, -3.7],
-    [-0.55, -2.3],
-  ] as Vec2[],
-  top: -1.05,
   thickness: 0.06,
-  /** Duas luzinhas redondas em cima da lâmina: (x, z). */
+  /** Faixas verde-água: uma na borda de fora e uma no meio da lâmina, por cima. Linhas (s, z). */
+  stripes: [
+    { radius: 0.035, line: [[0.75, 0], [0.95, -2.2], [0.7, -3.7], [0.25, -4.5]] as Vec2[] },
+    { radius: 0.022, line: [[0.4, 0.05], [0.6, -2.2], [0.35, -3.9]] as Vec2[] },
+  ],
+  /** Duas luzinhas em domo sobre cada asa, perto da ponta: (s, z). */
   lights: [
-    [-0.24, -3.9],
-    [0.24, -3.9],
+    [0.65, -3.0],
+    [0.56, -3.55],
   ] as Vec2[],
-  lightRadius: 0.05,
+  lightRadius: 0.06,
+} as const
+
+/** Ponto (s, z) do plano de uma asa levado para a nave; side = 1 é a asa de +x, −1 a de −x. */
+export function wingPoint(side: 1 | -1, [s, z]: Vec2): Vec3 {
+  const x = side * s * Math.cos(WING.dihedral)
+  const y = s * Math.sin(WING.dihedral)
+  const [cos, sin] = [Math.cos(WING.pitch), Math.sin(WING.pitch)]
+  return [side * WING.root.x + x, WING.root.y + y * cos - z * sin, y * sin + z * cos]
+}
+
+/** Coluna em arco dentro da bolha: do fundo da cabine, atrás do piloto, até o alto do vidro. */
+export const PILLAR = {
+  points: [
+    [0, DECK_Y, -0.9],
+    [0, 0.7, -0.88],
+    [0, 1.3, -0.58],
+    [0, 1.5, -0.16],
+  ] as Vec3[],
+  radius: 0.06,
 } as const

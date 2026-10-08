@@ -3,7 +3,18 @@
  * src/lib/ship/geometry.ts. Compartilhadas por todas as instâncias da nave e nunca descartadas.
  */
 import * as THREE from 'three'
-import { arcPath, bevelConvexGeometry, circleProfile, curvePath, loft, sweep, transformPath, transportFrames } from 'three-low-poly'
+import {
+  arcPath,
+  bevelConvexGeometry,
+  circleProfile,
+  curvePath,
+  joinPaths,
+  linePath,
+  loft,
+  sweep,
+  transformPath,
+  transportFrames,
+} from 'three-low-poly'
 import {
   ANTENNA,
   BOWL_PROFILE,
@@ -13,16 +24,15 @@ import {
   FUSELAGE,
   fuselageSection,
   HEADLIGHTS,
-  KEEL,
   LATHE_PHI_START,
   NOZZLE,
+  PILLAR,
   RADIAL_SEGMENTS,
   RIM,
   RIM_PROFILE,
   SQUARES,
-  STABILIZER,
   THRUSTER,
-  TOP_FIN,
+  WING,
   type Vec2,
 } from '@/lib/ship/geometry'
 
@@ -57,12 +67,42 @@ function bubbleFrame(): THREE.BufferGeometry {
 }
 export const BUBBLE_FRAME_GEOMETRY = bubbleFrame()
 
-const antennaCurve = new THREE.CatmullRomCurve3(ANTENNA.points.map(([x, y, z]) => new THREE.Vector3(x, y, z)))
-export const ANTENNA_GEOMETRY = sweep(circleProfile(ANTENNA.radius, 6), transportFrames(curvePath(antennaCurve, 10)), {
+/**
+ * Antena: o arco de ANTENNA.points com um trecho em mola — voltas em volta do arco, com raio que
+ * cresce e some (seno), para o fio sair liso da bolha e chegar liso na bolinha.
+ */
+class CoiledAntenna extends THREE.Curve<THREE.Vector3> {
+  private readonly arch = new THREE.CatmullRomCurve3(ANTENNA.points.map(([x, y, z]) => new THREE.Vector3(x, y, z)))
+
+  // o construtor de Curve é protegido nos tipos do three
+  constructor() {
+    super()
+  }
+
+  override getPoint(t: number, target = new THREE.Vector3()): THREE.Vector3 {
+    const { turns, radius, from, to } = ANTENNA.coil
+    const point = this.arch.getPointAt(t, target)
+    const u = (t - from) / (to - from)
+    if (u <= 0 || u >= 1) return point
+    const tangent = this.arch.getTangentAt(t)
+    const side = new THREE.Vector3(1, 0, 0)
+    const normal = new THREE.Vector3().crossVectors(tangent, side).normalize()
+    const angle = u * turns * Math.PI * 2
+    const r = radius * Math.sin(Math.PI * u)
+    return point.addScaledVector(side, r * Math.sin(angle)).addScaledVector(normal, r * (1 - Math.cos(angle)) * 0.5)
+  }
+}
+export const ANTENNA_GEOMETRY = sweep(circleProfile(ANTENNA.radius, 6), transportFrames(curvePath(new CoiledAntenna(), 36)), {
   cap: true,
 })
 export const ANTENNA_TIP_POSITION = ANTENNA.points[ANTENNA.points.length - 1]
 export const ANTENNA_TIP_GEOMETRY = new THREE.IcosahedronGeometry(ANTENNA.tipRadius, 1)
+
+/** Coluna em arco dentro da bolha, atrás do piloto. */
+const pillarCurve = new THREE.CatmullRomCurve3(PILLAR.points.map(([x, y, z]) => new THREE.Vector3(x, y, z)))
+export const PILLAR_GEOMETRY = sweep(circleProfile(PILLAR.radius, 6), transportFrames(curvePath(pillarCurve, 10)), {
+  cap: true,
+})
 
 export const SQUARE_GEOMETRY = new THREE.BoxGeometry(SQUARES.size, SQUARES.size, SQUARES.depth)
 
@@ -128,33 +168,34 @@ export const FLAME_GEOMETRY = new THREE.ConeGeometry(THRUSTER.radius, THRUSTER.l
   .translate(0, THRUSTER.length / 2, 0)
   .rotateX(-Math.PI / 2)
 
-// ─── Aletas (extrusão → bevelConvexGeometry) ───
+// ─── Asas (extrusão → bevelConvexGeometry), no frame local da asa ───
+// Frame local: x = side · s (para fora), y = espessura, z = z da nave. O mesh aplica raiz + diedro.
 
-function bevel(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
-  const { geometry: beveled } = bevelConvexGeometry(geometry, { radius: 0.02, segments: 1 })
-  geometry.dispose()
-  return beveled
-}
+export type WingSide = 1 | -1
 
-/** Lâmina vertical no plano YZ a partir de um contorno (z, y), centrada em x = 0. */
-function verticalBlade(outline: Vec2[], thickness: number): THREE.BufferGeometry {
-  const shape = new THREE.Shape(toVector2(outline))
-  const extruded = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false })
-    .translate(0, 0, -thickness / 2)
-    .rotateY(-Math.PI / 2) // x do contorno → z da nave; extrusão → x
-  return bevel(extruded)
-}
-
-export const TOP_FIN_GEOMETRY = verticalBlade(TOP_FIN.outline, TOP_FIN.thickness)
-export const KEEL_GEOMETRY = verticalBlade(KEEL.outline, KEEL.thickness)
-
-/** Lâmina horizontal a partir de um contorno (x, z), com o topo em STABILIZER.top. */
-function stabilizer(): THREE.BufferGeometry {
-  const shape = new THREE.Shape(toVector2(STABILIZER.outline))
-  const extruded = new THREE.ExtrudeGeometry(shape, { depth: STABILIZER.thickness, bevelEnabled: false })
+function wing(side: WingSide): THREE.BufferGeometry {
+  const shape = new THREE.Shape(WING.outline.map(([s, z]) => new THREE.Vector2(side * s, z)))
+  const extruded = new THREE.ExtrudeGeometry(shape, { depth: WING.thickness, bevelEnabled: false })
     .rotateX(Math.PI / 2) // y do contorno → z da nave; extrusão → −y
-    .translate(0, STABILIZER.top, 0)
-  return bevel(extruded)
+    .translate(0, WING.thickness / 2, 0)
+  const { geometry } = bevelConvexGeometry(extruded, { radius: 0.02, segments: 1 })
+  extruded.dispose()
+  return geometry
 }
-export const STABILIZER_GEOMETRY = stabilizer()
-export const STABILIZER_LIGHT_GEOMETRY = new THREE.IcosahedronGeometry(STABILIZER.lightRadius, 1)
+
+/** Faixas verde-água por cima da lâmina: tubos facetados pelas linhas de WING.stripes. */
+function wingStripes(side: WingSide): THREE.BufferGeometry[] {
+  return WING.stripes.map(({ radius, line }) => {
+    const points = line.map(([s, z]) => new THREE.Vector3(side * s, WING.thickness / 2, z))
+    const segments = points.slice(1).map((to, i) => linePath(points[i], to, 2))
+    return sweep(circleProfile(radius, 6), transportFrames(joinPaths(...segments)), { cap: true })
+  })
+}
+
+export const WINGS = ([1, -1] as const).map((side) => ({
+  side,
+  geometry: wing(side),
+  stripes: wingStripes(side),
+}))
+/** Luzinha em domo (meia esfera) sobre a asa. */
+export const WING_LIGHT_GEOMETRY = new THREE.SphereGeometry(WING.lightRadius, 6, 2, 0, Math.PI * 2, 0, Math.PI / 2)

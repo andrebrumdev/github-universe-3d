@@ -12,7 +12,7 @@ import {
   HEADLIGHTS,
   RIM,
   SQUARES,
-  STABILIZER,
+  WING,
 } from '@/lib/ship/geometry'
 import {
   ANTENNA_GEOMETRY,
@@ -27,15 +27,14 @@ import {
   FUSELAGE_TOP_GEOMETRY,
   HEADLIGHT_BEZEL_GEOMETRY,
   HEADLIGHT_GEOMETRY,
-  KEEL_GEOMETRY,
   NOZZLE_GEOMETRY,
   NOZZLE_LIP_GEOMETRY,
+  PILLAR_GEOMETRY,
   RIM_GEOMETRY,
   SQUARE_GEOMETRY,
-  STABILIZER_GEOMETRY,
-  STABILIZER_LIGHT_GEOMETRY,
   THRUSTER_ORIGIN,
-  TOP_FIN_GEOMETRY,
+  WING_LIGHT_GEOMETRY,
+  WINGS,
 } from './shipParts'
 
 // Materiais opacos compartilhados: cor sólida + flatShading (as faces aparecem).
@@ -44,6 +43,7 @@ const solid = (color: string, roughness = 0.6, metalness = 0.05) =>
 const HULL_MATERIAL = solid(COLORS.ship, 0.5, 0.1)
 const CREAM_MATERIAL = solid(COLORS.cream, 0.55)
 const ENGINE_MATERIAL = solid(COLORS.engine, 0.75, 0)
+const STRIPE_MATERIAL = solid(COLORS.wingStripe, 0.55)
 const NOZZLE_MATERIAL = solid(COLORS.nozzle, 0.7, 0.3)
 const HEADLIGHT_MATERIAL = new THREE.MeshStandardMaterial({
   color: COLORS.headlight,
@@ -51,7 +51,7 @@ const HEADLIGHT_MATERIAL = new THREE.MeshStandardMaterial({
   emissiveIntensity: 1.3,
   flatShading: true,
 })
-const STABILIZER_LIGHT_MATERIAL = new THREE.MeshStandardMaterial({
+const WING_LIGHT_MATERIAL = new THREE.MeshStandardMaterial({
   color: COLORS.thruster,
   emissive: COLORS.thruster,
   emissiveIntensity: 1.4,
@@ -149,10 +149,11 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
         </group>
       ))}
 
-      {/* antena em arco com bolinha na ponta, moldura da bolha */}
+      {/* antena em arco com mola e bolinha na ponta, moldura da bolha e coluna em arco por dentro */}
       <mesh geometry={ANTENNA_GEOMETRY} material={CREAM_MATERIAL} />
       <mesh geometry={ANTENNA_TIP_GEOMETRY} material={CREAM_MATERIAL} position={ANTENNA_TIP_POSITION} />
       <mesh geometry={BUBBLE_FRAME_GEOMETRY} material={CREAM_MATERIAL} />
+      <mesh geometry={PILLAR_GEOMETRY} material={ENGINE_MATERIAL} />
 
       {/* fuselagem traseira: creme em cima, cinza embaixo, anéis ciano */}
       <mesh geometry={FUSELAGE_TOP_GEOMETRY} material={CREAM_MATERIAL} />
@@ -173,17 +174,22 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
       />
       <primitive object={thrusterHalo} position={THRUSTER_ORIGIN} visible={thrusterOn} />
 
-      {/* aleta de cima, quilha e estabilizador com duas luzinhas */}
-      <mesh geometry={TOP_FIN_GEOMETRY} material={HULL_MATERIAL} />
-      <mesh geometry={KEEL_GEOMETRY} material={HULL_MATERIAL} />
-      <mesh geometry={STABILIZER_GEOMETRY} material={HULL_MATERIAL} />
-      {STABILIZER.lights.map(([x, z], i) => (
-        <mesh
-          key={i}
-          geometry={STABILIZER_LIGHT_GEOMETRY}
-          material={STABILIZER_LIGHT_MATERIAL}
-          position={[x, STABILIZER.top + STABILIZER.lightRadius * 0.5, z]}
-        />
+      {/* asas espelhadas: lâminas ao longo do casco, diedro e pitch para cima, faixas verde-água e 2 luzinhas */}
+      {WINGS.map(({ side, geometry, stripes }) => (
+        <group key={side} position={[side * WING.root.x, WING.root.y, 0]} rotation={[WING.pitch, 0, side * WING.dihedral]}>
+          <mesh geometry={geometry} material={HULL_MATERIAL} />
+          {stripes.map((stripe, i) => (
+            <mesh key={i} geometry={stripe} material={STRIPE_MATERIAL} />
+          ))}
+          {WING.lights.map(([s, z], i) => (
+            <mesh
+              key={i}
+              geometry={WING_LIGHT_GEOMETRY}
+              material={WING_LIGHT_MATERIAL}
+              position={[side * s, WING.thickness / 2, z]}
+            />
+          ))}
+        </group>
       ))}
 
       {/* bolha de vidro por último: transparente, sem escrever profundidade */}
