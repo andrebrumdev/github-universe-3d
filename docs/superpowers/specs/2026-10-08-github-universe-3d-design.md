@@ -106,12 +106,12 @@ Dois níveis no MVP: galáxia e planeta. No foco, a câmera acompanha o planeta 
 
 **Octocat 3D (revisado em 2026-10-08):** o Octocat e a nave são um modelo 3D dentro da cena, que viaja entre os planetas no estilo Astro Bot.
 
-- **Modelo `OctocatShip`:** low-poly com primitivas do Three.js, nas cores de `design/Octocat.dc.html` (coordenadas do SVG convertidas para 3D, 100 px = 1 unidade, origem no centro do casco).
-  - **Nave (revisada):** segue o **estilo** da máquina do tempo de *A Família do Futuro* (referência do usuário; modelo próprio, sem emblemas): cabine em tigela `#C4B5FD` com aro creme e os 7 quadradinhos de contribuição; bolha de vidro `#A5F3FC` quase esférica com moldura e antena em arco; dois faróis redondos `#FFF3C4`; fuselagem traseira longa que afunila (creme em cima, cinza embaixo) com 3 anéis ciano `#67E8F9` que pulsam; bocal escuro com propulsor; aleta superior inclinada e estabilizador inferior longo `#C4B5FD` com duas luzinhas.
+- **Modelo `OctocatShip`:** low-poly feito com a biblioteca `three-low-poly` sobre o Three.js (origem no centro do casco); as medidas ficam em `src/lib/ship/geometry.ts`.
+  - **Nave (revisada):** segue o **estilo** da máquina do tempo de *A Família do Futuro* (referência do usuário; modelo próprio, sem emblemas), compacta (comprimento ≈ 1,8× altura): casco em banheira `#C4B5FD` com aro creme fino e os 7 quadradinhos de contribuição; cúpula de vidro `#A5F3FC` longa e baixa com pilar grosso e antena em mola atrás; dois faróis redondos `#FFF3C4`; motor curto e baixo (creme em cima, cinza embaixo) com faixas ciano `#67E8F9` que pulsam; bocal escuro com propulsor; asas em lâmina curva abertas para os lados (diedro, enflechadas) com faixa verde-água por baixo e luzinhas nas pontas; banco, painel com volante redondo e manche em C.
   - **Construção:** com a biblioteca `three-low-poly` (sweep, loft, `bevelConvexGeometry`, `EdgedBoxGeometry`, `GlowHalo`, `EmissivePulseEffect`) e `flatShading`, seguindo a skill `universe-low-poly`.
-  - **Octocat:** corpo e cabeça `#1F2329`; rosto num disco com `CanvasTexture`, desenhado com os mesmos paths SVG das expressões (neutro, feliz, piscadinha, surpreso, pensando), e piscada.
-  - **Gorro-Clawd:** blocos `#D97757` e aba `#B85C3E`, convertidos dos retângulos do SVG.
-  - **Braços:** um no manche (cilindro com bola `#D97757`) e um livre, que acena e aponta.
+  - **Octocat (estilo clássico do GitHub):** corpo e cabeça `#211A2B` com orelhas de gato e bigodes; rosto pêssego `#FAD4AC` numa `CanvasTexture` com as expressões (neutro, feliz, piscadinha, surpreso, pensando) e piscada; 5 tentáculos (3 braços + 2 pernas) com face de baixo `#3B2D50` e ventosas `#9BC4C8`.
+  - **Clawd:** em pé na cabeça do Octocat, entre as orelhas: corpo laranja `#D97757` em blocos, olhos, 2 bracinhos e 4 perninhas embaixo.
+  - **Braços:** um enrolado na empunhadura do manche em C, um apoiado no painel e um livre, que acena e aponta.
   - **Propulsor:** cone aditivo que tremula, com rastro de partículas em viagem.
   - Nada é carregado de arquivo; um `.glb` pode substituir o modelo depois.
 - **Página de preview (só em dev):** `?preview=octocat` mostra o modelo isolado, com seletor de expressão, aceno, propulsor e visibilidade por peça. Serve para o usuário aprovar o modelo parte por parte, antes da cena existir.
