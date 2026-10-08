@@ -1,9 +1,10 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useReducedMotion } from 'framer-motion'
 import * as THREE from 'three'
 import { EmissivePulseEffect, GlowHalo } from 'three-low-poly'
 import { COLORS, CONTRIBUTION_COLORS, DASHBOARD } from '@/lib/ship/geometry'
+import { thrusterScale } from '@/lib/ship/motion'
 import {
   ANTENNA_GEOMETRY,
   ANTENNA_TIP_GEOMETRY,
@@ -113,8 +114,20 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
     [],
   )
   useEffect(() => () => ringPulse.material.dispose(), [ringPulse])
-  useFrame((_, delta) => {
+  const flame = useRef<THREE.Mesh>(null)
+  const glow = useRef<THREE.PointLight>(null)
+  const thrusterHalo = useMemo(() => new GlowHalo({ color: COLORS.thruster, size: 1.1, opacity: 0 }), [])
+  useFrame(({ clock }, delta) => {
     if (!reducedMotion) ringPulse.update(delta)
+    // chama tremulando (steady com movimento reduzido); a chama cresce em z
+    const s = reducedMotion ? thrusterLevel : thrusterScale(clock.elapsedTime, thrusterLevel)
+    const on = s > 0.01
+    if (flame.current) {
+      flame.current.scale.set(1, 1, Math.max(s, 0.001))
+      flame.current.visible = on
+    }
+    thrusterHalo.setOpacity(0.8 * s)
+    if (glow.current) glow.current.intensity = 3 * s
   })
 
   // Brilhos (sprites aditivos): um por farol e um na boca do bocal.
@@ -122,7 +135,6 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
     () => HEADLIGHT_PLACEMENTS.map(() => new GlowHalo({ color: COLORS.headlight, size: 0.45, opacity: 0.6 })),
     [],
   )
-  const thrusterHalo = useMemo(() => new GlowHalo({ color: COLORS.thruster, size: 1.1, opacity: 0 }), [])
   useEffect(
     () => () => {
       for (const halo of headlightHalos) halo.dispose()
@@ -130,12 +142,6 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
     },
     [headlightHalos, thrusterHalo],
   )
-  useEffect(() => {
-    thrusterHalo.setOpacity(0.8 * thrusterLevel)
-  }, [thrusterHalo, thrusterLevel])
-
-  const thrusterOn = thrusterLevel > 0.01
-
   return (
     <group>
       {/* casco em banheira com piso e fundo, aro fino e quadradinhos de contribuição na frente do aro */}
@@ -208,14 +214,9 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
       {/* bocal com lábio creme e o propulsor */}
       <mesh geometry={NOZZLE_GEOMETRY} material={NOZZLE_MATERIAL} />
       <mesh geometry={NOZZLE_LIP_GEOMETRY} material={CREAM_MATERIAL} />
-      <mesh
-        geometry={FLAME_GEOMETRY}
-        material={FLAME_MATERIAL}
-        position={THRUSTER_ORIGIN}
-        scale={[1, 1, Math.max(thrusterLevel, 0.001)]}
-        visible={thrusterOn}
-      />
-      <primitive object={thrusterHalo} position={THRUSTER_ORIGIN} visible={thrusterOn} />
+      <mesh ref={flame} geometry={FLAME_GEOMETRY} material={FLAME_MATERIAL} position={THRUSTER_ORIGIN} />
+      <primitive object={thrusterHalo} position={THRUSTER_ORIGIN} />
+      <pointLight ref={glow} position={THRUSTER_ORIGIN} color={COLORS.thruster} distance={3} intensity={0} />
 
       {/* asas espelhadas abertas para os lados (diedro, enflechadas): lilás, faixa verde-água por baixo, 2 luzinhas */}
       {WINGS.map(({ side, blade, stripe, lights }) => (

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
+import { useFrame } from '@react-three/fiber'
+import { useReducedMotion } from 'framer-motion'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { circleProfile, curvePath, sweep, transportFrames } from 'three-low-poly'
@@ -21,6 +23,7 @@ import {
   WHISKER_RADIUS,
   WHISKERS,
 } from '@/lib/ship/geometry'
+import { POINT_ANGLE, waveAngle } from '@/lib/ship/motion'
 import { drawOctocatFace, FACE_TEX_H, FACE_TEX_W } from './octocatFace'
 
 export type ArmMode = 'rest' | 'wave' | 'point'
@@ -227,8 +230,19 @@ interface PilotProps {
   armMode: ArmMode
 }
 
-export function Pilot({ expression, blinking }: PilotProps) {
+export function Pilot({ expression, blinking, armMode }: PilotProps) {
   const freeArm = useRef<THREE.Group>(null)
+  const reduced = useReducedMotion() ?? false
+
+  // rotação em z gira o tentáculo no plano do corpo, em torno do ombro: acena para cima/baixo ou estica para o lado
+  useFrame(({ clock }, dt) => {
+    const arm = freeArm.current
+    if (!arm) return
+    const goal = armMode === 'point' ? POINT_ANGLE : 0
+    if (armMode === 'wave' && !reduced) arm.rotation.z = waveAngle(clock.elapsedTime)
+    else arm.rotation.z += (goal - arm.rotation.z) * (1 - Math.exp(-8 * dt))
+  })
+
   const texture = useMemo(() => createFaceTexture(), [])
   useEffect(() => paintFace(texture, expression, blinking), [expression, blinking, texture])
   useEffect(() => () => texture.dispose(), [texture])

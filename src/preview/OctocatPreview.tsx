@@ -1,7 +1,7 @@
 import { type ComponentRef, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Stars } from '@react-three/drei'
-import { ALL_PARTS, OctocatShip, type OctocatShipParts } from '@/components/three/octocat/OctocatShip'
+import { ALL_PARTS, type ArmMode, OctocatShip, type OctocatShipParts } from '@/components/three/octocat/OctocatShip'
 import { OCTOCAT_EXPRESSIONS, type OctocatExpression } from '@/lib/octocat/expression'
 
 const PART_LABELS: [keyof OctocatShipParts, string][] = [
@@ -20,6 +20,12 @@ const VIEWS: View[] = [
   { label: 'Vista lateral', position: [-7, 0.3, -0.4], target: [0, 0.3, -0.4] },
 ]
 
+const ARM_LABELS: [ArmMode, string][] = [
+  ['rest', 'Parado'],
+  ['wave', 'Acenar'],
+  ['point', 'Apontar'],
+]
+
 const EXPRESSION_LABELS: Record<OctocatExpression, string> = {
   neutral: 'Neutro',
   happy: 'Feliz',
@@ -34,6 +40,8 @@ export function OctocatPreview() {
   const [expression, setExpression] = useState<OctocatExpression>('neutral')
   const [thruster, setThruster] = useState(0.3)
   const [spin, setSpin] = useState(true)
+  const [armMode, setArmMode] = useState<ArmMode>('wave')
+  const [floating, setFloating] = useState(true)
 
   const showView = ({ position, target }: View) => {
     const orbit = controls.current
@@ -52,7 +60,7 @@ export function OctocatPreview() {
         <directionalLight position={[3, 5, 4]} intensity={1.6} />
         <pointLight position={[-4, 2, 3]} intensity={20} color="#22d3ee" />
         <Stars radius={60} depth={30} count={1500} factor={3} fade />
-        <OctocatShip expression={expression} thrusterLevel={thruster} parts={parts} />
+        <OctocatShip expression={expression} thrusterLevel={thruster} armMode={armMode} floating={floating} parts={parts} />
         <OrbitControls ref={controls} target={[0, 0.2, -0.4]} autoRotate={spin} autoRotateSpeed={0.8} enablePan={false} minDistance={2.5} maxDistance={14} />
       </Canvas>
 
@@ -88,6 +96,27 @@ export function OctocatPreview() {
             ))}
           </div>
         </fieldset>
+
+        <fieldset className="space-y-1">
+          <legend className="text-xs uppercase tracking-wider text-slate-400">Braço</legend>
+          <div className="flex gap-1">
+            {ARM_LABELS.map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setArmMode(mode)}
+                className={`rounded-full border px-2 py-0.5 ${mode === armMode ? 'border-neon text-neon' : 'border-slate-600 text-slate-300'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={floating} onChange={(e) => setFloating(e.target.checked)} />
+          Flutuar
+        </label>
 
         <label className="block">
           <span className="text-xs uppercase tracking-wider text-slate-400">Propulsor</span>
