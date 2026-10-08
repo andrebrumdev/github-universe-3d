@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  --color-space: #0a0e27;
+  --color-neon: #22d3ee;
+  --color-grid: #10b981;
+  --color-panel: #0f1535;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  background: #0a0e27;
+  color: #f1f5f9;
+}
