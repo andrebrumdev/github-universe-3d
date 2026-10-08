@@ -94,98 +94,183 @@ export const HAT_EYE_BLOCKS: Block[] = HAT_EYE_RECTS.map(([x, y, w, h]) =>
 // ─── Nave: estilo máquina do tempo (frame da nave; ver o comentário do topo) ───
 
 export type Vec3 = [number, number, number]
-/** Ponto de perfil 2D: (raio, y) nas peças de revolução; (z, y) ou (x, z) nas lâminas. */
+/** Ponto 2D: (x, z) na planta ou (dr, y) numa seção. */
 export type Vec2 = [number, number]
 
-/** Facetas das peças de revolução (tigela e aro). */
-export const RADIAL_SEGMENTS = 16
-export const FACET_ANGLE = (Math.PI * 2) / RADIAL_SEGMENTS
-/** Início do lathe: meia faceta para a esquerda, para uma faceta ficar centrada em +z. */
-export const LATHE_PHI_START = -FACET_ANGLE / 2
+/**
+ * Planta da cabine: elipse alongada em z. O casco ("banheira"), o aro e a cúpula usam a mesma elipse,
+ * amostrada em PLAN_SEGMENTS pontos; φ = 0 é a frente (+z) e as facetas ficam centradas em φ = m·Δ.
+ */
+export const PLAN = { a: 0.95, b: 1.5 } as const
+export const PLAN_SEGMENTS = 16
+const PLAN_STEP = (Math.PI * 2) / PLAN_SEGMENTS
 
-/** Distância do eixo até o centro de uma faceta plana de um lathe cujos vértices estão no raio r. */
-export function facetDistance(r: number): number {
-  return r * Math.cos(FACET_ANGLE / 2)
+/** Ângulo do k-ésimo ponto da planta: meia faceta deslocado, para uma faceta ficar centrada na frente. */
+export function planAngle(k: number): number {
+  return (k + 0.5) * PLAN_STEP
+}
+
+/** Ponto (x, z) da elipse de semieixos a (x) e b (z) no ângulo φ. */
+export function planPoint(phi: number, a: number, b: number): Vec2 {
+  return [a * Math.sin(phi), b * Math.cos(phi)]
+}
+
+/** Normal para fora da elipse no ângulo φ (unitária). */
+export function planNormal(phi: number, a: number, b: number): Vec2 {
+  const [nx, nz] = [Math.sin(phi) / a, Math.cos(phi) / b]
+  const len = Math.hypot(nx, nz)
+  return [nx / len, nz / len]
+}
+
+/** Faceta m de uma elipse amostrada: centro (x, z) e yaw (rotação em y que vira +z para fora da faceta). */
+export function planFacet(m: number, a: number, b: number): { center: Vec2; yaw: number } {
+  const [x0, z0] = planPoint(planAngle(m - 1), a, b)
+  const [x1, z1] = planPoint(planAngle(m), a, b)
+  const [tx, tz] = [x1 - x0, z1 - z0]
+  // normal para fora = (−tz, tx); yaw = atan2(nx, nz)
+  return { center: [(x0 + x1) / 2, (z0 + z1) / 2], yaw: Math.atan2(-tz, tx) }
 }
 
 /** Piso da cabine, onde o piloto senta. */
-export const DECK_Y = -0.06
+export const DECK_Y = -0.24
 
-/** Tigela da cabine: perfil (raio, y) anti-horário, de baixo para cima, fechando no piso. */
-export const BOWL_PROFILE: Vec2[] = [
-  [0, -1.0],
-  [0.45, -0.96],
-  [0.78, -0.82],
-  [0.96, -0.6],
-  [1.04, -0.34],
-  [1.06, DECK_Y],
-  [0, DECK_Y],
-]
-
-/** Raio da parede externa da tigela na altura y e a inclinação dela (rad; 0 = vertical). */
-export function bowlRadiusAt(y: number): { radius: number; tilt: number } {
-  const wall = BOWL_PROFILE.slice(0, -1)
-  for (let i = 0; i < wall.length - 1; i++) {
-    const [r0, y0] = wall[i]
-    const [r1, y1] = wall[i + 1]
-    if (y >= y0 && y <= y1) {
-      const t = (y - y0) / (y1 - y0)
-      return { radius: r0 * (1 - t) + r1 * t, tilt: Math.atan2(r1 - r0, y1 - y0) }
-    }
-  }
-  return { radius: 0, tilt: 0 }
+/** Anel horizontal do casco: elipse da planta escalada por f, na altura y, com o centro deslocado em z. */
+export interface TubRing {
+  f: number
+  y: number
+  dz: number
 }
 
-/** Aro grosso creme em cima da tigela: seção retangular com chanfro. */
-export const RIM = { inner: 0.92, outer: 1.12, bottom: -0.1, top: 0.1, chamfer: 0.04 } as const
-export const RIM_PROFILE: Vec2[] = [
-  [RIM.inner, RIM.bottom],
-  [RIM.outer - RIM.chamfer, RIM.bottom],
-  [RIM.outer, RIM.bottom + RIM.chamfer],
-  [RIM.outer, RIM.top - RIM.chamfer],
-  [RIM.outer - RIM.chamfer, RIM.top],
-  [RIM.inner, RIM.top],
-  [RIM.inner, RIM.bottom],
+/**
+ * Casco em "banheira" (barco): anéis de baixo para cima pela parede de fora, depois a borda de dentro e o piso
+ * (o loft fecha o piso com tampa). Os anéis de baixo vão para trás (dz < 0): a proa sobe arredondada.
+ */
+export const TUB = {
+  rings: [
+    { f: 0.32, y: -0.46, dz: -0.3 },
+    { f: 0.66, y: -0.43, dz: -0.16 },
+    { f: 0.88, y: -0.32, dz: -0.06 },
+    { f: 0.98, y: -0.17, dz: 0 },
+    { f: 0.99, y: -0.03, dz: 0 },
+    { f: 0.86, y: -0.03, dz: 0 },
+    { f: 0.86, y: DECK_Y, dz: 0 },
+  ] as TubRing[],
+  /** Quantos anéis (do começo) formam a parede de fora. */
+  outerWall: 5,
+} as const
+
+/** Escala da planta e deslocamento em z da parede de fora do casco na altura y (null fora do casco). */
+export function tubRingAt(y: number): { f: number; dz: number } | null {
+  const wall = TUB.rings.slice(0, TUB.outerWall)
+  if (y < wall[0].y || y > wall[wall.length - 1].y) return null
+  for (let i = 0; i < wall.length - 1; i++) {
+    const [r0, r1] = [wall[i], wall[i + 1]]
+    if (y <= r1.y) {
+      const t = (y - r0.y) / (r1.y - r0.y)
+      return { f: r0.f * (1 - t) + r1.f * t, dz: r0.dz * (1 - t) + r1.dz * t }
+    }
+  }
+  return null
+}
+
+/** Meia largura da parede de fora do casco em (z, y); 0 fora do casco. */
+export function tubHalfWidth(z: number, y: number): number {
+  const ring = tubRingAt(y)
+  if (!ring) return 0
+  const k = 1 - ((z - ring.dz) / (ring.f * PLAN.b)) ** 2
+  return k > 0 ? ring.f * PLAN.a * Math.sqrt(k) : 0
+}
+
+/** Aro creme fino e polido em volta da borda de cima do casco (seção pela normal da planta). */
+export const RIM = { width: 0.07, bottom: -0.04, top: 0.04, chamfer: 0.015 } as const
+/** Seção do aro: (dr para fora a partir da elipse da planta, y), anti-horária. */
+export const RIM_SECTION: Vec2[] = [
+  [-RIM.width, RIM.bottom],
+  [-RIM.chamfer, RIM.bottom],
+  [0, RIM.bottom + RIM.chamfer],
+  [0, RIM.top - RIM.chamfer],
+  [-RIM.chamfer, RIM.top],
+  [-RIM.width, RIM.top],
 ]
 
-/** 7 quadradinhos de contribuição, um por faceta da face externa do aro, centrados na frente. */
-export const SQUARES = {
-  angles: [-3, -2, -1, 0, 1, 2, 3].map((k) => k * FACET_ANGLE),
-  y: (RIM.bottom + RIM.top) / 2,
-  size: 0.1,
-  depth: 0.03,
-} as const
+/** 7 quadradinhos de contribuição na face de fora do aro, um por faceta, centrados na frente. */
+export const SQUARES = { facets: [-3, -2, -1, 0, 1, 2, 3], size: 0.045, depth: 0.015 } as const
 
-/** Faróis: discos redondos na parede da tigela, um de cada lado da frente. */
-export const HEADLIGHTS = { angles: [-2 * FACET_ANGLE, 2 * FACET_ANGLE], y: -0.4, radius: 0.17 } as const
-
-/** Bolha de vidro: quase esfera apoiada no aro, com um arco fino de moldura de frente para trás. */
-export const BUBBLE = { center: [0, 0.45, 0] as Vec3, radius: 1.1, frameRadius: 0.03 } as const
+/** Faróis: discos na frente do casco, um de cada lado da proa (facetas ±1), um pouco abaixo do aro. */
+export const HEADLIGHTS = { facets: [-1, 1], y: -0.16, radius: 0.1 } as const
 
 /**
- * Onde o grupo do piloto (coordenadas do SVG) entra na nave: escala e posição da origem do SVG,
- * com a base do corpo apoiada no piso da cabine e a cabeça no meio da bolha.
+ * Cúpula de vidro: meio elipsoide longo e baixo apoiado no aro, cobrindo quase todo o casco. Inclinada
+ * para a frente (`lean`: z += lean·altura), então o ponto mais alto fica um pouco à frente do meio.
  */
-const PILOT_SCALE = 0.65
+export const CANOPY = { base: 0.03, a: 0.89, b: 1.44, height: 1.2, lean: 0.22 } as const
+
+/** O ponto está dentro da cúpula (acima da base)? */
+export function canopyContains([x, y, z]: Vec3): boolean {
+  const h = y - CANOPY.base
+  if (h < 0) return false
+  const zu = z - CANOPY.lean * h
+  return (x / CANOPY.a) ** 2 + (h / CANOPY.height) ** 2 + (zu / CANOPY.b) ** 2 < 1
+}
+
+/**
+ * Onde o grupo do piloto (coordenadas do SVG) entra na nave: posição da origem do SVG e escala, com a base
+ * do corpo no piso, sob o ponto mais alto da cúpula. `bubbleRadius` é o menor semieixo da cúpula (folga lateral).
+ */
+const PILOT_SCALE = 0.6
+const PILOT_Z = 0.2
 export const COCKPIT = {
-  position: [0, DECK_Y - TORSO.base[1] * PILOT_SCALE, 0] as Vec3,
+  position: [0, DECK_Y - TORSO.base[1] * PILOT_SCALE, PILOT_Z] as Vec3,
   scale: PILOT_SCALE,
-  bubbleRadius: BUBBLE.radius,
+  bubbleRadius: CANOPY.a,
 } as const
 
-/** Antena: fio em arco do topo da bolha para trás, com um trecho em mola e bolinha na ponta. */
+/** Assento sob o piloto: almofadas creme numa concha lilás (assento + encosto). */
+export const SEAT = {
+  z: PILOT_Z,
+  width: 0.56,
+  cushion: { depth: 0.42, height: 0.08 },
+  back: { height: 0.56, thickness: 0.09, z: PILOT_Z - 0.3, tilt: 0.18 },
+  shell: 0.04,
+} as const
+
+/** Painel na frente da cabine com o volante redondo e duas luzinhas. */
+export const DASHBOARD = {
+  z: 1.0,
+  width: 0.7,
+  depth: 0.24,
+  height: 0.3,
+  wheel: { radius: 0.12, tube: 0.022, y: DECK_Y + 0.44, z: 0.78, tilt: 0.5 },
+  lights: [
+    { x: -0.18, color: '#39D353' },
+    { x: 0.18, color: '#67E8F9' },
+  ],
+} as const
+
+/** Coluna grossa em arco: do piso de trás, atrás do assento, subindo para a frente até o alto da cúpula. */
+export const PILLAR = {
+  points: [
+    [0, DECK_Y, -1.1],
+    [0, 0.42, -1.04],
+    [0, 0.85, -0.72],
+    [0, 1.07, -0.3],
+  ] as Vec3[],
+  radius: 0.09,
+} as const
+
+/** Antena: fio em arco que sai do topo da coluna (junção com a cúpula) para trás, com mola e bolinha na ponta. */
 export const ANTENNA = {
   points: [
-    [0, 1.53, -0.12],
-    [0, 1.95, -0.22],
-    [0, 2.3, -0.55],
-    [0, 2.32, -0.95],
-    [0, 2.12, -1.22],
+    [0, 1.18, -0.32],
+    [0, 1.5, -0.5],
+    [0, 1.76, -0.82],
+    [0, 1.8, -1.18],
+    [0, 1.64, -1.42],
   ] as Vec3[],
-  radius: 0.025,
-  tipRadius: 0.075,
+  radius: 0.022,
+  tipRadius: 0.07,
   /** Trecho em mola: voltas em volta do arco entre as frações `from` e `to` do comprimento. */
-  coil: { turns: 3, radius: 0.07, from: 0.3, to: 0.8 },
+  coil: { turns: 3, radius: 0.06, from: 0.3, to: 0.8 },
 } as const
 
 /** Seção elíptica da fuselagem traseira: centro (0, cy, z), semieixos rx × ry. */
@@ -197,16 +282,15 @@ export interface FuselageSection {
 }
 
 /**
- * Fuselagem (o "motor"): nasce escondida dentro da tigela, fica quase da largura da cabine logo atrás dela
- * e afunila até o bocal.
+ * Motor: nacela curta, baixa e encorpada, encaixada sob e atrás da traseira do casco. Nasce sob o piso,
+ * fica com ~3/4 da largura da cabine e afunila um pouco até o bocal.
  */
 export const FUSELAGE: FuselageSection[] = [
-  { z: -0.6, cy: -0.42, rx: 0.5, ry: 0.3 },
-  { z: -1.2, cy: -0.36, rx: 0.78, ry: 0.5 },
-  { z: -1.8, cy: -0.34, rx: 0.74, ry: 0.48 },
-  { z: -2.4, cy: -0.32, rx: 0.64, ry: 0.42 },
-  { z: -2.9, cy: -0.3, rx: 0.52, ry: 0.38 },
-  { z: -3.25, cy: -0.29, rx: 0.44, ry: 0.36 },
+  { z: -0.75, cy: -0.46, rx: 0.36, ry: 0.16 },
+  { z: -1.4, cy: -0.46, rx: 0.7, ry: 0.43 },
+  { z: -1.7, cy: -0.46, rx: 0.66, ry: 0.41 },
+  { z: -1.9, cy: -0.46, rx: 0.6, ry: 0.38 },
+  { z: -2.05, cy: -0.46, rx: 0.54, ry: 0.35 },
 ]
 
 /** Seção da fuselagem em qualquer z (interpolação linear; fora do intervalo, a seção da ponta). */
@@ -224,65 +308,104 @@ export function fuselageSection(z: number): FuselageSection {
   return { ...FUSELAGE[FUSELAGE.length - 1], z }
 }
 
-/** 3 faixas ciano em volta da fuselagem (centro em z), de seção retangular: largura em z, espessura radial. */
-export const ENGINE_RINGS_Z = [-1.45, -1.85, -2.25]
-export const ENGINE_RING = { width: 0.14, thickness: 0.05, gap: 0.01 } as const
+/** 3 faixas ciano em volta do motor (centro em z), de seção retangular: largura em z, espessura radial. */
+export const ENGINE_RINGS_Z = [-1.52, -1.68, -1.84]
+export const ENGINE_RING = { width: 0.09, thickness: 0.045, gap: 0.01 } as const
 
-/** Bocal: tronco de cone escuro na ponta da fuselagem, com lábio creme atrás. */
-export const NOZZLE = { z: FUSELAGE[FUSELAGE.length - 1].z, length: 0.4, radiusFront: 0.36, radiusBack: 0.41, lip: 0.07 } as const
+/** Bocal: tronco de cone escuro e ovalado (altura = squash × largura) com lábio creme atrás. */
+export const NOZZLE = {
+  z: FUSELAGE[FUSELAGE.length - 1].z,
+  length: 0.16,
+  radiusFront: 0.5,
+  radiusBack: 0.52,
+  lip: 0.07,
+  squash: 0.75,
+} as const
 /** Chama do propulsor (comprimento em thrusterLevel = 1). */
-export const THRUSTER = { radius: 0.3, length: 1.1 } as const
+export const THRUSTER = { radius: 0.33, length: 0.9 } as const
 
 /**
- * Asas: par espelhado de lâminas longas que correm ao longo do casco, uma de cada lado. Cada uma começa
- * baixa, embaixo da frente da cabine, corre para trás junto da tigela e do motor, passa do bocal e termina
- * numa ponta apontada para trás. A raiz fica dentro da tigela/motor; a lâmina sobe para fora (diedro) e
- * para trás (pitch). Mesma ordem de rotação do Euler 'XYZ' do three: primeiro o diedro, depois o pitch.
- * Contorno no plano da asa: (s, z), com s = distância para fora a partir da raiz e z da nave; convexo.
+ * Seção lateral de uma asa em z: bordas de baixo e de cima (y), espessura e distância do eixo (x) do centro.
+ * Da frente para trás.
  */
-export const WING = {
-  root: { x: 0.55, y: -0.55 },
-  /** Sobe para fora (rotação em z da nave, espelhada por lado). */
-  dihedral: (20 * Math.PI) / 180,
-  /** Sobe para trás (rotação em x): a frente fica baixa, sob a cabine, e a ponta de trás mais alta. */
-  pitch: (3 * Math.PI) / 180,
-  outline: [
-    [0, 0.4],
-    [0.75, 0],
-    [0.95, -2.2],
-    [0.7, -3.7],
-    [0.25, -4.5],
-    [0, -2.6],
-  ] as Vec2[],
-  thickness: 0.06,
-  /** Faixas verde-água: uma na borda de fora e uma no meio da lâmina, por cima. Linhas (s, z). */
-  stripes: [
-    { radius: 0.035, line: [[0.75, 0], [0.95, -2.2], [0.7, -3.7], [0.25, -4.5]] as Vec2[] },
-    { radius: 0.022, line: [[0.4, 0.05], [0.6, -2.2], [0.35, -3.9]] as Vec2[] },
-  ],
-  /** Duas luzinhas em domo sobre cada asa, perto da ponta: (s, z). */
-  lights: [
-    [0.65, -3.0],
-    [0.56, -3.55],
-  ] as Vec2[],
-  lightRadius: 0.06,
-} as const
-
-/** Ponto (s, z) do plano de uma asa levado para a nave; side = 1 é a asa de +x, −1 a de −x. */
-export function wingPoint(side: 1 | -1, [s, z]: Vec2): Vec3 {
-  const x = side * s * Math.cos(WING.dihedral)
-  const y = s * Math.sin(WING.dihedral)
-  const [cos, sin] = [Math.cos(WING.pitch), Math.sin(WING.pitch)]
-  return [side * WING.root.x + x, WING.root.y + y * cos - z * sin, y * sin + z * cos]
+export interface WingStation {
+  z: number
+  lower: number
+  upper: number
+  thickness: number
+  x: number
 }
 
-/** Coluna em arco dentro da bolha: do fundo da cabine, atrás do piloto, até o alto do vidro. */
-export const PILLAR = {
-  points: [
-    [0, DECK_Y, -0.9],
-    [0, 0.7, -0.88],
-    [0, 1.3, -0.58],
-    [0, 1.5, -0.16],
-  ] as Vec3[],
-  radius: 0.06,
+/**
+ * Asas: par espelhado de lâminas encorpadas e curvas (um "swoosh"), uma de cada lado. A raiz abraça a
+ * parte de baixo da proa; a lâmina corre para trás colada no casco e no motor, curva para cima e abre
+ * para fora ao passar do bocal, terminando numa ponta mais alta que a raiz, atrás dele.
+ * Seção em lente (elipse achatada), inclinada para fora (`cant`); a faixa verde-água é a parte de baixo
+ * da lente (ângulos de `stripe.from` a `stripe.to`), correndo pela borda inferior da lâmina.
+ */
+export const WING = {
+  stations: [
+    { z: 1.05, lower: -0.42, upper: -0.28, thickness: 0.08, x: 0.4 },
+    { z: 0.7, lower: -0.6, upper: -0.14, thickness: 0.18, x: 0.66 },
+    { z: 0.2, lower: -0.68, upper: -0.08, thickness: 0.24, x: 0.8 },
+    { z: -0.4, lower: -0.68, upper: -0.1, thickness: 0.23, x: 0.8 },
+    { z: -0.9, lower: -0.66, upper: -0.1, thickness: 0.21, x: 0.72 },
+    { z: -1.4, lower: -0.6, upper: -0.1, thickness: 0.17, x: 0.7 },
+    { z: -1.85, lower: -0.46, upper: -0.02, thickness: 0.13, x: 0.6 },
+    { z: -2.2, lower: -0.28, upper: 0.06, thickness: 0.09, x: 0.68 },
+    { z: -2.5, lower: -0.04, upper: 0.18, thickness: 0.05, x: 0.76 },
+    { z: -2.8, lower: 0.22, upper: 0.26, thickness: 0.012, x: 0.86 },
+  ] as WingStation[],
+  /** Inclinação da seção para fora (o topo da lâmina abre). */
+  cant: (15 * Math.PI) / 180,
+  /** Ângulos (rad) da lente: 0 = face de fora, π/2 = borda de cima, π = face de dentro. */
+  stripe: { from: (200 * Math.PI) / 180, to: (340 * Math.PI) / 180 },
+  /** Duas luzinhas em domo na face de cima/fora, perto da ponta: z e ângulo na lente. */
+  lights: [
+    { z: -2.15, angle: Math.PI / 3 },
+    { z: -2.4, angle: Math.PI / 3 },
+  ],
+  lightRadius: 0.045,
 } as const
+
+/** Seção da asa em qualquer z (interpolação linear entre as estações). */
+export function wingStationAt(z: number): WingStation {
+  const list = WING.stations
+  if (z >= list[0].z) return { ...list[0], z }
+  for (let i = 0; i < list.length - 1; i++) {
+    const [a, b] = [list[i], list[i + 1]]
+    if (z >= b.z) {
+      const t = (a.z - z) / (a.z - b.z)
+      const mix = (u: number, v: number) => u * (1 - t) + v * t
+      return {
+        z,
+        lower: mix(a.lower, b.lower),
+        upper: mix(a.upper, b.upper),
+        thickness: mix(a.thickness, b.thickness),
+        x: mix(a.x, b.x),
+      }
+    }
+  }
+  return { ...list[list.length - 1], z }
+}
+
+/** Ponto da superfície da asa na seção `station`, no ângulo `angle` da lente; side = 1 é a asa de +x. */
+export function wingPoint(side: 1 | -1, station: WingStation, angle: number): Vec3 {
+  const h = (station.upper - station.lower) / 2
+  const w = station.thickness / 2
+  const [dx, dy] = [w * Math.cos(angle), h * Math.sin(angle)]
+  const [cos, sin] = [Math.cos(WING.cant), Math.sin(WING.cant)]
+  return [side * (station.x + dx * cos + dy * sin), (station.lower + station.upper) / 2 - dx * sin + dy * cos, station.z]
+}
+
+/** Comprimento total: da proa (frente do aro) até o fim do lábio do bocal. */
+export const SHIP_LENGTH = PLAN.b - (NOZZLE.z - NOZZLE.length - NOZZLE.lip)
+/** Altura total: do alto da cúpula até o ponto mais baixo (casco, motor ou asas). */
+export const SHIP_HEIGHT =
+  CANOPY.base +
+  CANOPY.height -
+  Math.min(
+    TUB.rings[0].y,
+    ...FUSELAGE.map((f) => f.cy - f.ry),
+    ...WING.stations.map((st) => st.lower),
+  )

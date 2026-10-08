@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BOWL_PROFILE,
-  bowlRadiusAt,
+  ANTENNA,
   BRIM_DEPTH,
-  BUBBLE,
+  CANOPY,
+  canopyContains,
   COCKPIT,
   CROWN_DEPTH,
+  DASHBOARD,
   DECK_Y,
   ENGINE_RINGS_Z,
   FACE,
@@ -16,11 +17,19 @@ import {
   HEAD,
   NOZZLE,
   PILLAR,
-  WING,
-  wingPoint,
+  PLAN,
+  planFacet,
   RIM,
+  SEAT,
+  SHIP_HEIGHT,
+  SHIP_LENGTH,
   svgTo3d,
   TORSO,
+  TUB,
+  tubHalfWidth,
+  WING,
+  wingPoint,
+  wingStationAt,
 } from './geometry'
 
 type Vec3 = [number, number, number]
@@ -31,10 +40,21 @@ function pilotToShip([x, y, z]: Vec3): Vec3 {
   return [px + x * COCKPIT.scale, py + y * COCKPIT.scale, pz + z * COCKPIT.scale]
 }
 
-function insideBubble(p: Vec3): boolean {
-  const [cx, cy, cz] = BUBBLE.center
-  return Math.hypot(p[0] - cx, p[1] - cy, p[2] - cz) < BUBBLE.radius
-}
+const hatCorners = (): Vec3[] =>
+  HAT_BLOCKS.flatMap(({ position, size }) =>
+    [-1, 1].flatMap((sx) =>
+      [-1, 1].flatMap((sy) =>
+        [-1, 1].map(
+          (sz) =>
+            [
+              position[0] + (sx * size[0]) / 2,
+              position[1] + (sy * size[1]) / 2,
+              position[2] + (sz * size[2]) / 2,
+            ] as Vec3,
+        ),
+      ),
+    ),
+  )
 
 describe('svgTo3d', () => {
   it('converte com 100 px = 1 unidade, origem no centro do casco e y para cima', () => {
@@ -44,26 +64,45 @@ describe('svgTo3d', () => {
   })
 })
 
-describe('cabine', () => {
-  it('a bolha assenta no aro da tigela', () => {
-    const dy = RIM.top - BUBBLE.center[1]
-    const footprint = Math.sqrt(BUBBLE.radius ** 2 - dy ** 2)
-    expect(footprint).toBeGreaterThan(RIM.inner)
-    expect(footprint).toBeLessThan(RIM.outer)
+describe('casco e cúpula', () => {
+  it('a nave é compacta: comprimento entre 1,6 e 2,1 vezes a altura', () => {
+    const ratio = SHIP_LENGTH / SHIP_HEIGHT
+    expect(ratio).toBeGreaterThan(1.6)
+    expect(ratio).toBeLessThan(2.1)
   })
 
-  it('a bolha é quase uma esfera: o centro e mais de 60% do diâmetro ficam acima do aro', () => {
-    expect(BUBBLE.center[1]).toBeGreaterThan(RIM.top)
-    const above = BUBBLE.center[1] + BUBBLE.radius - RIM.top
-    expect(above / (2 * BUBBLE.radius)).toBeGreaterThan(0.6)
+  it('a cúpula é longa e baixa: ~2,4× mais longa que alta e mais larga que alta', () => {
+    const lengthOverHeight = (2 * CANOPY.b) / CANOPY.height
+    expect(lengthOverHeight).toBeGreaterThan(2.2)
+    expect(lengthOverHeight).toBeLessThan(2.6)
+    expect(2 * CANOPY.a).toBeGreaterThan(CANOPY.height)
+    expect(CANOPY.lean).toBeGreaterThan(0) // ponto mais alto puxado para a frente
   })
 
-  it('a tigela fecha no piso da cabine, abaixo do topo do aro', () => {
-    const [last, beforeLast] = [BOWL_PROFILE.at(-1)!, BOWL_PROFILE.at(-2)!]
-    expect(last).toEqual([0, DECK_Y])
-    expect(beforeLast[1]).toBe(DECK_Y)
-    expect(DECK_Y).toBeLessThan(RIM.top)
-    expect(DECK_Y).toBeGreaterThan(RIM.bottom)
+  it('a cúpula assenta no aro e cobre quase todo o casco', () => {
+    expect(CANOPY.a).toBeLessThan(PLAN.a)
+    expect(CANOPY.a).toBeGreaterThan(PLAN.a - RIM.width)
+    expect(CANOPY.b).toBeLessThan(PLAN.b)
+    expect(CANOPY.b).toBeGreaterThan(PLAN.b - RIM.width)
+    expect(CANOPY.base).toBeGreaterThan(RIM.bottom)
+    expect(CANOPY.base).toBeLessThan(RIM.top)
+  })
+
+  it('o casco é uma banheira rasa: fundo ~0,45× a altura da cúpula, proa subindo', () => {
+    const depth = RIM.top - TUB.rings[0].y
+    expect(depth / CANOPY.height).toBeGreaterThan(0.35)
+    expect(depth / CANOPY.height).toBeLessThan(0.55)
+    expect(TUB.rings[0].dz).toBeLessThan(0) // o fundo recua: a proa sobe
+    expect(TUB.rings.at(-1)!.y).toBe(DECK_Y)
+    expect(TUB.rings[TUB.outerWall - 1].y).toBeLessThanOrEqual(RIM.bottom + 0.01)
+  })
+
+  it('o aro é fino e os quadradinhos cabem na face de fora, na frente', () => {
+    expect(RIM.top - RIM.bottom).toBeLessThan(0.1)
+    const front = planFacet(0, PLAN.a, PLAN.b)
+    expect(front.center[0]).toBeCloseTo(0, 10)
+    expect(front.yaw).toBeCloseTo(0, 10)
+    expect(planFacet(2, PLAN.a, PLAN.b).center[0]).toBeGreaterThan(0)
   })
 })
 
@@ -72,50 +111,61 @@ describe('piloto na cabine', () => {
     expect(pilotToShip([0, TORSO.base[1], 0])[1]).toBeCloseTo(DECK_Y, 10)
   })
 
-  it('a cabeça fica dentro da bolha', () => {
+  it('a cabeça e o gorro inteiro cabem sob a cúpula', () => {
     const [hx, hy] = HEAD.center
-    for (const p of [
+    const head: Vec3[] = [
       [hx, hy + HEAD.ry, 0],
       [hx - HEAD.rx, hy, 0],
       [hx + HEAD.rx, hy, 0],
       [hx, hy, HEAD.rz],
-    ] as Vec3[]) {
-      expect(insideBubble(pilotToShip(p))).toBe(true)
-    }
+      [hx, hy, -HEAD.rz],
+    ]
+    for (const p of [...head, ...hatCorners()]) expect(canopyContains(pilotToShip(p))).toBe(true)
   })
 
-  it('o gorro inteiro (todos os cantos dos blocos) cabe na bolha', () => {
-    for (const { position, size } of HAT_BLOCKS) {
-      for (const sx of [-1, 1])
-        for (const sy of [-1, 1])
-          for (const sz of [-1, 1]) {
-            const corner: Vec3 = [
-              position[0] + (sx * size[0]) / 2,
-              position[1] + (sy * size[1]) / 2,
-              position[2] + (sz * size[2]) / 2,
-            ]
-            expect(insideBubble(pilotToShip(corner))).toBe(true)
-          }
-    }
+  it('o assento fica sob o piloto e o painel na frente dele, dentro do casco', () => {
+    expect(SEAT.z).toBe(COCKPIT.position[2])
+    expect(SEAT.back.z).toBeLessThan(SEAT.z)
+    expect(DASHBOARD.z).toBeGreaterThan(SEAT.z + SEAT.cushion.depth)
+    expect(DASHBOARD.z + DASHBOARD.depth / 2).toBeLessThan(PLAN.b * TUB.rings.at(-1)!.f)
   })
 })
 
-describe('fuselagem traseira', () => {
-  it('sai de trás da cabine e se estende para trás (−z)', () => {
-    const zs = FUSELAGE.map((s) => s.z)
-    for (let i = 1; i < zs.length; i++) expect(zs[i]).toBeLessThan(zs[i - 1])
-    expect(zs[1]).toBeLessThan(-RIM.outer)
-    expect(zs.at(-1)!).toBeLessThan(-2.5 * RIM.outer)
+describe('coluna e antena', () => {
+  it('a coluna vai do piso de trás até o alto da cúpula, por dentro do vidro e atrás do gorro', () => {
+    const [first, last] = [PILLAR.points[0], PILLAR.points.at(-1)!]
+    expect(first[1]).toBe(DECK_Y)
+    expect(last[1]).toBeGreaterThan(CANOPY.base + CANOPY.height * 0.85)
+    for (const p of PILLAR.points.slice(1, -1)) expect(canopyContains([p[0], p[1] + PILLAR.radius, p[2]])).toBe(true)
+    // o topo encosta no vidro: o eixo ainda está dentro, um diâmetro acima já está fora
+    expect(canopyContains(last)).toBe(true)
+    expect(canopyContains([last[0], last[1] + 2 * PILLAR.radius, last[2]])).toBe(false)
+    const hatBack = Math.min(...hatCorners().map((c) => pilotToShip(c)[2]))
+    for (const p of PILLAR.points.slice(0, 3)) expect(p[2] + PILLAR.radius).toBeLessThan(hatBack)
   })
 
-  it('a primeira seção fica escondida dentro da tigela, sob o piso', () => {
-    const first = FUSELAGE[0]
-    expect(first.cy + first.ry).toBeLessThan(DECK_Y)
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * Math.PI * 2
-      const [x, y] = [first.rx * Math.cos(a), first.cy + first.ry * Math.sin(a)]
-      expect(Math.hypot(x, first.z)).toBeLessThan(bowlRadiusAt(y).radius)
-    }
+  it('a antena sai do topo da coluna, na junção com a cúpula', () => {
+    const [root, top] = [ANTENNA.points[0], PILLAR.points.at(-1)!]
+    expect(Math.hypot(root[1] - top[1], root[2] - top[2])).toBeLessThan(PILLAR.radius * 1.5)
+    expect(canopyContains(ANTENNA.points[1])).toBe(false)
+  })
+})
+
+describe('motor', () => {
+  it('nasce sob o piso, dentro da planta do casco, e vai para trás (−z)', () => {
+    const zs = FUSELAGE.map((s) => s.z)
+    for (let i = 1; i < zs.length; i++) expect(zs[i]).toBeLessThan(zs[i - 1])
+    expect(FUSELAGE[0].cy + FUSELAGE[0].ry).toBeLessThan(DECK_Y)
+    expect(Math.abs(FUSELAGE[0].z)).toBeLessThan(PLAN.b)
+  })
+
+  it('é encorpado (~3/4 da largura da cabine) e baixo (topo entre o piso e o aro)', () => {
+    const widest = FUSELAGE.reduce((a, b) => (b.rx > a.rx ? b : a))
+    const ratio = widest.rx / PLAN.a
+    expect(ratio).toBeGreaterThanOrEqual(0.7)
+    expect(ratio).toBeLessThanOrEqual(0.8)
+    expect(widest.cy + widest.ry).toBeLessThan(RIM.top)
+    expect(widest.cy + widest.ry).toBeGreaterThan(DECK_Y)
   })
 
   it('afunila da seção mais larga até o bocal', () => {
@@ -129,81 +179,81 @@ describe('fuselagem traseira', () => {
 
   it('fuselageSection interpola entre as seções', () => {
     const [a, b] = [FUSELAGE[1], FUSELAGE[2]]
-    const mid = fuselageSection((a.z + b.z) / 2)
-    expect(mid.rx).toBeCloseTo((a.rx + b.rx) / 2, 10)
+    expect(fuselageSection((a.z + b.z) / 2).rx).toBeCloseTo((a.rx + b.rx) / 2, 10)
     expect(fuselageSection(a.z)).toEqual(a)
   })
 
-  it('anéis do motor e bocal ficam ao longo da fuselagem', () => {
+  it('as faixas e o bocal ficam ao longo do motor, atrás do casco', () => {
     for (const z of ENGINE_RINGS_Z) {
-      expect(z).toBeLessThan(FUSELAGE[1].z)
+      expect(z).toBeLessThan(-PLAN.b)
       expect(z).toBeGreaterThan(FUSELAGE.at(-1)!.z)
     }
     expect(NOZZLE.z).toBe(FUSELAGE.at(-1)!.z)
   })
-
 })
 
 describe('asas', () => {
   const nozzleBack = NOZZLE.z - NOZZLE.length
+  const stations = WING.stations
+  const center = (st: (typeof stations)[number]) => (st.lower + st.upper) / 2
+  const angles = Array.from({ length: 12 }, (_, i) => (i / 12) * Math.PI * 2)
 
   it('são um par espelhado em x', () => {
-    for (const p of WING.outline) {
-      const [x, y, z] = wingPoint(1, p)
-      expect(wingPoint(-1, p)).toEqual([-x, y, z])
+    for (const st of stations)
+      for (const a of angles) {
+        const [x, y, z] = wingPoint(1, st, a)
+        expect(wingPoint(-1, st, a)).toEqual([-x, y, z])
+      }
+  })
+
+  it('a raiz abraça a parte de baixo da proa, colada no casco', () => {
+    const front = stations.filter((st) => st.z >= 0)
+    expect(front.length).toBeGreaterThan(1)
+    for (const st of front) {
+      expect(st.upper).toBeLessThan(RIM.bottom)
+      const [x, y, z] = wingPoint(1, st, Math.PI) // face de dentro
+      expect(x).toBeLessThanOrEqual(tubHalfWidth(z, y) + 0.01)
     }
   })
 
-  it('a raiz fica presa na tigela/motor, abaixo do aro', () => {
-    for (const p of WING.outline.filter(([s]) => s === 0)) {
-      const [x, y, z] = wingPoint(1, p)
-      expect(y).toBeLessThan(RIM.bottom)
-      const inBowl = Math.hypot(x, z) < bowlRadiusAt(y).radius
-      const f = fuselageSection(z)
-      const inEngine = (x / f.rx) ** 2 + ((y - f.cy) / f.ry) ** 2 < 1
-      expect(inBowl || inEngine).toBe(true)
+  it('fica colada no motor ao longo dele', () => {
+    for (const st of stations.filter((s) => s.z <= -1.2 && s.z >= FUSELAGE.at(-1)!.z)) {
+      const [x, y] = wingPoint(1, st, Math.PI)
+      const f = fuselageSection(st.z)
+      const hullX = f.rx * Math.sqrt(Math.max(0, 1 - ((y - f.cy) / f.ry) ** 2))
+      expect(Math.abs(x - hullX)).toBeLessThan(0.12)
     }
   })
 
-  it('corre ao longo do casco: começa sob a frente da cabine e a ponta passa do bocal', () => {
-    const points = WING.outline.map((p) => wingPoint(1, p))
-    const zs = points.map(([, , z]) => z)
-    expect(Math.max(...zs)).toBeGreaterThan(0)
-    expect(Math.min(...zs)).toBeLessThan(nozzleBack)
-    for (const [, y, z] of points) if (z > 0) expect(y).toBeLessThan(RIM.bottom)
-    const frontRoot = wingPoint(1, WING.outline.find(([s, z]) => s === 0 && z > 0)!)
-    const bowlMiddle = (BOWL_PROFILE[0][1] + RIM.top) / 2
-    expect(frontRoot[1]).toBeLessThan(bowlMiddle)
-    expect(Math.max(...points.map(([, y]) => y))).toBeLessThan(RIM.top)
-    const width = Math.max(...WING.outline.map(([s]) => s))
-    expect(width).toBeLessThan((Math.max(...zs) - Math.min(...zs)) / 3)
+  it('curva para cima até uma ponta mais alta que a raiz, atrás do bocal', () => {
+    const tip = stations.at(-1)!
+    expect(tip.z).toBeLessThan(nozzleBack)
+    expect(center(tip)).toBeGreaterThan(center(stations[0]))
+    const lowest = stations.reduce((a, b) => (center(b) < center(a) ? b : a))
+    const rising = stations.slice(stations.indexOf(lowest))
+    for (let i = 1; i < rising.length; i++) expect(center(rising[i])).toBeGreaterThan(center(rising[i - 1]))
   })
 
-  it('a ponta de trás é a parte mais traseira e fica perto do eixo (aponta para trás)', () => {
-    const tip = WING.outline.reduce((a, b) => (b[1] < a[1] ? b : a))
-    const widest = Math.max(...WING.outline.map(([s]) => s))
-    expect(tip[0]).toBeLessThan(widest / 2)
-  })
-
-  it('sobe para fora (diedro) e para trás (pitch), e as luzes ficam dentro do contorno', () => {
-    expect(wingPoint(1, [0.5, 0])[1]).toBeGreaterThan(wingPoint(1, [0, 0])[1])
-    expect(wingPoint(1, [0, -2])[1]).toBeGreaterThan(wingPoint(1, [0, 0])[1])
-    const cross = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
-    for (const light of WING.lights) {
-      const signs = WING.outline.map((p, i) => Math.sign(cross(p, WING.outline[(i + 1) % WING.outline.length], light)))
-      expect(new Set(signs).size).toBe(1)
+  it('é encorpada na frente e afina para a cauda', () => {
+    const thickest = stations.reduce((a, b) => (b.thickness > a.thickness ? b : a))
+    expect(thickest.thickness).toBeGreaterThanOrEqual(0.18)
+    expect(thickest.z).toBeGreaterThan(-1)
+    const tail = stations.slice(stations.indexOf(thickest))
+    for (let i = 1; i < tail.length; i++) {
+      expect(tail[i].thickness).toBeLessThan(tail[i - 1].thickness)
+      expect(tail[i].upper - tail[i].lower).toBeLessThanOrEqual(tail[i - 1].upper - tail[i - 1].lower)
     }
   })
-})
 
-describe('coluna da cabine', () => {
-  it('vai do piso, atrás do piloto, até o alto da bolha, sempre por dentro do vidro', () => {
-    const [first, last] = [PILLAR.points[0], PILLAR.points.at(-1)!]
-    expect(first[1]).toBe(DECK_Y)
-    expect(last[1]).toBeGreaterThan(BUBBLE.center[1] + BUBBLE.radius * 0.9)
-    for (const p of PILLAR.points.slice(1)) expect(insideBubble(p)).toBe(true)
-    const pilotBack = Math.min(...HAT_BLOCKS.map((b) => pilotToShip(b.position)[2] - (b.size[2] * COCKPIT.scale) / 2))
-    for (const p of PILLAR.points.slice(0, 2)) expect(p[2] + PILLAR.radius).toBeLessThan(pilotBack)
+  it('a faixa é a borda de baixo e as luzes ficam perto da ponta, por cima', () => {
+    expect(Math.sin(WING.stripe.from)).toBeLessThan(0)
+    expect(Math.sin(WING.stripe.to)).toBeLessThan(0)
+    for (const { z, angle } of WING.lights) {
+      expect(z).toBeLessThan(FUSELAGE.at(-1)!.z)
+      expect(z).toBeGreaterThan(stations.at(-1)!.z)
+      expect(Math.sin(angle)).toBeGreaterThan(0)
+    }
+    expect(wingStationAt(stations[2].z)).toEqual(stations[2])
   })
 })
 

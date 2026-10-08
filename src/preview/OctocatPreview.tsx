@@ -14,9 +14,9 @@ type View = { label: string; position: [number, number, number]; target: [number
 /** Pontos de vista para comparar com as referências (foto 3/4 traseira e desenho lateral). */
 const VIEWS: View[] = [
   // foto: baixo, atrás e à esquerda — bocal perto, bolha à direita
-  { label: 'Ângulo da referência', position: [-4.2, 1.3, -5.6], target: [0, 0.1, -1.2] },
+  { label: 'Ângulo da referência', position: [-4.4, 1.2, -4.8], target: [0, 0.1, -0.4] },
   // desenho: de lado, frente à direita
-  { label: 'Vista lateral', position: [-9, 0.5, -1.4], target: [0, 0.5, -1.4] },
+  { label: 'Vista lateral', position: [-7, 0.3, -0.4], target: [0, 0.3, -0.4] },
 ]
 
 export function OctocatPreview() {
@@ -43,7 +43,7 @@ export function OctocatPreview() {
         <pointLight position={[-4, 2, 3]} intensity={20} color="#22d3ee" />
         <Stars radius={60} depth={30} count={1500} factor={3} fade />
         <OctocatShip thrusterLevel={thruster} parts={parts} />
-        <OrbitControls ref={controls} target={[0, 0.4, -1.2]} autoRotate={spin} autoRotateSpeed={0.8} enablePan={false} minDistance={2.5} maxDistance={14} />
+        <OrbitControls ref={controls} target={[0, 0.2, -0.4]} autoRotate={spin} autoRotateSpeed={0.8} enablePan={false} minDistance={2.5} maxDistance={14} />
       </Canvas>
 
       <aside className="fixed left-4 top-4 w-64 space-y-4 rounded-2xl border border-neon/30 bg-panel/90 p-4 text-sm backdrop-blur">

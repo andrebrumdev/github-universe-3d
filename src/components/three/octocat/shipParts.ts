@@ -3,76 +3,126 @@
  * src/lib/ship/geometry.ts. Compartilhadas por todas as instâncias da nave e nunca descartadas.
  */
 import * as THREE from 'three'
-import {
-  arcPath,
-  bevelConvexGeometry,
-  circleProfile,
-  curvePath,
-  joinPaths,
-  linePath,
-  loft,
-  sweep,
-  transformPath,
-  transportFrames,
-} from 'three-low-poly'
+import { circleProfile, curvePath, EdgedBoxGeometry, loft, sweep, transportFrames } from 'three-low-poly'
 import {
   ANTENNA,
-  BOWL_PROFILE,
-  BUBBLE,
+  CANOPY,
+  DASHBOARD,
+  DECK_Y,
   ENGINE_RING,
   ENGINE_RINGS_Z,
   FUSELAGE,
   fuselageSection,
   HEADLIGHTS,
-  LATHE_PHI_START,
   NOZZLE,
   PILLAR,
-  RADIAL_SEGMENTS,
+  PLAN,
+  PLAN_SEGMENTS,
+  planAngle,
+  planFacet,
+  planNormal,
+  planPoint,
   RIM,
-  RIM_PROFILE,
+  RIM_SECTION,
+  SEAT,
   SQUARES,
   THRUSTER,
+  TUB,
+  tubRingAt,
   WING,
-  type Vec2,
+  wingPoint,
+  wingStationAt,
+  type Vec3,
 } from '@/lib/ship/geometry'
 
-const toVector2 = (points: Vec2[]) => points.map(([a, b]) => new THREE.Vector2(a, b))
+const v3 = ([x, y, z]: Vec3) => new THREE.Vector3(x, y, z)
+const PLAN_ANGLES = Array.from({ length: PLAN_SEGMENTS }, (_, k) => planAngle(k))
 
-// ─── Cabine ───
+// ─── Casco, aro e cúpula ───
 
-export const BOWL_GEOMETRY = new THREE.LatheGeometry(toVector2(BOWL_PROFILE), RADIAL_SEGMENTS, LATHE_PHI_START)
-export const RIM_GEOMETRY = new THREE.LatheGeometry(toVector2(RIM_PROFILE), RADIAL_SEGMENTS, LATHE_PHI_START)
-
-/** A bolha desce até um pouco abaixo do topo do aro, para nascer de dentro dele. */
-const BUBBLE_CUT_Y = RIM.top - 0.03 - BUBBLE.center[1]
-export const BUBBLE_GEOMETRY = new THREE.SphereGeometry(
-  BUBBLE.radius,
-  14,
-  10,
-  0,
-  Math.PI * 2,
-  0,
-  Math.acos(BUBBLE_CUT_Y / BUBBLE.radius),
+/**
+ * Casco em banheira: loft (sem tampa) dos anéis horizontais de TUB — parede de fora, borda de dentro
+ * descendo até o piso. O fundo e o piso são elipses planas à parte: a tampa do loft no anel do piso sairia
+ * com o winding invertido, porque esse último trecho desce.
+ */
+export const TUB_GEOMETRY = loft(
+  TUB.rings.map(({ f, y, dz }) =>
+    PLAN_ANGLES.map((phi) => {
+      const [x, z] = planPoint(phi, f * PLAN.a, f * PLAN.b)
+      return new THREE.Vector3(x, y, z + dz)
+    }).reverse(), // sentido que deixa as paredes viradas para fora
+  ),
+  { cap: false }, // o padrão do loft é tampar
 )
 
-/** Moldura: meio arco de frente para trás sobre a bolha (arcPath no plano XY, girado para o plano YZ). */
-function bubbleFrame(): THREE.BufferGeometry {
-  const radius = BUBBLE.radius + BUBBLE.frameRadius / 2
-  const start = Math.asin((RIM.top - BUBBLE.center[1]) / radius)
-  const arc = arcPath({ radius, startAngle: start, endAngle: Math.PI - start, segments: 14 })
-  const toShip = new THREE.Matrix4()
-    .makeTranslation(BUBBLE.center[0], BUBBLE.center[1], BUBBLE.center[2])
-    .multiply(new THREE.Matrix4().makeRotationY(-Math.PI / 2))
-  return sweep(circleProfile(BUBBLE.frameRadius, 6), transportFrames(transformPath(arc, toShip)), { cap: true })
+/** Elipse plana de um anel do casco, virada para cima (piso) ou para baixo (fundo). */
+function tubCap({ f, y, dz }: (typeof TUB.rings)[number], up: boolean): THREE.BufferGeometry {
+  const shape = new THREE.Shape(
+    PLAN_ANGLES.map((phi) => {
+      const [x, z] = planPoint(phi, f * PLAN.a, f * PLAN.b)
+      return new THREE.Vector2(x, up ? -z : z)
+    }),
+  )
+  return new THREE.ShapeGeometry(shape)
+    .rotateX(up ? -Math.PI / 2 : Math.PI / 2)
+    .translate(0, y, dz)
 }
-export const BUBBLE_FRAME_GEOMETRY = bubbleFrame()
+export const TUB_DECK_GEOMETRY = tubCap(TUB.rings[TUB.rings.length - 1], true)
+export const TUB_BOTTOM_GEOMETRY = tubCap(TUB.rings[0], false)
+
+/**
+ * Aro fino: uma seção (RIM_SECTION) por ponto da planta, deslocada pela normal da elipse, e um loft
+ * fechado dando a volta — largura constante em toda a borda, mesmo com a planta alongada.
+ */
+export const RIM_GEOMETRY = loft(
+  PLAN_ANGLES.map((phi) => {
+    const [x, z] = planPoint(phi, PLAN.a, PLAN.b)
+    const [nx, nz] = planNormal(phi, PLAN.a, PLAN.b)
+    return RIM_SECTION.map(([dr, y]) => new THREE.Vector3(x + nx * dr, y, z + nz * dr))
+  }),
+  { closed: true },
+)
+
+/** Quadradinhos: um por faceta da face de fora do aro, centrados na frente. */
+export const SQUARE_GEOMETRY = new THREE.BoxGeometry(SQUARES.size, SQUARES.size, SQUARES.depth)
+export const SQUARE_PLACEMENTS = SQUARES.facets.map((m) => {
+  const { center, yaw } = planFacet(m, PLAN.a, PLAN.b)
+  const out = SQUARES.depth / 2 - 0.004
+  return {
+    position: [center[0] + Math.sin(yaw) * out, (RIM.bottom + RIM.top) / 2, center[1] + Math.cos(yaw) * out] as Vec3,
+    yaw,
+  }
+})
+
+/** Faróis: disco virado para +z com aro, na faceta da parede do casco na altura HEADLIGHTS.y. */
+export const HEADLIGHT_GEOMETRY = new THREE.CylinderGeometry(HEADLIGHTS.radius, HEADLIGHTS.radius, 0.04, 10).rotateX(
+  Math.PI / 2,
+)
+export const HEADLIGHT_BEZEL_GEOMETRY = new THREE.TorusGeometry(HEADLIGHTS.radius, 0.022, 4, 10)
+const headlightWall = tubRingAt(HEADLIGHTS.y) ?? { f: 1, dz: 0 }
+export const HEADLIGHT_PLACEMENTS = HEADLIGHTS.facets.map((m) => {
+  const { center, yaw } = planFacet(m, headlightWall.f * PLAN.a, headlightWall.f * PLAN.b)
+  return { position: [center[0], HEADLIGHTS.y, center[1] + headlightWall.dz] as Vec3, yaw }
+})
+
+/** Cúpula: meio elipsoide (a, altura, b) inclinado para a frente (z += lean·y), apoiado em CANOPY.base. */
+export const CANOPY_GEOMETRY = new THREE.SphereGeometry(1, 16, 6, 0, Math.PI * 2, 0, Math.PI / 2)
+  .scale(CANOPY.a, CANOPY.height, CANOPY.b)
+  .applyMatrix4(new THREE.Matrix4().set(1, 0, 0, 0, 0, 1, 0, 0, 0, CANOPY.lean, 1, 0, 0, 0, 0, 1))
+  .translate(0, CANOPY.base, 0)
+
+/** Coluna grossa em arco, do piso de trás até o alto da cúpula. */
+const pillarCurve = new THREE.CatmullRomCurve3(PILLAR.points.map(v3))
+export const PILLAR_GEOMETRY = sweep(circleProfile(PILLAR.radius, 8), transportFrames(curvePath(pillarCurve, 10)), {
+  cap: true,
+})
 
 /**
  * Antena: o arco de ANTENNA.points com um trecho em mola — voltas em volta do arco, com raio que
- * cresce e some (seno), para o fio sair liso da bolha e chegar liso na bolinha.
+ * cresce e some (seno), para o fio sair liso da coluna e chegar liso na bolinha.
  */
 class CoiledAntenna extends THREE.Curve<THREE.Vector3> {
-  private readonly arch = new THREE.CatmullRomCurve3(ANTENNA.points.map(([x, y, z]) => new THREE.Vector3(x, y, z)))
+  private readonly arch = new THREE.CatmullRomCurve3(ANTENNA.points.map(v3))
 
   // o construtor de Curve é protegido nos tipos do three
   constructor() {
@@ -92,25 +142,63 @@ class CoiledAntenna extends THREE.Curve<THREE.Vector3> {
     return point.addScaledVector(side, r * Math.sin(angle)).addScaledVector(normal, r * (1 - Math.cos(angle)) * 0.5)
   }
 }
-export const ANTENNA_GEOMETRY = sweep(circleProfile(ANTENNA.radius, 6), transportFrames(curvePath(new CoiledAntenna(), 36)), {
+export const ANTENNA_GEOMETRY = sweep(circleProfile(ANTENNA.radius, 6), transportFrames(curvePath(new CoiledAntenna(), 30)), {
   cap: true,
 })
 export const ANTENNA_TIP_POSITION = ANTENNA.points[ANTENNA.points.length - 1]
 export const ANTENNA_TIP_GEOMETRY = new THREE.IcosahedronGeometry(ANTENNA.tipRadius, 1)
 
-/** Coluna em arco dentro da bolha, atrás do piloto. */
-const pillarCurve = new THREE.CatmullRomCurve3(PILLAR.points.map(([x, y, z]) => new THREE.Vector3(x, y, z)))
-export const PILLAR_GEOMETRY = sweep(circleProfile(PILLAR.radius, 6), transportFrames(curvePath(pillarCurve, 10)), {
-  cap: true,
-})
+// ─── Interior: assento e painel ───
 
-export const SQUARE_GEOMETRY = new THREE.BoxGeometry(SQUARES.size, SQUARES.size, SQUARES.depth)
+/** Caixa chanfrada centrada na origem (a EdgedBoxGeometry nasce apoiada em y = 0). */
+const box = (width: number, height: number, depth: number) =>
+  new EdgedBoxGeometry({ width, height, depth, edge: 'chamfer', radius: Math.min(width, height, depth) * 0.25, segments: 1 }).translate(
+    0,
+    -height / 2,
+    0,
+  )
 
-/** Farol: disco virado para +z, com aro. */
-export const HEADLIGHT_GEOMETRY = new THREE.CylinderGeometry(HEADLIGHTS.radius, HEADLIGHTS.radius, 0.05, 10).rotateX(
-  Math.PI / 2,
-)
-export const HEADLIGHT_BEZEL_GEOMETRY = new THREE.TorusGeometry(HEADLIGHTS.radius, 0.025, 4, 10)
+const seatShellWidth = SEAT.width + 2 * SEAT.shell
+const seatBaseY = DECK_Y + SEAT.shell
+/** Peças do assento: concha lilás (base + costas) e almofadas creme. Posição e inclinação de cada uma. */
+export const SEAT_PARTS = {
+  shell: [
+    {
+      geometry: box(seatShellWidth, 2 * SEAT.shell, SEAT.cushion.depth + 2 * SEAT.shell),
+      position: [0, DECK_Y + SEAT.shell, SEAT.z] as Vec3,
+      tilt: 0,
+    },
+    {
+      geometry: box(seatShellWidth, SEAT.back.height + SEAT.shell, SEAT.shell),
+      position: [0, seatBaseY + SEAT.back.height / 2, SEAT.back.z - SEAT.back.thickness / 2 - SEAT.shell / 2] as Vec3,
+      tilt: -SEAT.back.tilt,
+    },
+  ],
+  cushion: [
+    {
+      geometry: box(SEAT.width, SEAT.cushion.height, SEAT.cushion.depth),
+      position: [0, seatBaseY + SEAT.shell + SEAT.cushion.height / 2, SEAT.z] as Vec3,
+      tilt: 0,
+    },
+    {
+      geometry: box(SEAT.width, SEAT.back.height, SEAT.back.thickness),
+      position: [0, seatBaseY + SEAT.back.height / 2 + SEAT.shell, SEAT.back.z] as Vec3,
+      tilt: -SEAT.back.tilt,
+    },
+  ],
+}
+
+/** Painel: caixa escura inclinada para o piloto, volante redondo com cubo e duas luzinhas em cima. */
+export const DASHBOARD_TILT = -0.3
+export const DASHBOARD_GEOMETRY = box(DASHBOARD.width, DASHBOARD.height, DASHBOARD.depth)
+export const DASHBOARD_POSITION: Vec3 = [0, DECK_Y + DASHBOARD.height / 2, DASHBOARD.z]
+export const WHEEL_GEOMETRY = new THREE.TorusGeometry(DASHBOARD.wheel.radius, DASHBOARD.wheel.tube, 4, 10)
+const hubLength = DASHBOARD.z - DASHBOARD.depth / 2 - DASHBOARD.wheel.z
+export const WHEEL_HUB_GEOMETRY = new THREE.CylinderGeometry(0.025, 0.025, hubLength, 6)
+  .rotateX(Math.PI / 2)
+  .translate(0, 0, hubLength / 2)
+export const DASHBOARD_LIGHT_GEOMETRY = new THREE.IcosahedronGeometry(0.028, 0)
+export const DASHBOARD_LIGHT_Y = DECK_Y + DASHBOARD.height + 0.01
 
 // ─── Fuselagem traseira ───
 
@@ -151,51 +239,68 @@ function engineBand(z: number): THREE.BufferGeometry {
 }
 export const ENGINE_BAND_GEOMETRIES = ENGINE_RINGS_Z.map(engineBand)
 
-/** Cilindro do three: topo em +y; girado −90° em X, o topo vai para −z (a boca do bocal). */
+/** Cilindro do three: topo em +y; girado −90° em X, o topo vai para −z (a boca do bocal); achatado em y (oval). */
 const nozzleY = FUSELAGE[FUSELAGE.length - 1].cy
 export const NOZZLE_BACK_Z = NOZZLE.z - NOZZLE.length
-export const NOZZLE_GEOMETRY = new THREE.CylinderGeometry(NOZZLE.radiusBack, NOZZLE.radiusFront, NOZZLE.length, 10)
+export const NOZZLE_GEOMETRY = new THREE.CylinderGeometry(NOZZLE.radiusBack, NOZZLE.radiusFront, NOZZLE.length, 12)
   .rotateX(-Math.PI / 2)
+  .scale(1, NOZZLE.squash, 1)
   .translate(0, nozzleY, NOZZLE.z - NOZZLE.length / 2)
-export const NOZZLE_LIP_GEOMETRY = new THREE.TorusGeometry(NOZZLE.radiusBack, NOZZLE.lip, 4, 10).translate(
-  0,
-  nozzleY,
-  NOZZLE_BACK_Z,
-)
+export const NOZZLE_LIP_GEOMETRY = new THREE.TorusGeometry(NOZZLE.radiusBack, NOZZLE.lip, 4, 12)
+  .scale(1, NOZZLE.squash, 1)
+  .translate(0, nozzleY, NOZZLE_BACK_Z)
 export const THRUSTER_ORIGIN: [number, number, number] = [0, nozzleY, NOZZLE_BACK_Z]
 /** Chama com a base na origem, apontando para −z (o mesh escala z por thrusterLevel). */
 export const FLAME_GEOMETRY = new THREE.ConeGeometry(THRUSTER.radius, THRUSTER.length, 8)
   .translate(0, THRUSTER.length / 2, 0)
   .rotateX(-Math.PI / 2)
+  .scale(1, NOZZLE.squash, 1)
 
-// ─── Asas (extrusão → bevelConvexGeometry), no frame local da asa ───
-// Frame local: x = side · s (para fora), y = espessura, z = z da nave. O mesh aplica raiz + diedro.
+// ─── Asas: loft de seções em lente ao longo do "swoosh" (WING.stations) ───
 
 export type WingSide = 1 | -1
 
-function wing(side: WingSide): THREE.BufferGeometry {
-  const shape = new THREE.Shape(WING.outline.map(([s, z]) => new THREE.Vector2(side * s, z)))
-  const extruded = new THREE.ExtrudeGeometry(shape, { depth: WING.thickness, bevelEnabled: false })
-    .rotateX(Math.PI / 2) // y do contorno → z da nave; extrusão → −y
-    .translate(0, WING.thickness / 2, 0)
-  const { geometry } = bevelConvexGeometry(extruded, { radius: 0.02, segments: 1 })
-  extruded.dispose()
-  return geometry
+/**
+ * Loft de um arco da lente (ângulos de `from` a `to`) em todas as estações; o loft fecha a corda,
+ * então cada pedaço é um sólido fechado. Na asa de −x a ordem dos pontos inverte para manter o winding.
+ */
+function wingPiece(side: WingSide, from: number, to: number, steps: number): THREE.BufferGeometry {
+  const rings = WING.stations.map((station) => {
+    const ring = Array.from({ length: steps + 1 }, (_, i) => {
+      const [x, y, z] = wingPoint(side, station, from + ((to - from) * i) / steps)
+      return new THREE.Vector3(x, y, z)
+    })
+    return side === 1 ? ring : ring.reverse()
+  })
+  return loft(rings, { cap: true })
 }
 
-/** Faixas verde-água por cima da lâmina: tubos facetados pelas linhas de WING.stripes. */
-function wingStripes(side: WingSide): THREE.BufferGeometry[] {
-  return WING.stripes.map(({ radius, line }) => {
-    const points = line.map(([s, z]) => new THREE.Vector3(side * s, WING.thickness / 2, z))
-    const segments = points.slice(1).map((to, i) => linePath(points[i], to, 2))
-    return sweep(circleProfile(radius, 6), transportFrames(joinPaths(...segments)), { cap: true })
+/** Lâmina lilás: a lente toda menos a faixa de baixo. */
+const bladeArc = (side: WingSide) => wingPiece(side, WING.stripe.to - Math.PI * 2, WING.stripe.from, 6)
+/** Faixa verde-água: a borda de baixo da lente. */
+const stripeArc = (side: WingSide) => wingPiece(side, WING.stripe.from, WING.stripe.to, 3)
+
+/** Luzinha em domo apoiada na superfície da asa, virada para a normal da lente naquele ponto. */
+function wingLights(side: WingSide) {
+  const [cos, sin] = [Math.cos(WING.cant), Math.sin(WING.cant)]
+  return WING.lights.map(({ z, angle }) => {
+    const station = wingStationAt(z)
+    const [x, y] = wingPoint(side, station, angle)
+    // normal da elipse (cos/w, sin/h), girada pelo cant como os pontos
+    const [nx, ny] = [Math.cos(angle) / station.thickness, Math.sin(angle) / (station.upper - station.lower)]
+    const normal = new THREE.Vector3(side * (nx * cos + ny * sin), -nx * sin + ny * cos, 0).normalize()
+    return {
+      position: [x, y, z] as [number, number, number],
+      quaternion: new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal),
+    }
   })
 }
 
 export const WINGS = ([1, -1] as const).map((side) => ({
   side,
-  geometry: wing(side),
-  stripes: wingStripes(side),
+  blade: bladeArc(side),
+  stripe: stripeArc(side),
+  lights: wingLights(side),
 }))
-/** Luzinha em domo (meia esfera) sobre a asa. */
+/** Luzinha em domo (meia esfera). */
 export const WING_LIGHT_GEOMETRY = new THREE.SphereGeometry(WING.lightRadius, 6, 2, 0, Math.PI * 2, 0, Math.PI / 2)
