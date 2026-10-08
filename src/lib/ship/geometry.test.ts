@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   ANTENNA,
+  ARM_RADIUS,
+  ARM_Z,
   BRIM_DEPTH,
   CANOPY,
   canopyContains,
@@ -10,11 +12,15 @@ import {
   DECK_Y,
   ENGINE_RINGS_Z,
   FACE,
+  FREE_ARM,
   FUSELAGE,
   fuselageSection,
   HAT_BLOCKS,
+  HAND_RADIUS,
   HAT_EYE_BLOCKS,
   HEAD,
+  headFrontZ,
+  JOYSTICK,
   NOZZLE,
   PILLAR,
   PLAN,
@@ -24,6 +30,8 @@ import {
   SHIP_HEIGHT,
   SHIP_LENGTH,
   svgTo3d,
+  STICK_ARM,
+  THOUGHTS,
   TORSO,
   TUB,
   tubHalfWidth,
@@ -38,6 +46,11 @@ type Vec3 = [number, number, number]
 function pilotToShip([x, y, z]: Vec3): Vec3 {
   const [px, py, pz] = COCKPIT.position
   return [px + x * COCKPIT.scale, py + y * COCKPIT.scale, pz + z * COCKPIT.scale]
+}
+
+/** Dentro da cabine: sob a cúpula ou, abaixo do aro, dentro da banheira do casco. */
+function insideCabin(p: Vec3): boolean {
+  return canopyContains(p) || (p[1] <= CANOPY.base && Math.abs(p[0]) < tubHalfWidth(p[2], Math.min(p[1], RIM.bottom)))
 }
 
 const hatCorners = (): Vec3[] =>
@@ -128,6 +141,61 @@ describe('piloto na cabine', () => {
     expect(SEAT.back.z).toBeLessThan(SEAT.z)
     expect(DASHBOARD.z).toBeGreaterThan(SEAT.z + SEAT.cushion.depth)
     expect(DASHBOARD.z + DASHBOARD.depth / 2).toBeLessThan(PLAN.b * TUB.rings.at(-1)!.f)
+  })
+
+  it('a mão livre, a bola do manche e as bolhas de pensamento cabem sob a cúpula', () => {
+    const spheres: [number, number, number, number][] = [
+      [FREE_ARM.to[0], FREE_ARM.to[1], ARM_Z, HAND_RADIUS],
+      [JOYSTICK.knob[0], JOYSTICK.knob[1], ARM_Z, JOYSTICK.knobRadius],
+      ...THOUGHTS,
+    ]
+    for (const [x, y, z, r] of spheres) {
+      for (const [dx, dy, dz] of [
+        [r, 0, 0],
+        [-r, 0, 0],
+        [0, r, 0],
+        [0, 0, r],
+      ]) {
+        expect(insideCabin(pilotToShip([x + dx, y + dy, z + dz]))).toBe(true)
+      }
+    }
+  })
+
+  it('o manche fica em pé no piso da cabine', () => {
+    const bottom = pilotToShip([JOYSTICK.base[0], JOYSTICK.base[1] - JOYSTICK.height / 2, ARM_Z])
+    expect(Math.abs(bottom[1] - DECK_Y)).toBeLessThan(0.03)
+  })
+})
+
+describe('Octocat', () => {
+  /** Valor da equação da elipsoide do corpo (meia esfera apoiada em TORSO.base) crescida de `grow`: < 1 = dentro. */
+  function torsoLevel([x, y, z]: Vec3, grow: number): number {
+    return (x / (TORSO.rx + grow)) ** 2 + ((y - TORSO.base[1]) / (TORSO.ry + grow)) ** 2 + (z / (TORSO.rz + grow)) ** 2
+  }
+
+  it('os ombros encostam no corpo (o tubo do braço toca a superfície)', () => {
+    for (const arm of [FREE_ARM, STICK_ARM]) {
+      expect(torsoLevel([arm.from[0], arm.from[1], ARM_Z], ARM_RADIUS)).toBeLessThan(1)
+    }
+  })
+
+  it('a cabeça apoia no corpo', () => {
+    const torsoTop = TORSO.base[1] + TORSO.ry
+    expect(HEAD.center[1] - HEAD.ry).toBeLessThan(torsoTop)
+    expect(HEAD.center[1]).toBeGreaterThan(torsoTop)
+  })
+
+  it('o contorno do rosto fica todo sobre a frente da cabeça', () => {
+    for (let i = 0; i < 32; i++) {
+      const a = (i / 32) * Math.PI * 2
+      const x = FACE.rx * Math.cos(a)
+      const y = FACE.center[1] + FACE.ry * Math.sin(a)
+      expect(headFrontZ(x, y)).toBeGreaterThan(0.15)
+    }
+    expect(headFrontZ(0, HEAD.center[1])).toBeCloseTo(HEAD.rz, 10)
+    expect(headFrontZ(HEAD.rx + 0.1, HEAD.center[1])).toBe(0)
+    expect(headFrontZ(0, HEAD.center[1], 0.02)).toBeCloseTo(HEAD.rz + 0.02, 10)
+    expect(headFrontZ(0.3, 1.3, 0.02)).toBeGreaterThan(headFrontZ(0.3, 1.3))
   })
 })
 
@@ -272,6 +340,14 @@ describe('gorro-Clawd', () => {
     const crownTop = crown.position[1] + crown.size[1] / 2
     expect(crownBottom).toBeLessThan(headTop)
     expect(crownTop).toBeGreaterThan(headTop)
+  })
+
+  it('a cabeça não fura a copa: acima da aba, a cabeça cabe na profundidade da copa', () => {
+    const brimTop = brim.position[1] + brim.size[1] / 2
+    const crownTop = crown.position[1] + crown.size[1] / 2
+    for (let y = brimTop; y <= crownTop; y += 0.01) {
+      expect(headFrontZ(0, y)).toBeLessThanOrEqual(CROWN_DEPTH / 2)
+    }
   })
 
   it('a aba fica na frente do rosto e os olhos na frente da copa', () => {

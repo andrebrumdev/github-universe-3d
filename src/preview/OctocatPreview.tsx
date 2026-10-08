@@ -2,6 +2,7 @@ import { type ComponentRef, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Stars } from '@react-three/drei'
 import { ALL_PARTS, OctocatShip, type OctocatShipParts } from '@/components/three/octocat/OctocatShip'
+import { OCTOCAT_EXPRESSIONS, type OctocatExpression } from '@/lib/octocat/expression'
 
 const PART_LABELS: [keyof OctocatShipParts, string][] = [
   ['ship', 'Nave'],
@@ -19,9 +20,18 @@ const VIEWS: View[] = [
   { label: 'Vista lateral', position: [-7, 0.3, -0.4], target: [0, 0.3, -0.4] },
 ]
 
+const EXPRESSION_LABELS: Record<OctocatExpression, string> = {
+  neutral: 'Neutro',
+  happy: 'Feliz',
+  wink: 'Piscadinha',
+  surprised: 'Surpreso',
+  thinking: 'Pensando',
+}
+
 export function OctocatPreview() {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null)
   const [parts, setParts] = useState<OctocatShipParts>(ALL_PARTS)
+  const [expression, setExpression] = useState<OctocatExpression>('neutral')
   const [thruster, setThruster] = useState(0.3)
   const [spin, setSpin] = useState(true)
 
@@ -42,7 +52,7 @@ export function OctocatPreview() {
         <directionalLight position={[3, 5, 4]} intensity={1.6} />
         <pointLight position={[-4, 2, 3]} intensity={20} color="#22d3ee" />
         <Stars radius={60} depth={30} count={1500} factor={3} fade />
-        <OctocatShip thrusterLevel={thruster} parts={parts} />
+        <OctocatShip expression={expression} thrusterLevel={thruster} parts={parts} />
         <OrbitControls ref={controls} target={[0, 0.2, -0.4]} autoRotate={spin} autoRotateSpeed={0.8} enablePan={false} minDistance={2.5} maxDistance={14} />
       </Canvas>
 
@@ -61,6 +71,22 @@ export function OctocatPreview() {
               {label}
             </label>
           ))}
+        </fieldset>
+
+        <fieldset className="space-y-1">
+          <legend className="text-xs uppercase tracking-wider text-slate-400">Expressão</legend>
+          <div className="flex flex-wrap gap-1">
+            {OCTOCAT_EXPRESSIONS.map((e) => (
+              <button
+                key={e}
+                type="button"
+                onClick={() => setExpression(e)}
+                className={`rounded-full border px-2 py-0.5 ${e === expression ? 'border-neon text-neon' : 'border-slate-600 text-slate-300'}`}
+              >
+                {EXPRESSION_LABELS[e]}
+              </button>
+            ))}
+          </div>
         </fieldset>
 
         <label className="block">
