@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { Stats } from '@react-three/drei'
 import type { Universe } from '@/lib/types'
+import { CAMERA_FAR, starfieldRadius } from '@/lib/cameraPoses'
 import { buildOrbits } from '@/lib/universe/orbits'
 import { bodyExtent, MAX_MOONS, maxPlanetWeight, planetRadius } from '@/lib/universe/planets'
 import { useUniverse } from '@/store/universe'
@@ -28,13 +29,15 @@ export function Scene({ universe }: { universe: Universe }) {
       }),
     )
   }, [universe.repos])
+  // a casca de estrelas cresce com o sistema (só muda quando o sistema muda)
+  const starRadius = useMemo(() => starfieldRadius(system), [system])
 
   return (
-    <Canvas dpr={[1, 2]} camera={{ position: [0, 40, 70], fov: 50, near: 0.1, far: 1000 }} onPointerMissed={clearSelection}>
+    <Canvas dpr={[1, 2]} camera={{ position: [0, 40, 70], fov: 50, near: 0.1, far: CAMERA_FAR }} onPointerMissed={clearSelection}>
       <color attach="background" args={['#0a0e27']} />
       <ambientLight intensity={0.25} />
       <hemisphereLight args={['#9bd8ff', '#1a2350', 0.2]} />
-      <Starfield />
+      <Starfield radius={starRadius} />
       <SimClockDriver />
       <Sun />
       <OrbitLines rings={system.rings} />

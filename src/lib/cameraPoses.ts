@@ -34,6 +34,24 @@ export function maxCameraDistance(system: OrbitSystem, viewport: Viewport = DEFA
   return Math.hypot(x, y, z) * 1.4
 }
 
+/** Celular em pé (9:19,5): o caso mais exigente para a distância da câmera. */
+export const PORTRAIT_VIEWPORT: Viewport = { aspect: 9 / 19.5, fov: 50 }
+export const STARFIELD_MIN_RADIUS = 260
+/** Espessura da casca de estrelas. */
+export const STARFIELD_DEPTH = 80
+/** Plano far da câmera: passa da borda externa da casca no pior caso (40 planetas máximos com 6 luas, celular em pé). */
+export const CAMERA_FAR = 6000
+
+/**
+ * Raio interno da casca de estrelas. A casca acompanha a câmera (o StarField se prende ao observador), então
+ * precisa envolver o sistema inteiro visto do zoom máximo para fora: max(260, 1,6 × maxCameraDistance) no pior
+ * entre desktop e celular em pé. Não depende do viewport atual, para não reconstruir a cada resize.
+ */
+export function starfieldRadius(system: OrbitSystem): number {
+  const far = Math.max(maxCameraDistance(system, DEFAULT_VIEWPORT), maxCameraDistance(system, PORTRAIT_VIEWPORT))
+  return Math.max(STARFIELD_MIN_RADIUS, 1.6 * far)
+}
+
 export function sunPose(layout: PanelLayout): Pose {
   return layout === 'side' ? { position: [0, 3, 13], target: [2.5, 0, 0] } : { position: [0, 3, 13], target: [0, -2, 0] }
 }

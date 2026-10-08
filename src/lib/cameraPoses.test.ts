@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { buildOrbits, orbitPath, planetPosition, type OrbitSystem, type Vec3 } from './universe/orbits'
 import { bodyExtent, MAX_MOONS, MAX_PLANET_RADIUS, MIN_PLANET_RADIUS } from './universe/planets'
-import { DEFAULT_VIEWPORT, maxCameraDistance, overviewPose, planetPose, selectionPose, showcasePlanet, sunPose, tutorialPose } from './cameraPoses'
+import {
+  CAMERA_FAR,
+  DEFAULT_VIEWPORT,
+  maxCameraDistance,
+  overviewPose,
+  PORTRAIT_VIEWPORT,
+  STARFIELD_DEPTH,
+  STARFIELD_MIN_RADIUS,
+  starfieldRadius,
+  planetPose,
+  selectionPose,
+  showcasePlanet,
+  sunPose,
+  tutorialPose,
+} from './cameraPoses'
 
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2])
@@ -61,6 +75,45 @@ describe('overviewPose enquadra o sistema inteiro (alcance com luas e inclinaç�
   it.each(systems)('%s: tudo dentro da tela, no desktop e no celular em pé', (_, sys) => {
     expect(worstScreenExtent(sys, DEFAULT_VIEWPORT)).toBeLessThanOrEqual(1)
     expect(worstScreenExtent(sys, { aspect: 390 / 844, fov: 50 })).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('starfieldRadius', () => {
+  const sample = buildOrbits(
+    Array.from({ length: 14 }, (_, i) => {
+      const radius = MIN_PLANET_RADIUS + (MAX_PLANET_RADIUS - MIN_PLANET_RADIUS) * (1 - i / 13) ** 2
+      return { name: `p${i}`, radius, extent: bodyExtent(radius, 1 + (i % 4)) }
+    }),
+  )
+  const worst = buildOrbits(
+    Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: MAX_PLANET_RADIUS, extent: bodyExtent(MAX_PLANET_RADIUS, MAX_MOONS) })),
+  )
+
+  it.each([
+    ['vazio', { rings: [], orbits: [] } as OrbitSystem],
+    ['amostra', sample],
+    ['40 máximos com 6 luas', worst],
+  ])('%s: ≥ 260 e ≥ 1,6× a distância máxima da câmera (desktop e celular em pé)', (_, sys) => {
+    const r = starfieldRadius(sys)
+    expect(r).toBeGreaterThanOrEqual(STARFIELD_MIN_RADIUS)
+    for (const vp of [DEFAULT_VIEWPORT, PORTRAIT_VIEWPORT]) {
+      expect(r).toBeGreaterThanOrEqual(1.6 * maxCameraDistance(sys, vp) - 1e-9)
+      expect(r).toBeGreaterThan(1.6 * len(overviewPose(sys, vp).position))
+    }
+  })
+
+  it('a casca acompanha a câmera: do zoom máximo para fora, o ponto mais distante do sistema fica dentro dela', () => {
+    for (const sys of [sample, worst]) {
+      const r = starfieldRadius(sys)
+      for (const vp of [DEFAULT_VIEWPORT, PORTRAIT_VIEWPORT]) {
+        const outer = sys.rings[sys.rings.length - 1]
+        const reach = outer.a * (1 + outer.e) + outer.maxRadius
+        expect(maxCameraDistance(sys, vp) + reach).toBeLessThan(r)
+      }
+    }
+    expect(STARFIELD_DEPTH).toBe(80)
+    // o plano far da câmera passa da borda externa da casca, mesmo no pior caso
+    expect(starfieldRadius(worst) + STARFIELD_DEPTH).toBeLessThan(CAMERA_FAR)
   })
 })
 
