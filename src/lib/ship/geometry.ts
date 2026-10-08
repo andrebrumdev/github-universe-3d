@@ -43,6 +43,15 @@ export const HEAD = { center: svgTo3d(200, 190), rx: 0.62, ry: 0.54, rz: 0.5 } a
 /** Rosto: elipse cx 200, cy 204, rx 46, ry 34; disco logo à frente da cabeça. */
 export const FACE = { center: svgTo3d(200, 204), rx: 0.46, ry: 0.34, z: 0.49 } as const
 
+/**
+ * Profundidade (z) da frente da cabeça no ponto (x, y) do piloto; 0 fora da silhueta.
+ * `grow` infla a elipsoide por igual (para pôr algo logo acima da superfície, como o rosto).
+ */
+export function headFrontZ(x: number, y: number, grow = 0): number {
+  const k = 1 - (x / (HEAD.rx + grow)) ** 2 - ((y - HEAD.center[1]) / (HEAD.ry + grow)) ** 2
+  return (HEAD.rz + grow) * Math.sqrt(Math.max(0, k))
+}
+
 /** Braço livre (acena): M160 254 Q124 236 120 198. */
 export const FREE_ARM = { from: svgTo3d(160, 254), control: svgTo3d(124, 236), to: svgTo3d(120, 198) } as const
 /** Braço no manche: M238 262 Q256 250 262 262. */
@@ -51,6 +60,18 @@ export const STICK_ARM = { from: svgTo3d(238, 262), control: svgTo3d(256, 250), 
 export const JOYSTICK = { base: svgTo3d(266, 278), height: 0.32, knob: svgTo3d(266, 258), knobRadius: 0.1 } as const
 export const ARM_RADIUS = 0.065
 export const ARM_Z = 0.2
+/** Mão na ponta do braço livre (a ponta redonda do traço do SVG). */
+export const HAND_RADIUS = ARM_RADIUS * 1.4
+
+/**
+ * Bolhas de pensamento (x, y, z, raio). Na folha de expressões ficam em (276, 114), (292, 96), (310, 74) com
+ * r 5/7/9; aqui sobem do mesmo jeito, mas mais perto da cabeça, para caberem na bolha de vidro da cabine.
+ */
+export const THOUGHTS: [number, number, number, number][] = [
+  [...svgTo3d(266, 120), 0.3, 0.05],
+  [...svgTo3d(280, 104), 0.3, 0.07],
+  [...svgTo3d(290, 90), 0.3, 0.09],
+]
 
 export interface Block {
   position: [number, number, number]

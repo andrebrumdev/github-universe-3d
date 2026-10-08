@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ARM_RADIUS,
+  ARM_Z,
   BOWL_PROFILE,
   bowlRadiusAt,
   BRIM_DEPTH,
@@ -9,15 +11,21 @@ import {
   DECK_Y,
   ENGINE_RINGS_Z,
   FACE,
+  FREE_ARM,
   FUSELAGE,
   fuselageSection,
   HAT_BLOCKS,
+  HAND_RADIUS,
   HAT_EYE_BLOCKS,
   HEAD,
+  headFrontZ,
+  JOYSTICK,
   KEEL,
   NOZZLE,
   RIM,
+  STICK_ARM,
   svgTo3d,
+  THOUGHTS,
   TOP_FIN,
   TORSO,
 } from './geometry'
@@ -96,6 +104,61 @@ describe('piloto na cabine', () => {
             expect(insideBubble(pilotToShip(corner))).toBe(true)
           }
     }
+  })
+
+  it('a mão livre, a bola do manche e as bolhas de pensamento cabem na bolha', () => {
+    const spheres: [number, number, number, number][] = [
+      [FREE_ARM.to[0], FREE_ARM.to[1], ARM_Z, HAND_RADIUS],
+      [JOYSTICK.knob[0], JOYSTICK.knob[1], ARM_Z, JOYSTICK.knobRadius],
+      ...THOUGHTS,
+    ]
+    for (const [x, y, z, r] of spheres) {
+      for (const [dx, dy, dz] of [
+        [r, 0, 0],
+        [-r, 0, 0],
+        [0, r, 0],
+        [0, 0, r],
+      ]) {
+        expect(insideBubble(pilotToShip([x + dx, y + dy, z + dz]))).toBe(true)
+      }
+    }
+  })
+
+  it('o manche fica em pé no piso da cabine', () => {
+    const bottom = pilotToShip([JOYSTICK.base[0], JOYSTICK.base[1] - JOYSTICK.height / 2, ARM_Z])
+    expect(Math.abs(bottom[1] - DECK_Y)).toBeLessThan(0.03)
+  })
+})
+
+describe('Octocat', () => {
+  /** Valor da equação da elipsoide do corpo (meia esfera apoiada em TORSO.base) crescida de `grow`: < 1 = dentro. */
+  function torsoLevel([x, y, z]: Vec3, grow: number): number {
+    return (x / (TORSO.rx + grow)) ** 2 + ((y - TORSO.base[1]) / (TORSO.ry + grow)) ** 2 + (z / (TORSO.rz + grow)) ** 2
+  }
+
+  it('os ombros encostam no corpo (o tubo do braço toca a superfície)', () => {
+    for (const arm of [FREE_ARM, STICK_ARM]) {
+      expect(torsoLevel([arm.from[0], arm.from[1], ARM_Z], ARM_RADIUS)).toBeLessThan(1)
+    }
+  })
+
+  it('a cabeça apoia no corpo', () => {
+    const torsoTop = TORSO.base[1] + TORSO.ry
+    expect(HEAD.center[1] - HEAD.ry).toBeLessThan(torsoTop)
+    expect(HEAD.center[1]).toBeGreaterThan(torsoTop)
+  })
+
+  it('o contorno do rosto fica todo sobre a frente da cabeça', () => {
+    for (let i = 0; i < 32; i++) {
+      const a = (i / 32) * Math.PI * 2
+      const x = FACE.rx * Math.cos(a)
+      const y = FACE.center[1] + FACE.ry * Math.sin(a)
+      expect(headFrontZ(x, y)).toBeGreaterThan(0.15)
+    }
+    expect(headFrontZ(0, HEAD.center[1])).toBeCloseTo(HEAD.rz, 10)
+    expect(headFrontZ(HEAD.rx + 0.1, HEAD.center[1])).toBe(0)
+    expect(headFrontZ(0, HEAD.center[1], 0.02)).toBeCloseTo(HEAD.rz + 0.02, 10)
+    expect(headFrontZ(0.3, 1.3, 0.02)).toBeGreaterThan(headFrontZ(0.3, 1.3))
   })
 })
 
