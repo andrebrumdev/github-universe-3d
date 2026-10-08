@@ -34,6 +34,11 @@ import {
   TUB_GEOMETRY,
   WHEEL_GEOMETRY,
   WHEEL_HUB_GEOMETRY,
+  WHEEL_MOUNT,
+  WHEEL_SPOKES_GEOMETRY,
+  YOKE_COLUMN_GEOMETRY,
+  YOKE_FRAME_GEOMETRY,
+  YOKE_GRIP_GEOMETRIES,
   WING_LIGHT_GEOMETRY,
   WINGS,
 } from './shipParts'
@@ -46,6 +51,7 @@ const CREAM_MATERIAL = solid(COLORS.cream, 0.55)
 const ENGINE_MATERIAL = solid(COLORS.engine, 0.75, 0)
 const STRIPE_MATERIAL = solid(COLORS.wingStripe, 0.55)
 const NOZZLE_MATERIAL = solid(COLORS.nozzle, 0.7, 0.3)
+const GRIP_MATERIAL = solid(COLORS.hat, 0.55)
 const HEADLIGHT_MATERIAL = new THREE.MeshStandardMaterial({
   color: COLORS.headlight,
   emissive: COLORS.headlight,
@@ -156,7 +162,7 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
         </group>
       ))}
 
-      {/* interior: assento (concha lilás, almofadas creme) e painel com volante e luzinhas */}
+      {/* interior: assento (concha lilás, almofadas creme) e painel com volante, manche em C e luzinhas */}
       {SEAT_PARTS.shell.map(({ geometry, position, tilt }, i) => (
         <mesh key={`shell${i}`} geometry={geometry} material={HULL_MATERIAL} position={position} rotation={[tilt, 0, 0]} />
       ))}
@@ -164,10 +170,20 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
         <mesh key={`cushion${i}`} geometry={geometry} material={CREAM_MATERIAL} position={position} rotation={[tilt, 0, 0]} />
       ))}
       <mesh geometry={DASHBOARD_GEOMETRY} material={ENGINE_MATERIAL} position={DASHBOARD_POSITION} rotation={[DASHBOARD_TILT, 0, 0]} />
-      <group position={[0, DASHBOARD.wheel.y, DASHBOARD.wheel.z]} rotation={[-DASHBOARD.wheel.tilt, 0, 0]}>
-        <mesh geometry={WHEEL_GEOMETRY} material={NOZZLE_MATERIAL} />
-        <mesh geometry={WHEEL_HUB_GEOMETRY} material={NOZZLE_MATERIAL} />
+      {/* volante redondo na face da frente do painel (mesma pose do painel) */}
+      <group position={DASHBOARD_POSITION} rotation={[DASHBOARD_TILT, 0, 0]}>
+        <group position={WHEEL_MOUNT}>
+          <mesh geometry={WHEEL_GEOMETRY} material={CREAM_MATERIAL} />
+          <mesh geometry={WHEEL_SPOKES_GEOMETRY} material={CREAM_MATERIAL} />
+          <mesh geometry={WHEEL_HUB_GEOMETRY} material={CREAM_MATERIAL} />
+        </group>
       </group>
+      {/* manche em C: coluna saindo do painel, arco cinza e empunhaduras laranja */}
+      <mesh geometry={YOKE_COLUMN_GEOMETRY} material={ENGINE_MATERIAL} />
+      <mesh geometry={YOKE_FRAME_GEOMETRY} material={ENGINE_MATERIAL} />
+      {YOKE_GRIP_GEOMETRIES.map((geometry, i) => (
+        <mesh key={i} geometry={geometry} material={GRIP_MATERIAL} />
+      ))}
       {DASHBOARD.lights.map(({ x }, i) => (
         <mesh
           key={i}

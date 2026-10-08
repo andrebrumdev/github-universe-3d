@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   ANTENNA,
-  ARM_Z,
   BRIM_DEPTH,
   CANOPY,
   canopyContains,
@@ -22,7 +21,6 @@ import {
   HAT_EYE_BLOCKS,
   HEAD,
   headFrontZ,
-  JOYSTICK,
   LEG_TENTACLES,
   NOZZLE,
   PILLAR,
@@ -46,6 +44,10 @@ import {
   wingMidY,
   wingPoint,
   wingStationAt,
+  YOKE,
+  YOKE_BOTTOM,
+  YOKE_GRIP_ANGLE,
+  yokePoint,
 } from './geometry'
 
 type Vec3 = [number, number, number]
@@ -154,12 +156,8 @@ describe('piloto na cabine', () => {
     expect(DASHBOARD.z + DASHBOARD.depth / 2).toBeLessThan(PLAN.b * TUB.rings.at(-1)!.f)
   })
 
-  it('a bola do manche e as bolhas de pensamento cabem sob a cúpula', () => {
-    const spheres: [number, number, number, number][] = [
-      [JOYSTICK.knob[0], JOYSTICK.knob[1], ARM_Z, JOYSTICK.knobRadius],
-      ...THOUGHTS,
-    ]
-    for (const [x, y, z, r] of spheres) {
+  it('as bolhas de pensamento cabem sob a cúpula', () => {
+    for (const [x, y, z, r] of THOUGHTS) {
       for (const [dx, dy, dz] of [
         [r, 0, 0],
         [-r, 0, 0],
@@ -218,9 +216,102 @@ describe('piloto na cabine', () => {
     expect(Math.abs(x)).toBeLessThan(DASHBOARD.width / 2)
   })
 
-  it('o manche fica em pé no piso da cabine', () => {
-    const bottom = pilotToShip([JOYSTICK.base[0], JOYSTICK.base[1] - JOYSTICK.height / 2, ARM_Z])
-    expect(Math.abs(bottom[1] - DECK_Y)).toBeLessThan(0.03)
+  it('o volante redondo fica colado na face da frente do painel, inteiro dentro dela', () => {
+    const { radius, tube, x, y, gap } = DASHBOARD.wheel
+    expect(gap).toBeGreaterThan(0)
+    expect(gap).toBeLessThan(0.06) // colado, não flutuando na frente do piloto
+    expect(Math.abs(x) + radius + tube).toBeLessThan(DASHBOARD.width / 2)
+    expect(Math.abs(y) + radius + tube).toBeLessThan(DASHBOARD.height / 2)
+  })
+})
+
+/** Pontos do arco do manche (frame da nave) de um ângulo a outro. */
+const yokeArc = (from: number, to: number, n = 40) =>
+  Array.from({ length: n + 1 }, (_, i) => yokePoint(from + ((to - from) * i) / n))
+const dist = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+describe('manche em C', () => {
+  const arc = yokeArc(YOKE.from, YOKE.to)
+
+  it('é um C aberto para cima: ~210° de arco, com as duas pontas acima do meio e o fundo embaixo', () => {
+    expect(YOKE.to - YOKE.from).toBeGreaterThan(Math.PI)
+    expect(YOKE.to - YOKE.from).toBeLessThan(Math.PI * 1.5)
+    const [left, right] = [arc[0], arc.at(-1)!]
+    expect(left[1]).toBeGreaterThan(YOKE.center[1])
+    expect(right[1]).toBeGreaterThan(YOKE.center[1])
+    expect(left[0]).toBeCloseTo(-right[0], 10) // simétrico
+    expect(YOKE_BOTTOM[1]).toBeLessThan(YOKE.center[1])
+    expect(Math.abs(left[0] - right[0])).toBeGreaterThan(YOKE.radius) // a boca é larga
+  })
+
+  it('fica dentro da cabine (com a grossura), entre o assento e o painel', () => {
+    const t = YOKE.gripTube
+    for (const p of arc) {
+      for (const [dx, dy, dz] of [
+        [t, 0, 0],
+        [-t, 0, 0],
+        [0, t, 0],
+        [0, -t, 0],
+        [0, 0, t],
+        [0, 0, -t],
+      ])
+        expect(insideCabin([p[0] + dx, p[1] + dy, p[2] + dz])).toBe(true)
+      expect(p[2] + t).toBeLessThan(DASHBOARD.z - DASHBOARD.depth / 2)
+      expect(p[2] - t).toBeGreaterThan(SEAT.z + SEAT.cushion.depth / 2)
+      expect(p[1] - t).toBeGreaterThan(DECK_Y)
+    }
+  })
+
+  it('não cobre o rosto: o alto do C fica abaixo do queixo', () => {
+    const chin = pilotToShip([0, HEAD.center[1] - HEAD.ry, 0])[1]
+    expect(Math.max(...arc.map((p) => p[1])) + YOKE.gripTube).toBeLessThan(chin - 0.05)
+  })
+
+  it('a coluna sai do painel: o meio de baixo do C está na frente da face e a coluna cabe entre as pernas', () => {
+    expect(YOKE_BOTTOM[2]).toBeLessThan(DASHBOARD.z - DASHBOARD.depth / 2)
+    expect(YOKE_BOTTOM[0]).toBeCloseTo(0, 10)
+    expect(YOKE.columnRadius).toBeLessThan(YOKE.gripTube + 0.01)
+  })
+
+  it('não atravessa as pernas', () => {
+    for (const { points } of LEG_TENTACLES) {
+      points.forEach((p, i) => {
+        const r = radiusAt(points, i) * COCKPIT.scale
+        const leg = pilotToShip(p)
+        for (const q of arc) expect(dist(leg, q)).toBeGreaterThan(r + YOKE.gripTube)
+      })
+    }
+  })
+
+  it('a ponta do tentáculo da direita encosta na empunhadura direita e a envolve sem atravessá-la', () => {
+    const a = YOKE_GRIP_ANGLE.right
+    const grip = yokeArc(a - YOKE.grip / 2, a + YOKE.grip / 2, 30)
+    const pts = STICK_TENTACLE.points
+    // o ombro é no corpo; a volta começa nos 5 últimos pontos
+    const wrap = pts.slice(-5)
+    wrap.forEach((p, k) => {
+      const i = pts.length - 5 + k
+      const r = radiusAt(pts, i) * COCKPIT.scale
+      const d = Math.min(...grip.map((q) => dist(pilotToShip(p), q)))
+      expect(d).toBeGreaterThan(YOKE.gripTube + r * 0.6) // não atravessa
+      expect(d).toBeLessThan(YOKE.gripTube + r * 1.8) // encostado
+    })
+    // dá (quase) uma volta em torno do eixo da empunhadura (quase vertical): ângulo no plano xz
+    const c = yokePoint(a)
+    const angles = wrap.map((p) => {
+      const q = pilotToShip(p)
+      return Math.atan2(q[2] - c[2], q[0] - c[0])
+    })
+    let swept = 0
+    for (let i = 1; i < angles.length; i++) {
+      let d = angles[i] - angles[i - 1]
+      if (d > Math.PI) d -= Math.PI * 2
+      if (d < -Math.PI) d += Math.PI * 2
+      swept += d
+    }
+    expect(Math.abs(swept)).toBeGreaterThan(Math.PI * 1.2)
+    // a ponta não passa do queixo nem fica fora da cabine
+    expect(insideCabin(pilotToShip(pts.at(-1)!))).toBe(true)
   })
 })
 
@@ -255,24 +346,6 @@ describe('Octocat', () => {
     // a ponta volta para dentro (x cresce) depois do ponto mais afastado do corpo
     const far = pts.reduce((a, b) => (b[0] < a[0] ? b : a))
     expect(pts.at(-1)![0]).toBeGreaterThan(far[0] + 0.2)
-  })
-
-  it('o tentáculo do manche se enrola em volta da bola sem atravessá-la', () => {
-    const [kx, ky] = JOYSTICK.knob
-    const wrap = STICK_TENTACLE.points.slice(2)
-    const angles = wrap.map(([x, y]) => Math.atan2(y - ky, x - kx))
-    let swept = 0
-    for (let i = 1; i < angles.length; i++) {
-      let d = angles[i] - angles[i - 1]
-      if (d > Math.PI) d -= Math.PI * 2
-      if (d < -Math.PI) d += Math.PI * 2
-      swept += d
-    }
-    expect(Math.abs(swept)).toBeGreaterThan(Math.PI) // mais de meia volta
-    STICK_TENTACLE.points.forEach(([x, y, z], i) => {
-      const r = tentacleRadius(i / (STICK_TENTACLE.points.length - 1))
-      expect(Math.hypot(x - kx, y - ky, z - ARM_Z)).toBeGreaterThan(JOYSTICK.knobRadius + r * 0.6)
-    })
   })
 
   it('a cabeça apoia no corpo', () => {

@@ -4,7 +4,6 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { circleProfile, curvePath, sweep, transportFrames } from 'three-low-poly'
 import type { OctocatExpression } from '@/lib/octocat/expression'
 import {
-  ARM_Z,
   COLORS,
   DASH_TENTACLE,
   EAR,
@@ -12,7 +11,6 @@ import {
   FREE_TENTACLE,
   HEAD,
   headFrontZ,
-  JOYSTICK,
   LEG_TENTACLES,
   STICK_TENTACLE,
   type Tentacle,
@@ -34,11 +32,10 @@ type Vec3 = [number, number, number]
 /** Corpo e cabeça: esferas de poucas faces; o facetado vem do flatShading. */
 const TORSO_GEOMETRY = new THREE.SphereGeometry(1, 16, 5, 0, Math.PI * 2, 0, Math.PI / 2)
 const HEAD_GEOMETRY = new THREE.SphereGeometry(1, 16, 10)
-/** Bola do manche e bolhas de pensamento: icosaedro subdividido uma vez (80 faces). */
+/** Bolhas de pensamento: icosaedro subdividido uma vez (80 faces). */
 const BALL_GEOMETRY = new THREE.IcosahedronGeometry(1, 1)
 /** Ponta arredondada do tentáculo: é pequena, o icosaedro simples (20 faces) basta. */
 const TIP_GEOMETRY = new THREE.IcosahedronGeometry(1, 0)
-const STICK_GEOMETRY = new THREE.CylinderGeometry(0.04, 0.04, JOYSTICK.height, 6)
 
 /** O rosto fica sobre a cabeça inflada este tanto (folga na direção da normal, sem brigar com as facetas). */
 const FACE_LIFT = 0.015
@@ -195,8 +192,6 @@ const INNER_EAR_MATERIAL = new THREE.MeshStandardMaterial({
   roughness: 0.7,
   flatShading: true,
 })
-const STICK_MATERIAL = solid(COLORS.stick, 0.5)
-const KNOB_MATERIAL = solid(COLORS.hat, 0.55)
 const THOUGHT_MATERIAL = solid(COLORS.thought, 0.7)
 
 function createFaceTexture(): THREE.CanvasTexture {
@@ -276,18 +271,11 @@ export function Pilot({ expression, blinking }: PilotProps) {
         <TentacleMesh parts={FREE_PARTS} />
       </group>
 
-      {/* tentáculo enrolado no manche, o braço no painel e as duas pernas; e o manche */}
+      {/* tentáculo enrolado na empunhadura do manche (que fica na nave), o braço no painel e as duas pernas */}
       <TentacleMesh parts={STICK_PARTS} />
       {STATIC_PARTS.map((parts, i) => (
         <TentacleMesh key={i} parts={parts} />
       ))}
-      <mesh geometry={STICK_GEOMETRY} material={STICK_MATERIAL} position={[JOYSTICK.base[0], JOYSTICK.base[1], ARM_Z]} />
-      <mesh
-        geometry={BALL_GEOMETRY}
-        material={KNOB_MATERIAL}
-        position={[JOYSTICK.knob[0], JOYSTICK.knob[1], ARM_Z]}
-        scale={JOYSTICK.knobRadius}
-      />
 
       {expression === 'thinking' &&
         THOUGHTS.map(([x, y, z, r], i) => (

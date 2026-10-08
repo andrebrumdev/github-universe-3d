@@ -3,7 +3,8 @@
  * src/lib/ship/geometry.ts. Compartilhadas por todas as instâncias da nave e nunca descartadas.
  */
 import * as THREE from 'three'
-import { circleProfile, curvePath, EdgedBoxGeometry, loft, sweep, transportFrames } from 'three-low-poly'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { arcPath, circleProfile, curvePath, EdgedBoxGeometry, loft, sweep, transportFrames } from 'three-low-poly'
 import {
   ANTENNA,
   CANOPY,
@@ -32,6 +33,8 @@ import {
   WING,
   wingPoint,
   wingStationAt,
+  YOKE,
+  YOKE_BOTTOM,
   type Vec3,
 } from '@/lib/ship/geometry'
 
@@ -192,13 +195,50 @@ export const SEAT_PARTS = {
 export const DASHBOARD_TILT = -0.3
 export const DASHBOARD_GEOMETRY = box(DASHBOARD.width, DASHBOARD.height, DASHBOARD.depth)
 export const DASHBOARD_POSITION: Vec3 = [0, DECK_Y + DASHBOARD.height / 2, DASHBOARD.z]
+/**
+ * Volante redondo de painel, no plano da face da frente (grupo com a mesma pose do painel, origem no centro
+ * do volante, a uns `gap` da face): aro, cubo curto até a face e três raios.
+ */
 export const WHEEL_GEOMETRY = new THREE.TorusGeometry(DASHBOARD.wheel.radius, DASHBOARD.wheel.tube, 4, 10)
-const hubLength = DASHBOARD.z - DASHBOARD.depth / 2 - DASHBOARD.wheel.z
-export const WHEEL_HUB_GEOMETRY = new THREE.CylinderGeometry(0.025, 0.025, hubLength, 6)
+export const WHEEL_MOUNT: Vec3 = [DASHBOARD.wheel.x, DASHBOARD.wheel.y, -DASHBOARD.depth / 2 - DASHBOARD.wheel.gap]
+export const WHEEL_HUB_GEOMETRY = new THREE.CylinderGeometry(0.03, 0.03, DASHBOARD.wheel.gap + 0.01, 6)
   .rotateX(Math.PI / 2)
-  .translate(0, 0, hubLength / 2)
+  .translate(0, 0, (DASHBOARD.wheel.gap + 0.01) / 2)
+const SPOKE_LENGTH = DASHBOARD.wheel.radius
+export const WHEEL_SPOKES_GEOMETRY = mergeGeometries(
+  [0, 1, 2].map((k) =>
+    new THREE.BoxGeometry(0.022, SPOKE_LENGTH, 0.022)
+      .translate(0, SPOKE_LENGTH / 2, 0)
+      .rotateZ((k * Math.PI * 2) / 3),
+  ),
+)
 export const DASHBOARD_LIGHT_GEOMETRY = new THREE.IcosahedronGeometry(0.028, 0)
 export const DASHBOARD_LIGHT_Y = DECK_Y + DASHBOARD.height + 0.01
+
+/**
+ * Manche em C: o arco (cinza escuro) e as duas empunhaduras (laranja) são varreduras hexagonais de arcos do
+ * plano xy, inclinados para o piloto e levados para o centro do manche; a coluna liga o painel ao meio do C.
+ */
+function yokeArc(from: number, to: number, radius: number, segments: number): THREE.BufferGeometry {
+  const path = arcPath({ radius: YOKE.radius, startAngle: from, endAngle: to, segments })
+  return sweep(circleProfile(radius, 6), transportFrames(path), { cap: true })
+    .rotateX(-YOKE.tilt)
+    .translate(...YOKE.center)
+}
+const GRIP_LENGTH = YOKE.grip
+export const YOKE_FRAME_GEOMETRY = yokeArc(YOKE.from + GRIP_LENGTH, YOKE.to - GRIP_LENGTH, YOKE.tube, 8)
+export const YOKE_GRIP_GEOMETRIES = [
+  yokeArc(YOKE.from, YOKE.from + GRIP_LENGTH, YOKE.gripTube, 3),
+  yokeArc(YOKE.to - GRIP_LENGTH, YOKE.to, YOKE.gripTube, 3),
+]
+/** Coluna: da face da frente do painel (no plano do painel, em x = 0) até o meio de baixo do C. */
+const columnStart = new THREE.Vector3(0, DASHBOARD_POSITION[1], DASHBOARD_POSITION[2])
+  .add(new THREE.Vector3(0, -0.06, -DASHBOARD.depth / 2 + 0.02).applyAxisAngle(new THREE.Vector3(1, 0, 0), DASHBOARD_TILT))
+export const YOKE_COLUMN_GEOMETRY = sweep(
+  circleProfile(YOKE.columnRadius, 6),
+  transportFrames(curvePath(new THREE.LineCurve3(columnStart, v3(YOKE_BOTTOM)), 2)),
+  { cap: true },
+)
 
 // ─── Fuselagem traseira ───
 

@@ -1,7 +1,7 @@
 /**
  * Medidas do Octocat piloto e da nave.
  *
- * Piloto (corpo, cabeça, rosto, braços, manche, gorro): tiradas do SVG de design/Octocat.dc.html
+ * Piloto (corpo, cabeça, rosto, braços, gorro): tiradas do SVG de design/Octocat.dc.html
  * (viewBox 0 0 400 420), 100 px = 1 unidade, origem no ponto (200, 312) do SVG, y para cima, frente em +z.
  *
  * Nave (estilo máquina do tempo): frame próprio — origem no eixo da cabine, na altura do aro; y para cima;
@@ -40,7 +40,7 @@ export const COLORS = {
   hat: '#D97757',
   hatBrim: '#B85C3E',
   hatEyes: '#141413',
-  stick: '#4A5878',
+  yoke: '#3A3F4B',
   thought: '#9AA3B8',
 } as const
 
@@ -97,9 +97,6 @@ export const WHISKERS: [[number, number, number], [number, number, number]][] = 
 ]
 export const WHISKER_RADIUS = 0.008
 
-/** Plano dos ombros e do manche (z). */
-export const ARM_Z = 0.2
-
 /**
  * Tentáculo: curva (pontos de controle no frame do piloto, o primeiro é o ombro) varrida com seção hexagonal
  * que afina da base à ponta. `under` é o ângulo (rad) da face de baixo na seção, a partir da normal do
@@ -130,23 +127,6 @@ export const FREE_TENTACLE: Tentacle = {
     [-0.87, 1.37, 0.28],
   ],
   under: 0.6,
-}
-
-/** Manche: rect x 262, y 262, 8 × 32; bola cx 266, cy 258, r 10. */
-export const JOYSTICK = { base: svgTo3d(266, 278), height: 0.32, knob: svgTo3d(266, 258), knobRadius: 0.1 } as const
-
-/** Tentáculo no manche: sai do ombro direito, passa por cima da bola e se enrola em volta dela. */
-export const STICK_TENTACLE: Tentacle = {
-  points: [
-    [0.32, 0.6, 0.15],
-    [0.52, 0.76, 0.27],
-    [0.7, 0.76, 0.26],
-    [0.82, 0.6, 0.22],
-    [0.76, 0.44, 0.19],
-    [0.6, 0.4, 0.22],
-    [0.53, 0.5, 0.26],
-  ],
-  under: -0.6,
 }
 
 /** Terceiro braço (parado): sai do lado esquerdo do corpo e se estica até o painel, com a ponta num botão. */
@@ -385,18 +365,87 @@ export const SEAT = {
   shell: 0.04,
 } as const
 
-/** Painel na frente da cabine com o volante redondo e duas luzinhas. */
+/** Painel na frente da cabine com o volante redondo na face da frente e duas luzinhas em cima. */
 export const DASHBOARD = {
   z: 1.0,
   width: 0.7,
   depth: 0.24,
   height: 0.3,
-  wheel: { radius: 0.12, tube: 0.022, y: DECK_Y + 0.44, z: 0.78, tilt: 0.5 },
+  /** Volante redondo de painel: colado na face da frente do painel (x, y no plano da face; `gap` = folga da face). */
+  wheel: { radius: 0.1, tube: 0.02, x: -0.2, y: 0, gap: 0.035 },
   lights: [
     { x: -0.18, color: '#39D353' },
     { x: 0.18, color: '#67E8F9' },
   ],
 } as const
+
+/**
+ * Manche em C (como o de avião): uma coluna sai do painel na direção do piloto e termina no meio de um arco
+ * de ~210° no plano xy (aberto para cima, inclinado para o piloto), com empunhaduras laranja nas duas pontas.
+ * Medidas no frame da NAVE. `from`/`to` são os ângulos do arco (0 = +x, 3π/2 = embaixo); `grip` é o trecho,
+ * em radianos a partir de cada ponta, que fica laranja.
+ */
+export const YOKE = {
+  center: [0, -0.1, 0.68] as Vec3,
+  radius: 0.1,
+  tube: 0.02,
+  gripTube: 0.028,
+  from: Math.PI - 0.35,
+  to: Math.PI * 2 + 0.35,
+  grip: 0.75,
+  /** O alto do C se inclina para o piloto (rad, em torno de x). */
+  tilt: 0.25,
+  columnRadius: 0.028,
+} as const
+
+/** Ponto do arco do manche no ângulo `a` (frame da nave). */
+export function yokePoint(a: number): Vec3 {
+  const [cx, cy, cz] = YOKE.center
+  const [px, py] = [YOKE.radius * Math.cos(a), YOKE.radius * Math.sin(a)]
+  return [cx + px, cy + py * Math.cos(YOKE.tilt), cz - py * Math.sin(YOKE.tilt)]
+}
+
+/** Ângulo (módulo 2π) do meio de cada empunhadura. */
+export const YOKE_GRIP_ANGLE = { right: YOKE.to - YOKE.grip / 2 - Math.PI * 2, left: YOKE.from + YOKE.grip / 2 } as const
+
+/** Ponto de baixo do C, onde a coluna se prende. */
+export const YOKE_BOTTOM = yokePoint((Math.PI * 3) / 2)
+
+/** Ponto do frame da nave levado para o frame do piloto (inverso do COCKPIT). */
+function shipToPilot([x, y, z]: Vec3): Vec3 {
+  const [px, py, pz] = COCKPIT.position
+  return [(x - px) / COCKPIT.scale, (y - py) / COCKPIT.scale, (z - pz) / COCKPIT.scale]
+}
+
+/**
+ * Tentáculo no manche: sai do ombro direito, passa por trás da empunhadura direita e dá uma volta em torno
+ * dela (o eixo é a tangente do arco, quase vertical), descendo ao longo da empunhadura. O raio da volta
+ * acompanha a grossura do tentáculo, para ele envolver o cabo sem atravessá-lo.
+ */
+function yokeTentacle(): Tentacle {
+  const a = YOKE_GRIP_ANGLE.right
+  const center = shipToPilot(yokePoint(a))
+  const [t0, t1] = [yokePoint(a - 0.01), yokePoint(a + 0.01)]
+  const len = Math.hypot(t1[0] - t0[0], t1[1] - t0[1], t1[2] - t0[2])
+  const up = [0, 1, 2].map((k) => (t1[k] - t0[k]) / len)
+  const v = [0, up[2], -up[1]] // up × (1, 0, 0): perpendicular ao eixo, aponta para ±z
+  const lead: Vec3[] = [
+    [0.32, 0.6, 0.15],
+    [0.46, 0.74, 0.34],
+  ]
+  const turn = 5
+  const total = lead.length + turn
+  const wrap = Array.from({ length: turn }, (_, i): Vec3 => {
+    const th = Math.PI / 2 - (i * Math.PI) / 2 // atrás → fora → frente → dentro → atrás
+    const r = tentacleRadius((lead.length + i) / (total - 1))
+    const rw = YOKE.gripTube / COCKPIT.scale + r * 0.9
+    const dy = 0.12 * (0.5 - i / (turn - 1))
+    return [0, 1, 2].map((k) => center[k] + rw * (Math.cos(th) * (k === 0 ? 1 : 0) + Math.sin(th) * v[k]) + dy * up[k]) as Vec3
+  })
+  return { points: [...lead, ...wrap], under: -0.6 }
+}
+/** O braço direito segura a empunhadura direita do manche. */
+export const STICK_TENTACLE: Tentacle = yokeTentacle()
 
 /** Coluna grossa em arco: do piso de trás, atrás do assento, subindo para a frente até o alto da cúpula. */
 export const PILLAR = {
