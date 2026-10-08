@@ -79,7 +79,8 @@ export interface Block {
   color: string
 }
 
-export const CROWN_DEPTH = 0.75
+/** A copa abraça a cabeça: funda o bastante para a cabeça não furar a frente acima da aba. */
+export const CROWN_DEPTH = 0.9
 /** A aba é mais funda que o rosto (FACE.z) para cobrir a testa, como no SVG. */
 export const BRIM_DEPTH = 1.05
 

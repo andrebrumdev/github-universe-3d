@@ -236,6 +236,14 @@ describe('gorro-Clawd', () => {
     expect(crownTop).toBeGreaterThan(headTop)
   })
 
+  it('a cabeça não fura a copa: acima da aba, a cabeça cabe na profundidade da copa', () => {
+    const brimTop = brim.position[1] + brim.size[1] / 2
+    const crownTop = crown.position[1] + crown.size[1] / 2
+    for (let y = brimTop; y <= crownTop; y += 0.01) {
+      expect(headFrontZ(0, y)).toBeLessThanOrEqual(CROWN_DEPTH / 2)
+    }
+  })
+
   it('a aba fica na frente do rosto e os olhos na frente da copa', () => {
     expect(brim.size[2] / 2).toBeGreaterThan(FACE.z)
     for (const eye of HAT_EYE_BLOCKS) expect(eye.position[2]).toBeGreaterThan(CROWN_DEPTH / 2)

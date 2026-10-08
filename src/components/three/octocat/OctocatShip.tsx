@@ -1,5 +1,6 @@
 import type { OctocatExpression } from '@/lib/octocat/expression'
 import { COCKPIT } from '@/lib/ship/geometry'
+import { ClawdHat } from './ClawdHat'
 import { Pilot, type ArmMode } from './Pilot'
 import { Ship } from './Ship'
 
@@ -22,9 +23,10 @@ export function OctocatShip({ expression = 'neutral', armMode = 'rest', thruster
   return (
     <group>
       {parts.ship && <Ship thrusterLevel={thrusterLevel} />}
-      {/* piloto em coordenadas do SVG, levado para dentro da bolha pelo COCKPIT, de frente para +z */}
+      {/* piloto e gorro em coordenadas do SVG, levados para dentro da bolha pelo COCKPIT, de frente para +z */}
       <group position={COCKPIT.position} scale={COCKPIT.scale}>
         {parts.pilot && <Pilot expression={expression} blinking={false} armMode={armMode} />}
+        {parts.hat && <ClawdHat />}
       </group>
     </group>
   )
