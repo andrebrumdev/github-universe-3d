@@ -26,7 +26,8 @@
 ## Desvios conscientes da spec
 
 - **Câmera no foco:** a spec diz "a câmera acompanha o planeta a cada frame". Como o tempo de simulação desacelera até parar ao focar, o plano calcula **onde o planeta vai parar** (`predictStopTime`) e anima a câmera direto para lá, uma única vez. O resultado visual é o mesmo, sem brigar com o arrasto do usuário.
-- **Ordem:** o tutorial (Task 11) vem antes do Octocat (Task 12), porque o clique no Octocat abre o tutorial.
+- **Ordem de execução (decidida com o usuário):** 1 → 2 → 3 → **12 (modelo do Octocat 3D, aprovado parte por parte no navegador)** → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 13 (comportamento do Octocat 3D) → 14.
+- **Octocat 3D (revisão da spec):** o Octocat deixou de ser SVG 2D no canto e virou modelo 3D na cena, que viaja entre planetas com câmera de perseguição. O SVG 2D sobra só no loader.
 
 ## Review Focus
 
@@ -64,7 +65,13 @@ src/store/{universe,tutorial,simClock}.ts
 src/components/three/{Scene,SimClockDriver,Planet,Moon,OrbitLines,CameraRig,Sun}.tsx
 src/components/three/{geometries,grid,usePlanetTexture,sunFace}.ts
 src/components/ui/{Loader,LoadError,StaticFallback,ActivityTooltip,SidePanel,PlanetPanel,ProfilePanel,BackButton,Tutorial}.tsx
-src/components/ui/octocat/{OctocatArt,Octocat}.tsx
+src/components/ui/octocat/OctocatArt.tsx               # SVG 2D do loader (Task 13)
+src/components/ui/{OctocatSpeech,TutorialButton}.tsx    # (Task 13)
+src/lib/octocat/expression.ts                           # (Task 12)
+src/lib/ship/{geometry,motion,vec,travel,escort,shipMachine}.ts
+src/store/shipPose.ts
+src/components/three/octocat/{Ship,Pilot,ClawdHat,OctocatShip,ShipRig}.tsx, octocatFace.ts
+src/preview/OctocatPreview.tsx                          # ?preview=octocat, só em dev (Task 12)
 ```
 
 ---
@@ -1818,7 +1825,7 @@ git commit -m "feat: snapshot do GitHub e universo de exemplo"
 - Consumes: `UniverseSelection`, `GuideEvent`, `guideEventFor`, `SCHEMA_VERSION`, `Universe` (Task 2).
 - Produces:
   - `format.ts`: `formatDate(iso)`, `formatCount(n)`, `timeAgo(iso, now?)`, `commitsLabel(n)`.
-  - `lines.ts`: `OctocatExpression = 'neutral' | 'happy' | 'wink' | 'surprised' | 'thinking'`, `OctocatLine`, `LINES`, `LINE_DURATION_MS = 4000`, `IDLE_MS = 20000`, `LONG_IDLE_MS = 60000`, `pickLine(event, seen)`, `firstName(full)`, `formatLine(text, name)`.
+  - `lines.ts`: reexporta `OctocatExpression` de `src/lib/octocat/expression.ts` (criado na Task 12), `OctocatLine`, `LINES`, `LINE_DURATION_MS = 4000`, `IDLE_MS = 20000`, `LONG_IDLE_MS = 60000`, `pickLine(event, seen)`, `firstName(full)`, `formatLine(text, name)`.
   - `loadUniverse.ts`: `UniverseLoadError`, `loadUniverse(fetchImpl?, base?): Promise<Universe>`.
   - `store/universe.ts`: `useUniverse` com `selection`, `hoveredCell: HoveredCell | null`, `zoomedOnce`, `bubble: Bubble | null`, `select(s)`, `clearSelection()`, `setHoveredCell(c)`, `emitGuide(t)`, `dismissBubble(seq)`.
   - Hooks: `useUniverseData(): { state: DataState; retry(): void }`, `supportsWebGL(): boolean`, `useMediaQuery(q): boolean`, `MOBILE_QUERY`.
@@ -1928,8 +1935,9 @@ export function commitsLabel(n: number): string {
 
 ```ts
 import type { GuideEvent } from '../interaction'
+import type { OctocatExpression } from './expression'
 
-export type OctocatExpression = 'neutral' | 'happy' | 'wink' | 'surprised' | 'thinking'
+export type { OctocatExpression }
 
 export interface OctocatLine {
   id: GuideEvent
@@ -4152,21 +4160,1782 @@ git commit -m "feat: tutorial guiado com câmera conduzida"
 
 ---
 
-### Task 12: Octocat piloto
+### Task 12: Octocat 3D — modelo e página de preview (aprovação por partes)
+
+> **Ordem de execução:** esta task roda logo depois da Task 3, antes das Tasks 4–11, a pedido do usuário. Ela é entregue em **4 partes**. Ao fim de cada parte, o implementador commita, **para** e reporta; o controlador abre `http://localhost:5173/github-universe-3d/?preview=octocat` no navegador do usuário e só segue para a próxima parte depois da aprovação (ajustes pedidos pelo usuário entram como rodada extra da mesma parte).
 
 **Files:**
-- Create: `src/components/ui/octocat/OctocatArt.tsx`, `src/components/ui/octocat/Octocat.tsx`, `src/hooks/useIdle.ts`
-- Modify: `src/components/ui/Loader.tsx`, `src/App.tsx`
+- Create: `src/lib/octocat/expression.ts`, `src/lib/ship/geometry.ts`, `src/lib/ship/motion.ts`, `src/components/three/octocat/Ship.tsx`, `src/components/three/octocat/Pilot.tsx`, `src/components/three/octocat/octocatFace.ts`, `src/components/three/octocat/ClawdHat.tsx`, `src/components/three/octocat/OctocatShip.tsx`, `src/preview/OctocatPreview.tsx`
+- Modify: `src/main.tsx`
+- Test: `src/lib/ship/geometry.test.ts`, `src/lib/ship/motion.test.ts`
 
 **Interfaces:**
-- Consumes: `OctocatExpression`, `formatLine`, `LINE_DURATION_MS`, `IDLE_MS`, `LONG_IDLE_MS` (Task 7); `useUniverse` com `bubble`, `dismissBubble`, `emitGuide` (Task 7); `useTutorial().start` (Task 11); `useMediaQuery`, `MOBILE_QUERY` (Task 7).
-- Produces: `OctocatArt({ expression, waving })`, `Octocat({ profileName })`, `useIdle(onIdle)`.
+- Consumes: nada das Tasks 2–11 (só React Three Fiber, drei, three, Framer Motion e Tailwind da Task 1).
+- Produces:
+  - `expression.ts`: `OCTOCAT_EXPRESSIONS`, `OctocatExpression = 'neutral' | 'happy' | 'wink' | 'surprised' | 'thinking'` (a Task 7 reexporta este tipo em `lines.ts`).
+  - `geometry.ts`: `svgTo3d(x, y): [number, number]`, `COLORS`, `CONTRIBUTION_COLORS`, `HULL`, `DOME`, `TORSO`, `HEAD`, `FACE`, `UPPER_FIN`, `LOWER_FIN`, `FREE_ARM`, `STICK_ARM`, `JOYSTICK`, `HEADLIGHT`, `SQUARES_X`, `ARM_RADIUS`, `ARM_Z`, `Block`, `HAT_BLOCKS`, `HAT_EYE_BLOCKS`, `CROWN_DEPTH`, `BRIM_DEPTH`.
+  - `motion.ts`: `hoverOffset(t)`, `WAVE_AMPLITUDE`, `waveAngle(t)`, `POINT_ANGLE`, `thrusterScale(t, level)`, `BLINK_EVERY`, `BLINK_LENGTH`, `isBlinking(t)`.
+  - Componentes: `Ship({ thrusterLevel })`, `Pilot({ expression, blinking, armMode })`, `ClawdHat()`, `OctocatShip({ expression?, armMode?, thrusterLevel?, floating?, parts? })`, `ArmMode = 'rest' | 'wave' | 'point'`, `OctocatShipParts`, `ALL_PARTS`; `OctocatPreview()`.
 
-A arte vem de `design/Octocat.dc.html` (SVG `viewBox="0 0 400 420"`, linhas 29–75). As expressões vêm da "Folha de expressões" no mesmo arquivo, desenhadas em coordenadas deslocadas por `translate(80 44)` em relação ao piloto. A nave usa roxo claro `#C4B5FD` no lugar de `#D7263D`.
+Convenção do modelo: a arte de referência é o SVG `viewBox="0 0 400 420"` de `design/Octocat.dc.html` (linhas 29–75; expressões nas linhas 90–175). **100 px = 1 unidade**, origem no centro do casco `(200, 312)`, y para cima, a nave olha para **+z** (a câmera do preview fica em +z).
 
-- [ ] **Step 1: Arte do Octocat**
+#### Parte A — nave
 
-`src/components/ui/octocat/OctocatArt.tsx`:
+- [ ] **Step A1: Tipo de expressão**
+
+`src/lib/octocat/expression.ts`:
+
+```ts
+export const OCTOCAT_EXPRESSIONS = ['neutral', 'happy', 'wink', 'surprised', 'thinking'] as const
+export type OctocatExpression = (typeof OCTOCAT_EXPRESSIONS)[number]
+```
+
+- [ ] **Step A2: Teste da geometria (falha)**
+
+`src/lib/ship/geometry.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { BRIM_DEPTH, CROWN_DEPTH, FACE, HAT_BLOCKS, HAT_EYE_BLOCKS, HEAD, HULL, LOWER_FIN, svgTo3d, UPPER_FIN } from './geometry'
+
+describe('svgTo3d', () => {
+  it('converte com 100 px = 1 unidade, origem no centro do casco e y para cima', () => {
+    expect(svgTo3d(200, 312)).toEqual([0, 0])
+    expect(svgTo3d(300, 212)).toEqual([1, 1])
+    expect(svgTo3d(100, 412)).toEqual([-1, -1])
+  })
+})
+
+describe('peças da nave', () => {
+  it('as asas saem das laterais do casco', () => {
+    for (const fin of [UPPER_FIN, LOWER_FIN]) {
+      expect(fin).toHaveLength(4)
+      expect(fin.every(([x]) => x < 0 && x > -HULL.rx - 0.2)).toBe(true)
+    }
+  })
+})
+
+describe('gorro-Clawd', () => {
+  const crown = HAT_BLOCKS.find((b) => b.size[2] === CROWN_DEPTH)!
+  const brim = HAT_BLOCKS.find((b) => b.size[2] === BRIM_DEPTH)!
+
+  it('tem 10 blocos e 2 olhos', () => {
+    expect(HAT_BLOCKS).toHaveLength(10)
+    expect(HAT_EYE_BLOCKS).toHaveLength(2)
+  })
+
+  it('a copa encaixa no alto da cabeça', () => {
+    const headTop = HEAD.center[1] + HEAD.ry
+    const crownBottom = crown.position[1] - crown.size[1] / 2
+    const crownTop = crown.position[1] + crown.size[1] / 2
+    expect(crownBottom).toBeLessThan(headTop)
+    expect(crownTop).toBeGreaterThan(headTop)
+  })
+
+  it('a aba fica na frente do rosto e os olhos na frente da copa', () => {
+    expect(brim.size[2] / 2).toBeGreaterThan(FACE.z)
+    for (const eye of HAT_EYE_BLOCKS) expect(eye.position[2]).toBeGreaterThan(CROWN_DEPTH / 2)
+  })
+})
+```
+
+Run: `pnpm test src/lib/ship/geometry.test.ts`
+Expected: FAIL (módulo inexistente).
+
+- [ ] **Step A3: Geometria derivada do SVG**
+
+`src/lib/ship/geometry.ts`:
+
+```ts
+/**
+ * Medidas do Octocat piloto tiradas do SVG de design/Octocat.dc.html (viewBox 0 0 400 420).
+ * 100 px = 1 unidade; origem no centro do casco (200, 312); y para cima; a nave olha para +z.
+ */
+const ORIGIN_X = 200
+const ORIGIN_Y = 312
+const PX = 100
+
+export function svgTo3d(x: number, y: number): [number, number] {
+  return [(x - ORIGIN_X) / PX, (ORIGIN_Y - y) / PX]
+}
+
+export const COLORS = {
+  ship: '#C4B5FD',
+  stripe: '#E6EAF0',
+  dome: '#A5F3FC',
+  thruster: '#67E8F9',
+  headlight: '#FFF3C4',
+  body: '#1F2329',
+  skin: '#F2C9A6',
+  face: '#7A2F2F',
+  blush: '#F29C8A',
+  hat: '#D97757',
+  hatBrim: '#B85C3E',
+  hatEyes: '#141413',
+  stick: '#4A5878',
+  thought: '#9AA3B8',
+} as const
+
+export const CONTRIBUTION_COLORS = ['#39D353', '#26A641', '#39D353', '#0E4429', '#39D353', '#26A641', '#39D353'] as const
+
+/** Casco: elipse rx 150, ry 52; a profundidade (rz) é escolha do 3D. */
+export const HULL = { rx: 1.5, ry: 0.38, rz: 1.1 } as const
+/** Cúpula: path M54 292 Q54 56 200 54 Q346 56 346 292. */
+export const DOME = { base: svgTo3d(200, 292), rx: 1.46, ry: 2.38, rz: 1.1 } as const
+/** Corpo: path M150 296 Q146 232 200 226 Q254 232 250 296. */
+export const TORSO = { base: svgTo3d(200, 296), rx: 0.5, ry: 0.7, rz: 0.42 } as const
+/** Cabeça: elipse cx 200, cy 190, rx 62, ry 54. */
+export const HEAD = { center: svgTo3d(200, 190), rx: 0.62, ry: 0.54, rz: 0.5 } as const
+/** Rosto: elipse cx 200, cy 204, rx 46, ry 34; disco logo à frente da cabeça. */
+export const FACE = { center: svgTo3d(200, 204), rx: 0.46, ry: 0.34, z: 0.49 } as const
+
+const pts = (list: [number, number][]) => list.map(([x, y]) => svgTo3d(x, y))
+/** Asa superior esquerda: M96 286 L60 250 L74 246 L118 286 (a direita é espelhada). */
+export const UPPER_FIN = pts([[96, 286], [60, 250], [74, 246], [118, 286]])
+/** Asa inferior esquerda: M150 330 L70 392 L104 398 L190 336. */
+export const LOWER_FIN = pts([[150, 330], [70, 392], [104, 398], [190, 336]])
+
+/** Braço livre (acena): M160 254 Q124 236 120 198. */
+export const FREE_ARM = { from: svgTo3d(160, 254), control: svgTo3d(124, 236), to: svgTo3d(120, 198) } as const
+/** Braço no manche: M238 262 Q256 250 262 262. */
+export const STICK_ARM = { from: svgTo3d(238, 262), control: svgTo3d(256, 250), to: svgTo3d(262, 262) } as const
+/** Manche: rect x 262, y 262, 8 × 32; bola cx 266, cy 258, r 10. */
+export const JOYSTICK = { base: svgTo3d(266, 278), height: 0.32, knob: svgTo3d(266, 258), knobRadius: 0.1 } as const
+/** Farol: circle cx 200, cy 336, r 8. */
+export const HEADLIGHT = svgTo3d(200, 336)
+/** Quadradinhos de contribuição na faixa (rects de 10 px a partir de x = 112, passo 28). */
+export const SQUARES_X = [117, 145, 173, 201, 229, 257, 285].map((x) => (x - ORIGIN_X) / PX)
+export const ARM_RADIUS = 0.065
+export const ARM_Z = 0.2
+
+export interface Block {
+  position: [number, number, number]
+  size: [number, number, number]
+  color: string
+}
+
+export const CROWN_DEPTH = 0.75
+/** A aba é mais funda que o rosto (FACE.z) para cobrir a testa, como no SVG. */
+export const BRIM_DEPTH = 1.05
+
+/** Retângulos do gorro-Clawd (dentro de translate(80 44)): x, y, w, h, profundidade 3D, cor. */
+const HAT_RECTS: [number, number, number, number, number, string][] = [
+  [92, 34, 9, 18, 0.3, COLORS.hat],
+  [108, 34, 9, 18, 0.3, COLORS.hat],
+  [124, 34, 9, 18, 0.3, COLORS.hat],
+  [140, 34, 9, 18, 0.3, COLORS.hat],
+  [62, 50, 116, 80, CROWN_DEPTH, COLORS.hat],
+  [40, 96, 24, 14, 0.3, COLORS.hat],
+  [176, 96, 24, 14, 0.3, COLORS.hat],
+  [40, 110, 14, 34, 0.3, COLORS.hat],
+  [186, 110, 14, 34, 0.3, COLORS.hat],
+  [58, 120, 124, 14, BRIM_DEPTH, COLORS.hatBrim],
+]
+const HAT_EYE_RECTS: [number, number, number, number][] = [
+  [96, 66, 10, 24],
+  [134, 66, 10, 24],
+]
+
+function rectToBlock(x: number, y: number, w: number, h: number, depth: number, color: string, z = 0): Block {
+  const [cx, cy] = svgTo3d(80 + x + w / 2, 44 + y + h / 2)
+  return { position: [cx, cy, z], size: [w / PX, h / PX, depth], color }
+}
+
+export const HAT_BLOCKS: Block[] = HAT_RECTS.map(([x, y, w, h, depth, color]) => rectToBlock(x, y, w, h, depth, color))
+export const HAT_EYE_BLOCKS: Block[] = HAT_EYE_RECTS.map(([x, y, w, h]) =>
+  rectToBlock(x, y, w, h, 0.02, COLORS.hatEyes, CROWN_DEPTH / 2 + 0.011),
+)
+```
+
+Run: `pnpm test src/lib/ship/geometry.test.ts`
+Expected: PASS.
+
+- [ ] **Step A4: A nave**
+
+`src/components/three/octocat/Ship.tsx` (nesta parte, o propulsor é estático; a Parte D faz ele tremular):
+
+```tsx
+import { useRef } from 'react'
+import * as THREE from 'three'
+import { COLORS, CONTRIBUTION_COLORS, DOME, HEADLIGHT, HULL, LOWER_FIN, SQUARES_X, UPPER_FIN } from '@/lib/ship/geometry'
+
+const HULL_GEOMETRY = new THREE.SphereGeometry(1, 48, 24)
+const DOME_GEOMETRY = new THREE.SphereGeometry(1, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2)
+const FLAME_LENGTH = 0.9
+const FLAME_GEOMETRY = new THREE.ConeGeometry(0.22, FLAME_LENGTH, 16).translate(0, FLAME_LENGTH / 2, 0)
+
+function finGeometry(points: [number, number][], mirror: boolean): THREE.ExtrudeGeometry {
+  const shape = new THREE.Shape(points.map(([x, y]) => new THREE.Vector2(mirror ? -x : x, y)))
+  const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.08, bevelEnabled: false })
+  geometry.translate(0, 0, -0.04)
+  return geometry
+}
+
+const FIN_GEOMETRIES = [UPPER_FIN, LOWER_FIN].flatMap((fin) => [finGeometry(fin, false), finGeometry(fin, true)])
+
+/** Ponto da superfície frontal do casco na altura y, para encostar peças nele. */
+function hullFrontZ(x: number, y: number): number {
+  const k = 1 - (x / HULL.rx) ** 2 - (y / HULL.ry) ** 2
+  return HULL.rz * Math.sqrt(Math.max(0, k))
+}
+
+export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
+  const flame = useRef<THREE.Mesh>(null)
+
+  return (
+    <group>
+      <mesh geometry={HULL_GEOMETRY} scale={[HULL.rx, HULL.ry, HULL.rz]}>
+        <meshStandardMaterial color={COLORS.ship} roughness={0.45} metalness={0.15} />
+      </mesh>
+
+      {/* faixa clara em volta do casco */}
+      <mesh position={[0, 0.06, 0]} rotation={[Math.PI / 2, 0, 0]} scale={[HULL.rx, HULL.rz, 1]}>
+        <torusGeometry args={[1, 0.035, 8, 64]} />
+        <meshStandardMaterial color={COLORS.stripe} roughness={0.5} />
+      </mesh>
+
+      {/* quadradinhos de contribuição na frente da faixa */}
+      {SQUARES_X.map((x, i) => {
+        const z = hullFrontZ(x, 0.03) + 0.03
+        const yaw = Math.atan2(x / HULL.rx ** 2, z / HULL.rz ** 2)
+        return (
+          <mesh key={i} position={[x, 0.03, z]} rotation={[0, yaw, 0]}>
+            <boxGeometry args={[0.1, 0.1, 0.04]} />
+            <meshStandardMaterial color={CONTRIBUTION_COLORS[i]} emissive={CONTRIBUTION_COLORS[i]} emissiveIntensity={0.35} />
+          </mesh>
+        )
+      })}
+
+      {/* farol */}
+      <mesh position={[HEADLIGHT[0], HEADLIGHT[1], hullFrontZ(HEADLIGHT[0], HEADLIGHT[1]) + 0.02]}>
+        <sphereGeometry args={[0.08, 16, 8]} />
+        <meshStandardMaterial color={COLORS.headlight} emissive={COLORS.headlight} emissiveIntensity={1.2} />
+      </mesh>
+
+      {FIN_GEOMETRIES.map((geometry, i) => (
+        <mesh key={i} geometry={geometry}>
+          <meshStandardMaterial color={COLORS.ship} roughness={0.5} metalness={0.1} />
+        </mesh>
+      ))}
+
+      {/* propulsor atrás do casco */}
+      <mesh
+        ref={flame}
+        geometry={FLAME_GEOMETRY}
+        position={[0, 0, -HULL.rz + 0.05]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        scale={[1, Math.max(thrusterLevel, 0.001), 1]}
+        visible={thrusterLevel > 0.01}
+      >
+        <meshBasicMaterial color={COLORS.thruster} transparent opacity={0.85} blending={THREE.AdditiveBlending} depthWrite={false} />
+      </mesh>
+
+      {/* cúpula de vidro */}
+      <mesh geometry={DOME_GEOMETRY} position={[0, DOME.base[1], 0]} scale={[DOME.rx, DOME.ry, DOME.rz]}>
+        <meshStandardMaterial
+          color={COLORS.dome}
+          transparent
+          opacity={0.16}
+          roughness={0.1}
+          metalness={0.1}
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+    </group>
+  )
+}
+```
+
+- [ ] **Step A5: Componente agregador e preview**
+
+`src/components/three/octocat/OctocatShip.tsx` (versão da Parte A: só a nave):
+
+```tsx
+import { Ship } from './Ship'
+
+export interface OctocatShipParts {
+  ship: boolean
+  pilot: boolean
+  hat: boolean
+}
+
+export const ALL_PARTS: OctocatShipParts = { ship: true, pilot: true, hat: true }
+
+interface OctocatShipProps {
+  thrusterLevel?: number
+  parts?: OctocatShipParts
+}
+
+export function OctocatShip({ thrusterLevel = 0.3, parts = ALL_PARTS }: OctocatShipProps) {
+  return <group>{parts.ship && <Ship thrusterLevel={thrusterLevel} />}</group>
+}
+```
+
+`src/preview/OctocatPreview.tsx` (versão da Parte A; as Partes B–D acrescentam controles):
+
+```tsx
+import { useState } from 'react'
+import { Canvas } from '@react-three/fiber'
+import { OrbitControls, Stars } from '@react-three/drei'
+import { ALL_PARTS, OctocatShip, type OctocatShipParts } from '@/components/three/octocat/OctocatShip'
+
+const PART_LABELS: [keyof OctocatShipParts, string][] = [
+  ['ship', 'Nave'],
+  ['pilot', 'Octocat'],
+  ['hat', 'Gorro-Clawd'],
+]
+
+export function OctocatPreview() {
+  const [parts, setParts] = useState<OctocatShipParts>(ALL_PARTS)
+  const [thruster, setThruster] = useState(0.3)
+  const [spin, setSpin] = useState(true)
+
+  return (
+    <main className="fixed inset-0 bg-space text-slate-100">
+      <Canvas dpr={[1, 2]} camera={{ position: [0, 1.4, 6.5], fov: 45 }}>
+        <color attach="background" args={['#0a0e27']} />
+        <ambientLight intensity={0.5} />
+        <directionalLight position={[3, 5, 4]} intensity={1.6} />
+        <pointLight position={[-4, 2, 3]} intensity={20} color="#22d3ee" />
+        <Stars radius={60} depth={30} count={1500} factor={3} fade />
+        <OctocatShip thrusterLevel={thruster} parts={parts} />
+        <OrbitControls target={[0, 0.9, 0]} autoRotate={spin} autoRotateSpeed={0.8} enablePan={false} minDistance={2.5} maxDistance={14} />
+      </Canvas>
+
+      <aside className="fixed left-4 top-4 w-64 space-y-4 rounded-2xl border border-neon/30 bg-panel/90 p-4 text-sm backdrop-blur">
+        <h1 className="font-semibold text-neon">Octocat 3D — preview</h1>
+
+        <fieldset className="space-y-1">
+          <legend className="text-xs uppercase tracking-wider text-slate-400">Peças</legend>
+          {PART_LABELS.map(([key, label]) => (
+            <label key={key} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={parts[key]}
+                onChange={(e) => setParts({ ...parts, [key]: e.target.checked })}
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
+
+        <label className="block">
+          <span className="text-xs uppercase tracking-wider text-slate-400">Propulsor</span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={thruster}
+            onChange={(e) => setThruster(Number(e.target.value))}
+            className="w-full"
+          />
+        </label>
+
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={spin} onChange={(e) => setSpin(e.target.checked)} />
+          Girar sozinho
+        </label>
+      </aside>
+    </main>
+  )
+}
+```
+
+Substitua `src/main.tsx` por:
+
+```tsx
+import { lazy, StrictMode, Suspense } from 'react'
+import { createRoot } from 'react-dom/client'
+import { App } from './App'
+import './index.css'
+
+const OctocatPreview = lazy(() => import('./preview/OctocatPreview').then((m) => ({ default: m.OctocatPreview })))
+const showOctocatPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'octocat'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    {showOctocatPreview ? (
+      <Suspense fallback={null}>
+        <OctocatPreview />
+      </Suspense>
+    ) : (
+      <App />
+    )}
+  </StrictMode>,
+)
+```
+
+- [ ] **Step A6: Verificar, commitar e PARAR**
+
+Run: `pnpm test && pnpm typecheck && pnpm lint`
+Expected: tudo PASS.
+
+Suba `pnpm dev` em segundo plano e confirme com `curl -s http://localhost:5173/github-universe-3d/?preview=octocat | grep -c root` que a página responde; depois **derrube o servidor** (o controlador sobe o dele para mostrar ao usuário).
+
+```bash
+git add src/lib/octocat/expression.ts src/lib/ship src/components/three/octocat src/preview src/main.tsx
+git commit -m "feat(octocat-3d): nave e página de preview"
+```
+
+**Pare aqui e reporte.** O que o usuário deve ver: casco elipsoide roxo claro, faixa clara com 7 quadradinhos verdes na frente, farol amarelo, quatro asas, cúpula de vidro azul translúcida e chama ciano atrás que cresce com o controle "Propulsor".
+
+#### Parte B — Octocat (corpo, cabeça, rosto e expressões)
+
+- [ ] **Step B1: Desenho do rosto**
+
+`src/components/three/octocat/octocatFace.ts`:
+
+```ts
+import type { OctocatExpression } from '@/lib/octocat/expression'
+import { COLORS } from '@/lib/ship/geometry'
+
+export const FACE_TEX_W = 256
+export const FACE_TEX_H = 192
+/** O canvas cobre a caixa da elipse do rosto no SVG (cx 200, cy 204, rx 46, ry 34). */
+const BOX = { x: 154, y: 170, w: 92, h: 68 }
+
+type Layer =
+  | { kind: 'ellipse'; cx: number; cy: number; rx: number; ry: number; color: string; opacity?: number }
+  | { kind: 'stroke'; d: string; width: number }
+  | { kind: 'fill'; d: string }
+
+/** Rosto do piloto (coordenadas do SVG principal). */
+const NEUTRAL: Layer[] = [
+  { kind: 'ellipse', cx: 186, cy: 200, rx: 6, ry: 9, color: COLORS.face },
+  { kind: 'ellipse', cx: 214, cy: 200, rx: 6, ry: 9, color: COLORS.face },
+  { kind: 'ellipse', cx: 200, cy: 215, rx: 3, ry: 3, color: COLORS.face },
+  { kind: 'stroke', d: 'M190 222 Q200 231 210 222', width: 2.5 },
+  { kind: 'ellipse', cx: 172, cy: 214, rx: 8, ry: 4, color: COLORS.blush, opacity: 0.6 },
+  { kind: 'ellipse', cx: 228, cy: 214, rx: 8, ry: 4, color: COLORS.blush, opacity: 0.6 },
+]
+
+const NEUTRAL_BLINK: Layer[] = [
+  { kind: 'stroke', d: 'M180 200 L192 200 M208 200 L220 200', width: 3 },
+  ...NEUTRAL.slice(2),
+]
+
+/** Folha de expressões: desenhadas em coordenadas deslocadas por translate(80 44). */
+const SHEET: Record<Exclude<OctocatExpression, 'neutral'>, Layer[]> = {
+  happy: [
+    { kind: 'stroke', d: 'M98 158 Q106 147 114 158 M126 158 Q134 147 142 158', width: 3.5 },
+    { kind: 'fill', d: 'M106 174 Q120 192 134 174 Z' },
+    { kind: 'ellipse', cx: 92, cy: 172, rx: 8, ry: 4, color: COLORS.blush, opacity: 0.7 },
+    { kind: 'ellipse', cx: 148, cy: 172, rx: 8, ry: 4, color: COLORS.blush, opacity: 0.7 },
+  ],
+  wink: [
+    { kind: 'ellipse', cx: 106, cy: 156, rx: 6, ry: 9, color: COLORS.face },
+    { kind: 'stroke', d: 'M127 158 Q134 151 141 158', width: 3.5 },
+    { kind: 'stroke', d: 'M109 177 Q120 188 131 177', width: 3 },
+  ],
+  surprised: [
+    { kind: 'ellipse', cx: 105, cy: 154, rx: 8, ry: 12, color: COLORS.face },
+    { kind: 'ellipse', cx: 135, cy: 154, rx: 8, ry: 12, color: COLORS.face },
+    { kind: 'ellipse', cx: 102, cy: 149, rx: 2.5, ry: 2.5, color: '#FFFFFF' },
+    { kind: 'ellipse', cx: 132, cy: 149, rx: 2.5, ry: 2.5, color: '#FFFFFF' },
+    { kind: 'ellipse', cx: 120, cy: 182, rx: 6, ry: 8, color: COLORS.face },
+  ],
+  thinking: [
+    { kind: 'ellipse', cx: 110, cy: 151, rx: 6, ry: 9, color: COLORS.face },
+    { kind: 'ellipse', cx: 138, cy: 151, rx: 6, ry: 9, color: COLORS.face },
+    { kind: 'stroke', d: 'M112 180 L130 177', width: 3 },
+  ],
+}
+
+function drawLayer(ctx: CanvasRenderingContext2D, layer: Layer): void {
+  ctx.globalAlpha = layer.kind === 'ellipse' ? (layer.opacity ?? 1) : 1
+  if (layer.kind === 'ellipse') {
+    ctx.fillStyle = layer.color
+    ctx.beginPath()
+    ctx.ellipse(layer.cx, layer.cy, layer.rx, layer.ry, 0, 0, Math.PI * 2)
+    ctx.fill()
+  } else if (layer.kind === 'stroke') {
+    ctx.strokeStyle = COLORS.face
+    ctx.lineWidth = layer.width
+    ctx.lineCap = 'round'
+    ctx.stroke(new Path2D(layer.d))
+  } else {
+    ctx.fillStyle = COLORS.face
+    ctx.fill(new Path2D(layer.d))
+  }
+}
+
+export function drawOctocatFace(ctx: CanvasRenderingContext2D, expression: OctocatExpression, blinking: boolean): void {
+  const sx = FACE_TEX_W / BOX.w
+  const sy = FACE_TEX_H / BOX.h
+  ctx.setTransform(sx, 0, 0, sy, -BOX.x * sx, -BOX.y * sy)
+  ctx.clearRect(BOX.x, BOX.y, BOX.w, BOX.h)
+  ctx.globalAlpha = 1
+  ctx.fillStyle = COLORS.skin
+  ctx.beginPath()
+  ctx.ellipse(200, 204, 46, 34, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  if (expression === 'neutral') {
+    for (const layer of blinking ? NEUTRAL_BLINK : NEUTRAL) drawLayer(ctx, layer)
+  } else {
+    ctx.translate(80, 44)
+    for (const layer of SHEET[expression]) drawLayer(ctx, layer)
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.globalAlpha = 1
+}
+```
+
+- [ ] **Step B2: O piloto**
+
+`src/components/three/octocat/Pilot.tsx` (nesta parte o braço fica parado; a Parte D anima):
+
+```tsx
+import { useEffect, useMemo, useRef } from 'react'
+import * as THREE from 'three'
+import type { OctocatExpression } from '@/lib/octocat/expression'
+import { ARM_RADIUS, ARM_Z, COLORS, FACE, FREE_ARM, HEAD, JOYSTICK, STICK_ARM, TORSO } from '@/lib/ship/geometry'
+import { drawOctocatFace, FACE_TEX_H, FACE_TEX_W } from './octocatFace'
+
+export type ArmMode = 'rest' | 'wave' | 'point'
+
+const HALF_SPHERE = new THREE.SphereGeometry(1, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2)
+const SPHERE = new THREE.SphereGeometry(1, 32, 16)
+const FACE_DISC = new THREE.CircleGeometry(1, 48)
+
+function armGeometry(from: [number, number], control: [number, number], to: [number, number], origin: [number, number]) {
+  const curve = new THREE.QuadraticBezierCurve3(
+    new THREE.Vector3(from[0] - origin[0], from[1] - origin[1], 0),
+    new THREE.Vector3(control[0] - origin[0], control[1] - origin[1], 0),
+    new THREE.Vector3(to[0] - origin[0], to[1] - origin[1], 0),
+  )
+  return new THREE.TubeGeometry(curve, 16, ARM_RADIUS, 8, false)
+}
+
+/** Braço livre desenhado a partir do ombro, para girar em torno dele. */
+const FREE_ARM_GEOMETRY = armGeometry(FREE_ARM.from, FREE_ARM.control, FREE_ARM.to, FREE_ARM.from)
+const STICK_ARM_GEOMETRY = armGeometry(STICK_ARM.from, STICK_ARM.control, STICK_ARM.to, [0, 0])
+/** Bolhas de pensamento do SVG (cx 196/212/230, cy 70/52/30, r 5/7/9, em translate(80 44)). */
+const THOUGHTS: [number, number, number][] = [
+  [(276 - 200) / 100, (312 - 114) / 100, 0.05],
+  [(292 - 200) / 100, (312 - 96) / 100, 0.07],
+  [(310 - 200) / 100, (312 - 74) / 100, 0.09],
+]
+
+interface PilotProps {
+  expression: OctocatExpression
+  blinking: boolean
+  armMode: ArmMode
+}
+
+export function Pilot({ expression, blinking }: PilotProps) {
+  const freeArm = useRef<THREE.Group>(null)
+  const texture = useMemo(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = FACE_TEX_W
+    canvas.height = FACE_TEX_H
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.colorSpace = THREE.SRGBColorSpace
+    return tex
+  }, [])
+
+  useEffect(() => {
+    const ctx = (texture.image as HTMLCanvasElement).getContext('2d')
+    if (!ctx) return
+    drawOctocatFace(ctx, expression, blinking)
+    texture.needsUpdate = true
+  }, [expression, blinking, texture])
+
+  useEffect(() => () => texture.dispose(), [texture])
+
+  const body = <meshStandardMaterial color={COLORS.body} roughness={0.6} />
+
+  return (
+    <group>
+      <mesh geometry={HALF_SPHERE} position={[0, TORSO.base[1], 0]} scale={[TORSO.rx, TORSO.ry, TORSO.rz]}>
+        {body}
+      </mesh>
+      <mesh geometry={SPHERE} position={[0, HEAD.center[1], 0]} scale={[HEAD.rx, HEAD.ry, HEAD.rz]}>
+        {body}
+      </mesh>
+      <mesh geometry={FACE_DISC} position={[0, FACE.center[1], FACE.z]} scale={[FACE.rx, FACE.ry, 1]}>
+        <meshStandardMaterial map={texture} roughness={0.8} />
+      </mesh>
+
+      {/* braço livre, com pivô no ombro */}
+      <group ref={freeArm} position={[FREE_ARM.from[0], FREE_ARM.from[1], ARM_Z]}>
+        <mesh geometry={FREE_ARM_GEOMETRY}>{body}</mesh>
+        <mesh
+          geometry={SPHERE}
+          position={[FREE_ARM.to[0] - FREE_ARM.from[0], FREE_ARM.to[1] - FREE_ARM.from[1], 0]}
+          scale={ARM_RADIUS * 1.3}
+        >
+          {body}
+        </mesh>
+      </group>
+
+      {/* braço no manche e o manche */}
+      <mesh geometry={STICK_ARM_GEOMETRY} position={[0, 0, ARM_Z]}>
+        {body}
+      </mesh>
+      <mesh position={[JOYSTICK.base[0], JOYSTICK.base[1], ARM_Z]}>
+        <cylinderGeometry args={[0.04, 0.04, JOYSTICK.height, 12]} />
+        <meshStandardMaterial color={COLORS.stick} />
+      </mesh>
+      <mesh geometry={SPHERE} position={[JOYSTICK.knob[0], JOYSTICK.knob[1], ARM_Z]} scale={JOYSTICK.knobRadius}>
+        <meshStandardMaterial color={COLORS.hat} />
+      </mesh>
+
+      {expression === 'thinking' &&
+        THOUGHTS.map(([x, y, r], i) => (
+          <mesh key={i} geometry={SPHERE} position={[x, y, 0.3]} scale={r}>
+            <meshStandardMaterial color={COLORS.thought} />
+          </mesh>
+        ))}
+    </group>
+  )
+}
+```
+
+- [ ] **Step B3: Montar o piloto e controles de expressão**
+
+Substitua `src/components/three/octocat/OctocatShip.tsx` por:
+
+```tsx
+import type { OctocatExpression } from '@/lib/octocat/expression'
+import { Pilot, type ArmMode } from './Pilot'
+import { Ship } from './Ship'
+
+export interface OctocatShipParts {
+  ship: boolean
+  pilot: boolean
+  hat: boolean
+}
+
+export const ALL_PARTS: OctocatShipParts = { ship: true, pilot: true, hat: true }
+
+interface OctocatShipProps {
+  expression?: OctocatExpression
+  armMode?: ArmMode
+  thrusterLevel?: number
+  parts?: OctocatShipParts
+}
+
+export function OctocatShip({ expression = 'neutral', armMode = 'rest', thrusterLevel = 0.3, parts = ALL_PARTS }: OctocatShipProps) {
+  return (
+    <group>
+      {parts.ship && <Ship thrusterLevel={thrusterLevel} />}
+      {parts.pilot && <Pilot expression={expression} blinking={false} armMode={armMode} />}
+    </group>
+  )
+}
+```
+
+Em `src/preview/OctocatPreview.tsx`:
+- importe `import { OCTOCAT_EXPRESSIONS, type OctocatExpression } from '@/lib/octocat/expression'`;
+- acrescente `const [expression, setExpression] = useState<OctocatExpression>('neutral')`;
+- passe `expression={expression}` ao `<OctocatShip … />`;
+- acrescente ao `<aside>`, logo depois do `<fieldset>` de peças:
+
+```tsx
+        <fieldset className="space-y-1">
+          <legend className="text-xs uppercase tracking-wider text-slate-400">Expressão</legend>
+          <div className="flex flex-wrap gap-1">
+            {OCTOCAT_EXPRESSIONS.map((e) => (
+              <button
+                key={e}
+                type="button"
+                onClick={() => setExpression(e)}
+                className={`rounded-full border px-2 py-0.5 ${e === expression ? 'border-neon text-neon' : 'border-slate-600 text-slate-300'}`}
+              >
+                {EXPRESSION_LABELS[e]}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+```
+
+e, acima do componente:
+
+```tsx
+const EXPRESSION_LABELS: Record<OctocatExpression, string> = {
+  neutral: 'Neutro',
+  happy: 'Feliz',
+  wink: 'Piscadinha',
+  surprised: 'Surpreso',
+  thinking: 'Pensando',
+}
+```
+
+- [ ] **Step B4: Verificar, commitar e PARAR**
+
+Run: `pnpm test && pnpm typecheck && pnpm lint` → PASS. Confira com `curl` que o preview responde e derrube o servidor.
+
+```bash
+git add src/components/three/octocat src/preview
+git commit -m "feat(octocat-3d): piloto com rosto e expressões"
+```
+
+**Pare aqui e reporte.** O que o usuário deve ver: corpo e cabeça escuros dentro da cúpula; rosto cor de pele com olhos, nariz, boca e bochechas como no SVG; braço livre levantado à esquerda; braço no manche à direita com bola laranja; os 5 botões de expressão trocam o rosto (Pensando mostra as 3 bolhas cinza).
+
+#### Parte C — gorro-Clawd
+
+- [ ] **Step C1: O gorro**
+
+`src/components/three/octocat/ClawdHat.tsx`:
+
+```tsx
+import { HAT_BLOCKS, HAT_EYE_BLOCKS } from '@/lib/ship/geometry'
+
+const BLOCKS = [...HAT_BLOCKS, ...HAT_EYE_BLOCKS]
+
+export function ClawdHat() {
+  return (
+    <group>
+      {BLOCKS.map((block, i) => (
+        <mesh key={i} position={block.position}>
+          <boxGeometry args={block.size} />
+          <meshStandardMaterial color={block.color} roughness={0.7} flatShading />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+```
+
+Em `src/components/three/octocat/OctocatShip.tsx`, importe `import { ClawdHat } from './ClawdHat'` e acrescente, depois da linha do `Pilot`:
+
+```tsx
+      {parts.hat && <ClawdHat />}
+```
+
+- [ ] **Step C2: Verificar, commitar e PARAR**
+
+Run: `pnpm test && pnpm typecheck && pnpm lint` → PASS.
+
+```bash
+git add src/components/three/octocat
+git commit -m "feat(octocat-3d): gorro-Clawd"
+```
+
+**Pare aqui e reporte.** O que o usuário deve ver: o gorro laranja em blocos (estilo pixel do Clawd) no alto da cabeça, com quatro "pernas" em cima, abas laterais, dois olhos pretos na frente e a aba marrom cobrindo a testa.
+
+#### Parte D — animações
+
+- [ ] **Step D1: Teste do movimento (falha)**
+
+`src/lib/ship/motion.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { BLINK_EVERY, hoverOffset, isBlinking, thrusterScale, WAVE_AMPLITUDE, waveAngle } from './motion'
+
+const times = Array.from({ length: 400 }, (_, i) => i * 0.037)
+
+describe('movimento do Octocat', () => {
+  it('flutua pouco', () => {
+    for (const t of times) {
+      const { y, roll } = hoverOffset(t)
+      expect(Math.abs(y)).toBeLessThanOrEqual(0.06)
+      expect(Math.abs(roll)).toBeLessThanOrEqual(0.03)
+    }
+  })
+
+  it('o aceno fica dentro da amplitude', () => {
+    for (const t of times) expect(Math.abs(waveAngle(t))).toBeLessThanOrEqual(WAVE_AMPLITUDE)
+  })
+
+  it('o propulsor apaga no nível 0 e tremula em volta do nível', () => {
+    expect(thrusterScale(1.23, 0)).toBe(0)
+    for (const t of times) {
+      const s = thrusterScale(t, 1)
+      expect(s).toBeGreaterThan(0.75)
+      expect(s).toBeLessThan(1.25)
+    }
+  })
+
+  it('pisca por um instante a cada BLINK_EVERY segundos', () => {
+    expect(isBlinking(0.1)).toBe(true)
+    expect(isBlinking(1)).toBe(false)
+    expect(isBlinking(BLINK_EVERY + 0.05)).toBe(true)
+    expect(times.filter(isBlinking).length / times.length).toBeLessThan(0.1)
+  })
+})
+```
+
+Run: `pnpm test src/lib/ship/motion.test.ts`
+Expected: FAIL.
+
+- [ ] **Step D2: Funções de movimento**
+
+`src/lib/ship/motion.ts`:
+
+```ts
+/** Flutuação suave do Octocat parado. */
+export function hoverOffset(t: number): { y: number; roll: number } {
+  return { y: Math.sin(t * 1.6) * 0.06, roll: Math.sin(t * 0.9) * 0.03 }
+}
+
+export const WAVE_AMPLITUDE = 0.45
+/** Ângulo do braço livre acenando (rad, em torno do ombro). */
+export function waveAngle(t: number): number {
+  return WAVE_AMPLITUDE * Math.sin(t * 7)
+}
+
+/** Braço livre esticado para o lado, apontando (rad). */
+export const POINT_ANGLE = 0.9
+
+/** Comprimento relativo da chama: 0 apaga; senão tremula ±23% em volta do nível. */
+export function thrusterScale(t: number, level: number): number {
+  if (level <= 0) return 0
+  return level * (1 + 0.15 * Math.sin(t * 31) + 0.08 * Math.sin(t * 53))
+}
+
+export const BLINK_EVERY = 4
+export const BLINK_LENGTH = 0.15
+export function isBlinking(t: number): boolean {
+  return t % BLINK_EVERY < BLINK_LENGTH
+}
+```
+
+Run: `pnpm test src/lib/ship/motion.test.ts`
+Expected: PASS.
+
+- [ ] **Step D3: Animar braço, chama, piscada e flutuação**
+
+Em `src/components/three/octocat/Pilot.tsx`:
+- importe `useFrame` de `@react-three/fiber`, `useReducedMotion` de `framer-motion` e `POINT_ANGLE, waveAngle` de `@/lib/ship/motion`;
+- troque a assinatura para `export function Pilot({ expression, blinking, armMode }: PilotProps) {`;
+- acrescente, logo depois de `const freeArm = useRef<THREE.Group>(null)`:
+
+```tsx
+  const reduced = useReducedMotion() ?? false
+
+  useFrame(({ clock }, dt) => {
+    const arm = freeArm.current
+    if (!arm) return
+    const goal = armMode === 'point' ? POINT_ANGLE : 0
+    if (armMode === 'wave' && !reduced) arm.rotation.z = waveAngle(clock.elapsedTime)
+    else arm.rotation.z += (goal - arm.rotation.z) * (1 - Math.exp(-8 * dt))
+  })
+```
+
+Em `src/components/three/octocat/Ship.tsx`:
+- importe `useFrame` de `@react-three/fiber`, `useReducedMotion` de `framer-motion` e `thrusterScale` de `@/lib/ship/motion`;
+- acrescente, logo depois de `const flame = useRef<THREE.Mesh>(null)`:
+
+```tsx
+  const glow = useRef<THREE.PointLight>(null)
+  const reduced = useReducedMotion() ?? false
+
+  useFrame(({ clock }) => {
+    const s = reduced ? thrusterLevel : thrusterScale(clock.elapsedTime, thrusterLevel)
+    if (flame.current) {
+      flame.current.scale.set(1, Math.max(s, 0.001), 1)
+      flame.current.visible = s > 0.01
+    }
+    if (glow.current) glow.current.intensity = 3 * s
+  })
+```
+
+- acrescente, logo depois do `<mesh ref={flame} …>…</mesh>` do propulsor:
+
+```tsx
+      <pointLight ref={glow} position={[0, 0, -HULL.rz - 0.3]} color={COLORS.thruster} distance={3} intensity={0} />
+```
+
+Substitua `src/components/three/octocat/OctocatShip.tsx` pela versão final:
+
+```tsx
+import { useRef, useState } from 'react'
+import { useFrame } from '@react-three/fiber'
+import { useReducedMotion } from 'framer-motion'
+import type * as THREE from 'three'
+import type { OctocatExpression } from '@/lib/octocat/expression'
+import { hoverOffset, isBlinking } from '@/lib/ship/motion'
+import { ClawdHat } from './ClawdHat'
+import { Pilot, type ArmMode } from './Pilot'
+import { Ship } from './Ship'
+
+export type { ArmMode }
+
+export interface OctocatShipParts {
+  ship: boolean
+  pilot: boolean
+  hat: boolean
+}
+
+export const ALL_PARTS: OctocatShipParts = { ship: true, pilot: true, hat: true }
+
+interface OctocatShipProps {
+  expression?: OctocatExpression
+  armMode?: ArmMode
+  thrusterLevel?: number
+  floating?: boolean
+  parts?: OctocatShipParts
+}
+
+export function OctocatShip({
+  expression = 'neutral',
+  armMode = 'rest',
+  thrusterLevel = 0.3,
+  floating = true,
+  parts = ALL_PARTS,
+}: OctocatShipProps) {
+  const root = useRef<THREE.Group>(null)
+  const blinkRef = useRef(false)
+  const [blinking, setBlinking] = useState(false)
+  const reduced = useReducedMotion() ?? false
+
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime
+    const blink = !reduced && isBlinking(t)
+    if (blink !== blinkRef.current) {
+      blinkRef.current = blink
+      setBlinking(blink)
+    }
+    if (root.current) {
+      const hover = floating && !reduced ? hoverOffset(t) : { y: 0, roll: 0 }
+      root.current.position.y = hover.y
+      root.current.rotation.z = hover.roll
+    }
+  })
+
+  return (
+    <group ref={root}>
+      {parts.ship && <Ship thrusterLevel={thrusterLevel} />}
+      {parts.pilot && <Pilot expression={expression} blinking={blinking} armMode={armMode} />}
+      {parts.hat && <ClawdHat />}
+    </group>
+  )
+}
+```
+
+Em `src/preview/OctocatPreview.tsx`:
+- importe `type ArmMode` junto de `OctocatShip`;
+- acrescente `const [armMode, setArmMode] = useState<ArmMode>('wave')` e `const [floating, setFloating] = useState(true)`;
+- passe `armMode={armMode}` e `floating={floating}` ao `<OctocatShip … />`;
+- acrescente ao `<aside>`, depois do `<fieldset>` de expressão:
+
+```tsx
+        <fieldset className="space-y-1">
+          <legend className="text-xs uppercase tracking-wider text-slate-400">Braço</legend>
+          <div className="flex gap-1">
+            {ARM_LABELS.map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setArmMode(mode)}
+                className={`rounded-full border px-2 py-0.5 ${mode === armMode ? 'border-neon text-neon' : 'border-slate-600 text-slate-300'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={floating} onChange={(e) => setFloating(e.target.checked)} />
+          Flutuar
+        </label>
+```
+
+e, acima do componente:
+
+```tsx
+const ARM_LABELS: [ArmMode, string][] = [
+  ['rest', 'Parado'],
+  ['wave', 'Acenar'],
+  ['point', 'Apontar'],
+]
+```
+
+- [ ] **Step D4: Verificar, commitar e PARAR**
+
+Run: `pnpm test && pnpm typecheck && pnpm lint` → PASS.
+
+```bash
+git add src/lib/ship src/components/three/octocat src/preview
+git commit -m "feat(octocat-3d): aceno, piscada, flutuação e propulsor"
+```
+
+**Pare aqui e reporte.** O que o usuário deve ver: o Octocat acena (vai e volta em torno do ombro), "Apontar" estica o braço para o lado, ele pisca a cada 4 s no rosto neutro, a nave flutua de leve, e a chama tremula conforme o nível do propulsor. Com "Reduzir movimento" no sistema, nada oscila.
+
+---
+
+### Task 13: Octocat 3D — escolta, viagem com câmera de perseguição e falas
+
+> Roda depois da Task 11. Usa o modelo aprovado na Task 12.
+
+**Files:**
+- Create: `src/lib/ship/vec.ts`, `src/lib/ship/travel.ts`, `src/lib/ship/escort.ts`, `src/lib/ship/shipMachine.ts`, `src/store/shipPose.ts`, `src/components/three/octocat/ShipRig.tsx`, `src/hooks/useIdle.ts`, `src/components/ui/OctocatSpeech.tsx`, `src/components/ui/TutorialButton.tsx`, `src/components/ui/octocat/OctocatArt.tsx`
+- Modify: `src/components/three/CameraRig.tsx`, `src/components/three/Scene.tsx`, `src/components/ui/Loader.tsx`, `src/App.tsx`
+- Test: `src/lib/ship/travel.test.ts`, `src/lib/ship/escort.test.ts`, `src/lib/ship/shipMachine.test.ts`
+
+**Interfaces:**
+- Consumes: `OctocatShip`, `ArmMode` (Task 12); `SUN_RADIUS`, `planetPosition`, `OrbitSystem`, `Vec3` (Task 5); `predictStopTime` (Task 5); `simClock` (Task 8); `selectionPose`, `tutorialPose`, `showcasePlanet`, `maxCameraDistance`, `Pose` (Tasks 9 e 11); `useUniverse` (bubble, emitGuide, dismissBubble), `formatLine`, `LINE_DURATION_MS`, `IDLE_MS`, `LONG_IDLE_MS` (Task 7); `useTutorial` (Task 11); `useMediaQuery`, `MOBILE_QUERY` (Task 7).
+- Produces:
+  - `vec.ts`: `add`, `sub`, `scale`, `dot`, `cross`, `length`, `normalize`, `lerp3`.
+  - `travel.ts`: `SUN_SAFE_DISTANCE`, `MIN_TRAVEL_SECONDS`, `MAX_TRAVEL_SECONDS`, `TravelPath`, `travelDuration(d)`, `bezierPoint(points, s)`, `bezierTangent(points, s)`, `minSunDistance(points)`, `planTravel(from, to)`, `easeInOutCubic(x)`, `travelProgress(elapsed, duration)`.
+  - `escort.ts`: `ShipTarget`, `targetAnchor(target, system, time)`, `visitPosition(anchor, radius, cameraPos)`, `escortPosition(cameraPos, forward, up)`, `chasePose(position, tangent)`, `MAX_BANK`, `bankAngle(prev, next, dt)`.
+  - `shipMachine.ts`: `ShipMode`, `ShipState`, `ShipEvent`, `ENTER_DURATION`, `RETURN_DURATION`, `INITIAL_SHIP`, `shipReducer(s, e)`.
+  - `shipPose`: estado mutável `{ position, tangent, mode, userTravel }` lido pela câmera.
+  - Componentes: `ShipRig({ system, repos })`, `OctocatSpeech({ profileName })`, `TutorialButton()`, `OctocatArt` (SVG 2D, só no loader).
+
+- [ ] **Step 1: Vetores**
+
+`src/lib/ship/vec.ts`:
+
+```ts
+import type { Vec3 } from '../universe/orbits'
+
+export const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+export const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+export const scale = (a: Vec3, k: number): Vec3 => [a[0] * k, a[1] * k, a[2] * k]
+export const dot = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+export const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+export const length = (a: Vec3): number => Math.hypot(a[0], a[1], a[2])
+export const lerp3 = (a: Vec3, b: Vec3, t: number): Vec3 => add(a, scale(sub(b, a), t))
+
+export function normalize(a: Vec3, fallback: Vec3 = [0, 0, 1]): Vec3 {
+  const l = length(a)
+  return l < 1e-9 ? fallback : scale(a, 1 / l)
+}
+```
+
+- [ ] **Step 2: Teste da viagem (falha)**
+
+`src/lib/ship/travel.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest'
+import type { Vec3 } from '../universe/orbits'
+import {
+  bezierPoint,
+  bezierTangent,
+  MAX_TRAVEL_SECONDS,
+  MIN_TRAVEL_SECONDS,
+  minSunDistance,
+  planTravel,
+  SUN_SAFE_DISTANCE,
+  travelDuration,
+  travelProgress,
+} from './travel'
+import { length, sub } from './vec'
+
+const ring = (r: number, angle: number, y = 0): Vec3 => [Math.cos(angle) * r, y, Math.sin(angle) * r]
+
+describe('planTravel', () => {
+  it('começa e termina nos pontos dados', () => {
+    const from = ring(10, 0)
+    const to = ring(20, 2)
+    const path = planTravel(from, to)
+    expect(length(sub(bezierPoint(path.points, 0), from))).toBeLessThan(1e-9)
+    expect(length(sub(bezierPoint(path.points, 1), to))).toBeLessThan(1e-9)
+  })
+
+  it('nunca passa perto do sol, nem entre lados opostos da galáxia', () => {
+    const cases: [Vec3, Vec3][] = [
+      [ring(8, 0), ring(8, Math.PI)],
+      [ring(6, 0.3, 0.5), ring(40, 0.3 + Math.PI)],
+      [ring(5, 1), ring(5, 1 + Math.PI)],
+      [[0, 30, 60], ring(9, 4)],
+      [ring(12, 2), ring(12, 2.1)],
+    ]
+    for (const [from, to] of cases) expect(minSunDistance(planTravel(from, to).points)).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
+  })
+
+  it('o arco sobe acima do plano das órbitas', () => {
+    const path = planTravel(ring(10, 0), ring(10, 1.5))
+    expect(bezierPoint(path.points, 0.5)[1]).toBeGreaterThan(1)
+  })
+})
+
+describe('tempo de viagem', () => {
+  it('cresce com a distância e fica entre 1,5 e 3 s', () => {
+    expect(travelDuration(0)).toBe(MIN_TRAVEL_SECONDS)
+    expect(travelDuration(30)).toBeGreaterThan(travelDuration(10))
+    expect(travelDuration(1000)).toBe(MAX_TRAVEL_SECONDS)
+  })
+
+  it('progresso suave de 0 a 1, travado nas pontas', () => {
+    expect(travelProgress(0, 2)).toBe(0)
+    expect(travelProgress(1, 2)).toBeCloseTo(0.5)
+    expect(travelProgress(5, 2)).toBe(1)
+    expect(travelProgress(0.2, 2)).toBeLessThan(0.1)
+  })
+})
+
+describe('tangente', () => {
+  it('é unitária e aponta para o destino no fim', () => {
+    const path = planTravel(ring(10, 0), ring(10, 1.5))
+    const t = bezierTangent(path.points, 1)
+    expect(length(t)).toBeCloseTo(1)
+    const toEnd = sub(path.points[3], path.points[2])
+    expect(t[0] * toEnd[0] + t[1] * toEnd[1] + t[2] * toEnd[2]).toBeGreaterThan(0)
+  })
+})
+```
+
+Run: `pnpm test src/lib/ship/travel.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 3: Viagem**
+
+`src/lib/ship/travel.ts`:
+
+```ts
+import { SUN_RADIUS, type Vec3 } from '../universe/orbits'
+import { add, length, lerp3, normalize, scale, sub } from './vec'
+
+export const SUN_SAFE_DISTANCE = SUN_RADIUS + 2
+export const MIN_TRAVEL_SECONDS = 1.5
+export const MAX_TRAVEL_SECONDS = 3
+
+export interface TravelPath {
+  /** Bézier cúbica: origem, dois controles erguidos, destino. */
+  points: [Vec3, Vec3, Vec3, Vec3]
+  duration: number
+}
+
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
+
+export function travelDuration(distance: number): number {
+  return clamp(MIN_TRAVEL_SECONDS + distance / 40, MIN_TRAVEL_SECONDS, MAX_TRAVEL_SECONDS)
+}
+
+export function bezierPoint(p: TravelPath['points'], s: number): Vec3 {
+  const u = 1 - s
+  return add(add(scale(p[0], u * u * u), scale(p[1], 3 * u * u * s)), add(scale(p[2], 3 * u * s * s), scale(p[3], s * s * s)))
+}
+
+export function bezierTangent(p: TravelPath['points'], s: number): Vec3 {
+  const u = 1 - s
+  const d = add(add(scale(sub(p[1], p[0]), 3 * u * u), scale(sub(p[2], p[1]), 6 * u * s)), scale(sub(p[3], p[2]), 3 * s * s))
+  return normalize(d, normalize(sub(p[3], p[0])))
+}
+
+export function minSunDistance(p: TravelPath['points'], samples = 96): number {
+  let min = Infinity
+  for (let i = 0; i <= samples; i++) min = Math.min(min, length(bezierPoint(p, i / samples)))
+  return min
+}
+
+function arc(from: Vec3, to: Vec3, lift: number): TravelPath['points'] {
+  const up: Vec3 = [0, lift, 0]
+  return [from, add(lerp3(from, to, 1 / 3), up), add(lerp3(from, to, 2 / 3), up), to]
+}
+
+/** Arco acima do plano das órbitas; sobe mais até a curva ficar longe do sol. */
+export function planTravel(from: Vec3, to: Vec3): TravelPath {
+  const distance = length(sub(to, from))
+  let lift = Math.max(3, distance * 0.35)
+  let points = arc(from, to, lift)
+  for (let i = 0; i < 16 && minSunDistance(points) < SUN_SAFE_DISTANCE; i++) {
+    lift *= 1.5
+    points = arc(from, to, lift)
+  }
+  return { points, duration: travelDuration(distance) }
+}
+
+export function easeInOutCubic(x: number): number {
+  return x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2
+}
+
+export function travelProgress(elapsed: number, duration: number): number {
+  return easeInOutCubic(clamp(elapsed / duration, 0, 1))
+}
+```
+
+Run: `pnpm test src/lib/ship/travel.test.ts`
+Expected: PASS.
+
+- [ ] **Step 4: Teste de escolta, visita e perseguição (falha)**
+
+`src/lib/ship/escort.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { buildOrbits, planetPosition, SUN_RADIUS, type Vec3 } from '../universe/orbits'
+import { bankAngle, chasePose, escortPosition, MAX_BANK, targetAnchor, visitPosition } from './escort'
+import { SUN_SAFE_DISTANCE } from './travel'
+import { cross, dot, length, sub } from './vec'
+
+const system = buildOrbits(Array.from({ length: 12 }, (_, i) => ({ name: `p${i}`, radius: 2.2 })))
+
+describe('targetAnchor', () => {
+  it('sol na origem com o raio do sol; planeta na posição do instante', () => {
+    expect(targetAnchor({ kind: 'sun' }, system, 0)).toEqual({ position: [0, 0, 0], radius: SUN_RADIUS })
+    const orbit = system.orbits[5]
+    expect(targetAnchor({ kind: 'planet', name: 'p5' }, system, 12)).toEqual({
+      position: planetPosition(system.rings[orbit.ring], orbit, 12),
+      radius: orbit.radius,
+    })
+    expect(targetAnchor({ kind: 'planet', name: 'nada' }, system, 0)).toBeNull()
+  })
+})
+
+describe('visitPosition', () => {
+  it('fica ao lado do alvo, do lado da câmera, e longe do sol', () => {
+    const cameraPositions: Vec3[] = [[0, 20, 40], [0, 2, 0.1], [30, 5, -30]]
+    for (const cam of cameraPositions) {
+      for (const orbit of system.orbits) {
+        const anchor = targetAnchor({ kind: 'planet', name: orbit.name }, system, 3)!
+        const visit = visitPosition(anchor.position, anchor.radius, cam)
+        expect(length(sub(visit, anchor.position))).toBeGreaterThan(anchor.radius)
+        expect(length(visit)).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
+      }
+      expect(length(visitPosition([0, 0, 0], SUN_RADIUS, cam))).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
+    }
+  })
+})
+
+describe('escortPosition', () => {
+  it('fica à frente, à direita e abaixo do centro da câmera', () => {
+    const cam: Vec3 = [0, 10, 30]
+    const forward: Vec3 = [0, 0, -1]
+    const up: Vec3 = [0, 1, 0]
+    const offset = sub(escortPosition(cam, forward, up), cam)
+    expect(dot(offset, forward)).toBeGreaterThan(0)
+    expect(dot(offset, cross(forward, up))).toBeGreaterThan(0)
+    expect(dot(offset, up)).toBeLessThan(0)
+  })
+})
+
+describe('chasePose', () => {
+  it('câmera atrás e acima da nave, olhando para a frente dela', () => {
+    const position: Vec3 = [5, 2, 5]
+    const tangent: Vec3 = [1, 0, 0]
+    const pose = chasePose(position, tangent)
+    expect(dot(sub(pose.position, position), tangent)).toBeLessThan(0)
+    expect(pose.position[1]).toBeGreaterThan(position[1])
+    expect(dot(sub(pose.target, position), tangent)).toBeGreaterThan(0)
+  })
+})
+
+describe('bankAngle', () => {
+  it('inclina para dentro da curva, com limite', () => {
+    const straight: Vec3 = [0, 0, 1]
+    const left: Vec3 = [Math.sin(0.05), 0, Math.cos(0.05)]
+    expect(bankAngle(straight, straight, 1 / 60)).toBe(0)
+    expect(Math.sign(bankAngle(straight, left, 1 / 60))).not.toBe(0)
+    expect(Math.abs(bankAngle(straight, [1, 0, 0], 1 / 60))).toBe(MAX_BANK)
+    expect(bankAngle(straight, left, 0)).toBe(0)
+  })
+})
+```
+
+Run: `pnpm test src/lib/ship/escort.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 5: Escolta, visita e perseguição**
+
+`src/lib/ship/escort.ts`:
+
+```ts
+import type { Pose } from '../cameraPoses'
+import { planetPosition, SUN_RADIUS, type OrbitSystem, type Vec3 } from '../universe/orbits'
+import { SUN_SAFE_DISTANCE } from './travel'
+import { add, cross, length, normalize, scale, sub } from './vec'
+
+export type ShipTarget = { kind: 'sun' } | { kind: 'planet'; name: string }
+
+export function targetAnchor(target: ShipTarget, system: OrbitSystem, time: number): { position: Vec3; radius: number } | null {
+  if (target.kind === 'sun') return { position: [0, 0, 0], radius: SUN_RADIUS }
+  const orbit = system.orbits.find((o) => o.name === target.name)
+  if (!orbit) return null
+  return { position: planetPosition(system.rings[orbit.ring], orbit, time), radius: orbit.radius }
+}
+
+/** Ao lado do alvo, do lado da câmera e um pouco acima; nunca perto demais do sol. */
+export function visitPosition(anchor: Vec3, radius: number, cameraPos: Vec3): Vec3 {
+  const toCamera = normalize(sub(cameraPos, anchor))
+  const side = normalize(cross([0, 1, 0], toCamera), [1, 0, 0])
+  let pos = add(add(anchor, scale(toCamera, radius + 1.6)), add(scale(side, -(radius + 0.8)), [0, radius * 0.5 + 0.4, 0]))
+  const d = length(pos)
+  if (d < SUN_SAFE_DISTANCE + 0.5) pos = scale(normalize(pos, [0, 1, 0]), SUN_SAFE_DISTANCE + 0.5)
+  return pos
+}
+
+/** Canto inferior direito da visão, 4,5 unidades à frente da câmera. */
+export function escortPosition(cameraPos: Vec3, forward: Vec3, up: Vec3): Vec3 {
+  const right = normalize(cross(forward, up), [1, 0, 0])
+  return add(cameraPos, add(add(scale(forward, 4.5), scale(right, 1.6)), scale(up, -0.9)))
+}
+
+/** Câmera de perseguição: atrás e acima da nave, olhando um pouco à frente dela. */
+export function chasePose(position: Vec3, tangent: Vec3): Pose {
+  return {
+    position: add(add(position, scale(tangent, -6)), [0, 2.2, 0]),
+    target: add(position, scale(tangent, 2)),
+  }
+}
+
+export const MAX_BANK = 0.6
+
+/** Inclinação lateral proporcional à velocidade de curva (rad), limitada a ±MAX_BANK. */
+export function bankAngle(prev: Vec3, next: Vec3, dt: number): number {
+  if (dt <= 0) return 0
+  const turn = Math.atan2(prev[2] * next[0] - prev[0] * next[2], prev[0] * next[0] + prev[2] * next[2])
+  if (turn === 0) return 0
+  return Math.max(-MAX_BANK, Math.min(MAX_BANK, -0.25 * (turn / dt)))
+}
+```
+
+Run: `pnpm test src/lib/ship/escort.test.ts`
+Expected: PASS.
+
+- [ ] **Step 6: Máquina de estados da nave (teste, falha)**
+
+`src/lib/ship/shipMachine.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest'
+import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipEvent, type ShipState } from './shipMachine'
+import { planTravel } from './travel'
+
+const apply = (s: ShipState, ...events: ShipEvent[]) => events.reduce(shipReducer, s)
+const path = planTravel([10, 0, 0], [-10, 0, 5])
+const sun = { kind: 'sun' } as const
+
+describe('shipReducer', () => {
+  it('entrada vira escolta depois de ENTER_DURATION', () => {
+    expect(apply(INITIAL_SHIP, { type: 'tick', dt: ENTER_DURATION - 0.1 }).mode).toBe('entering')
+    expect(apply(INITIAL_SHIP, { type: 'tick', dt: ENTER_DURATION }).mode).toBe('escort')
+  })
+
+  it('viagem termina em visita no tempo do trajeto', () => {
+    const traveling = apply(INITIAL_SHIP, { type: 'travel', path, target: sun })
+    expect(traveling).toMatchObject({ mode: 'traveling', elapsed: 0, target: sun })
+    expect(apply(traveling, { type: 'tick', dt: path.duration / 2 }).mode).toBe('traveling')
+    expect(apply(traveling, { type: 'tick', dt: path.duration }).mode).toBe('visiting')
+  })
+
+  it('soltar volta para a escolta', () => {
+    const visiting = apply(INITIAL_SHIP, { type: 'arrive', target: sun })
+    const returning = apply(visiting, { type: 'release' })
+    expect(returning).toMatchObject({ mode: 'returning', target: null })
+    expect(apply(returning, { type: 'tick', dt: RETURN_DURATION }).mode).toBe('escort')
+  })
+
+  it('soltar na escolta não muda nada', () => {
+    const escort = apply(INITIAL_SHIP, { type: 'tick', dt: ENTER_DURATION })
+    expect(shipReducer(escort, { type: 'release' })).toBe(escort)
+  })
+
+  it('nova viagem durante uma viagem recomeça do zero', () => {
+    const first = apply(INITIAL_SHIP, { type: 'travel', path, target: sun }, { type: 'tick', dt: 0.5 })
+    expect(apply(first, { type: 'travel', path, target: { kind: 'planet', name: 'a' } })).toMatchObject({
+      mode: 'traveling',
+      elapsed: 0,
+      target: { kind: 'planet', name: 'a' },
+    })
+  })
+})
+```
+
+Run: `pnpm test src/lib/ship/shipMachine.test.ts`
+Expected: FAIL.
+
+- [ ] **Step 7: Máquina de estados da nave**
+
+`src/lib/ship/shipMachine.ts`:
+
+```ts
+import type { ShipTarget } from './escort'
+import type { TravelPath } from './travel'
+
+export type ShipMode = 'entering' | 'escort' | 'traveling' | 'visiting' | 'returning'
+
+export interface ShipState {
+  mode: ShipMode
+  elapsed: number
+  path: TravelPath | null
+  target: ShipTarget | null
+}
+
+export type ShipEvent =
+  | { type: 'tick'; dt: number }
+  | { type: 'travel'; path: TravelPath; target: ShipTarget }
+  /** Chegada instantânea (movimento reduzido). */
+  | { type: 'arrive'; target: ShipTarget }
+  | { type: 'release' }
+
+export const ENTER_DURATION = 2
+export const RETURN_DURATION = 1.2
+export const INITIAL_SHIP: ShipState = { mode: 'entering', elapsed: 0, path: null, target: null }
+
+export function shipReducer(s: ShipState, e: ShipEvent): ShipState {
+  switch (e.type) {
+    case 'travel':
+      return { mode: 'traveling', elapsed: 0, path: e.path, target: e.target }
+    case 'arrive':
+      return { mode: 'visiting', elapsed: 0, path: null, target: e.target }
+    case 'release':
+      return s.mode === 'traveling' || s.mode === 'visiting' ? { mode: 'returning', elapsed: 0, path: null, target: null } : s
+    case 'tick': {
+      const elapsed = s.elapsed + e.dt
+      if (s.mode === 'entering' && elapsed >= ENTER_DURATION) return { ...s, mode: 'escort', elapsed: 0 }
+      if (s.mode === 'traveling' && s.path && elapsed >= s.path.duration) return { ...s, mode: 'visiting', elapsed: 0, path: null }
+      if (s.mode === 'returning' && elapsed >= RETURN_DURATION) return { ...s, mode: 'escort', elapsed: 0 }
+      return { ...s, elapsed }
+    }
+  }
+}
+```
+
+Run: `pnpm test src/lib/ship`
+Expected: PASS.
+
+- [ ] **Step 8: Estado compartilhado e a nave na cena**
+
+`src/store/shipPose.ts`:
+
+```ts
+import type { ShipMode } from '@/lib/ship/shipMachine'
+import type { Vec3 } from '@/lib/universe/orbits'
+
+/** Mutável de propósito: escrito pela nave a cada frame, lido pela câmera. */
+export const shipPose: { position: Vec3; tangent: Vec3; mode: ShipMode; userTravel: boolean } = {
+  position: [0, 0, 0],
+  tangent: [0, 0, 1],
+  mode: 'entering',
+  userTravel: false,
+}
+```
+
+`src/components/three/octocat/ShipRig.tsx`:
+
+```tsx
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useFrame, useThree } from '@react-three/fiber'
+import { Html, Trail, useCursor } from '@react-three/drei'
+import { useReducedMotion } from 'framer-motion'
+import * as THREE from 'three'
+import { showcasePlanet } from '@/lib/cameraPoses'
+import { selectedPlanet } from '@/lib/interaction'
+import type { OctocatExpression } from '@/lib/octocat/expression'
+import { formatLine } from '@/lib/octocat/lines'
+import { bankAngle, escortPosition, targetAnchor, visitPosition, type ShipTarget } from '@/lib/ship/escort'
+import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
+import { bezierPoint, bezierTangent, planTravel, travelProgress } from '@/lib/ship/travel'
+import type { Repo } from '@/lib/types'
+import { predictStopTime } from '@/lib/universe/clock'
+import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
+import { shipPose } from '@/store/shipPose'
+import { simClock } from '@/store/simClock'
+import { useTutorial } from '@/store/tutorial'
+import { useUniverse } from '@/store/universe'
+import { OctocatShip, type ArmMode } from './OctocatShip'
+
+const SHIP_SCALE = 0.28
+
+export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; repos: Repo[]; profileName: string }) {
+  const group = useRef<THREE.Group>(null)
+  const machine = useRef<ShipState>(INITIAL_SHIP)
+  const lastTangent = useRef<Vec3>([0, 0, 1])
+  const [mode, setMode] = useState<ShipMode>('entering')
+  const [hovered, setHovered] = useState(false)
+  useCursor(hovered)
+  const camera = useThree((s) => s.camera)
+  const reduced = useReducedMotion() ?? false
+  const selection = useUniverse((s) => s.selection)
+  const bubble = useUniverse((s) => s.bubble)
+  const step = useTutorial((s) => s.step)
+  const startTutorial = useTutorial((s) => s.start)
+
+  const forward = useMemo(() => new THREE.Vector3(), [])
+  const up = useMemo(() => new THREE.Vector3(), [])
+  const look = useMemo(() => new THREE.Vector3(), [])
+  const targetQuat = useMemo(() => new THREE.Quaternion(), [])
+  const helper = useMemo(() => new THREE.Object3D(), [])
+
+  const target: ShipTarget | null = useMemo(() => {
+    if (step === 'welcome') return { kind: 'sun' }
+    if (step === 'tech') {
+      const name = showcasePlanet(repos)
+      return name ? { kind: 'planet', name } : null
+    }
+    if (step === 'repos') return null
+    if (selection.kind === 'profile') return { kind: 'sun' }
+    const name = selectedPlanet(selection)
+    return name ? { kind: 'planet', name } : null
+  }, [selection, step, repos])
+
+  // Destino mudou: planeja a viagem até onde o alvo vai estar quando o tempo parar.
+  useEffect(() => {
+    if (!target) {
+      machine.current = shipReducer(machine.current, { type: 'release' })
+      shipPose.userTravel = false
+      return
+    }
+    // Mesmo alvo (ex.: clicar numa lua do planeta já visitado): a nave fica onde está.
+    const current = machine.current.target
+    const sameTarget =
+      current !== null &&
+      current.kind === target.kind &&
+      (current.kind === 'sun' || (target.kind === 'planet' && current.name === target.name))
+    if (sameTarget && (machine.current.mode === 'traveling' || machine.current.mode === 'visiting')) return
+    const anchor = targetAnchor(target, system, predictStopTime(simClock))
+    if (!anchor) return
+    const destination = visitPosition(anchor.position, anchor.radius, camera.position.toArray() as Vec3)
+    shipPose.userTravel = step === null || step === 'free'
+    if (reduced) {
+      machine.current = shipReducer(machine.current, { type: 'arrive', target })
+      group.current?.position.set(...destination)
+      return
+    }
+    machine.current = shipReducer(machine.current, { type: 'travel', target, path: planTravel(shipPose.position, destination) })
+  }, [target, system, camera, reduced, step])
+
+  useFrame((_, rawDt) => {
+    const g = group.current
+    if (!g) return
+    const dt = Math.min(rawDt, 0.1)
+    const s = shipReducer(machine.current, { type: 'tick', dt })
+    if (s.mode !== machine.current.mode) setMode(s.mode)
+    machine.current = s
+
+    camera.getWorldDirection(forward)
+    up.set(0, 1, 0).applyQuaternion(camera.quaternion)
+    const escort = escortPosition(camera.position.toArray() as Vec3, forward.toArray() as Vec3, up.toArray() as Vec3)
+    let tangent: Vec3 | null = null
+
+    if (s.mode === 'traveling' && s.path) {
+      const p = travelProgress(s.elapsed, s.path.duration)
+      g.position.set(...bezierPoint(s.path.points, p))
+      tangent = bezierTangent(s.path.points, p)
+    } else if (s.mode === 'entering' && !reduced) {
+      const k = Math.min(1, s.elapsed / ENTER_DURATION)
+      const drop = (1 - k) ** 2 * 6
+      g.position.set(escort[0], escort[1] + drop, escort[2])
+    } else {
+      let goal = escort
+      if (s.mode === 'visiting' && s.target) {
+        const anchor = targetAnchor(s.target, system, simClock.time)
+        if (anchor) goal = visitPosition(anchor.position, anchor.radius, camera.position.toArray() as Vec3)
+      }
+      const rate = s.mode === 'returning' ? 3 / RETURN_DURATION : 4
+      look.set(...goal)
+      g.position.lerp(look, reduced ? 1 : 1 - Math.exp(-rate * dt))
+    }
+
+    // Orientação: na viagem, olha para a frente e inclina nas curvas; parada, vira para a câmera.
+    if (tangent) {
+      helper.position.copy(g.position)
+      helper.lookAt(look.set(...tangent).add(g.position))
+      helper.rotateZ(bankAngle(lastTangent.current, tangent, dt))
+      targetQuat.copy(helper.quaternion)
+      lastTangent.current = tangent
+    } else {
+      helper.position.copy(g.position)
+      helper.lookAt(camera.position)
+      targetQuat.copy(helper.quaternion)
+    }
+    g.quaternion.slerp(targetQuat, reduced ? 1 : 1 - Math.exp(-6 * dt))
+
+    shipPose.position = g.position.toArray() as Vec3
+    shipPose.tangent = tangent ?? shipPose.tangent
+    shipPose.mode = s.mode
+  })
+
+  const expression: OctocatExpression = hovered ? 'wink' : (bubble?.line.expression ?? (mode === 'traveling' ? 'happy' : 'neutral'))
+  const armMode: ArmMode = hovered || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
+  const thrusterLevel = mode === 'traveling' ? 1 : mode === 'entering' ? 0.8 : 0.25
+
+  return (
+    <group
+      ref={group}
+      scale={SHIP_SCALE}
+      onClick={(e) => {
+        e.stopPropagation()
+        startTutorial()
+      }}
+      onPointerOver={(e) => {
+        e.stopPropagation()
+        setHovered(true)
+      }}
+      onPointerOut={() => setHovered(false)}
+    >
+      <OctocatShip expression={expression} armMode={armMode} thrusterLevel={thrusterLevel} floating={mode !== 'traveling'} />
+      {!reduced && (
+        <Trail width={3} length={6} color="#C4B5FD" attenuation={(w) => w * w}>
+          <mesh position={[0, 0, -1.3]}>
+            <sphereGeometry args={[0.01, 4, 2]} />
+            <meshBasicMaterial visible={false} />
+          </mesh>
+        </Trail>
+      )}
+      {bubble && (
+        <Html position={[0, 3.4, 0]} center distanceFactor={12} zIndexRange={[30, 0]}>
+          <p className="pointer-events-none w-max max-w-[220px] rounded-2xl border border-neon/30 bg-space/90 px-4 py-2 text-sm text-slate-100 shadow-lg">
+            {formatLine(bubble.line.text, profileName)}
+          </p>
+        </Html>
+      )}
+    </group>
+  )
+}
+```
+
+- [ ] **Step 9: Câmera de perseguição**
+
+Substitua `src/components/three/CameraRig.tsx` por:
+
+```tsx
+import { useEffect, useRef, useState, type ComponentRef } from 'react'
+import { useFrame } from '@react-three/fiber'
+import { CameraControls } from '@react-three/drei'
+import { useReducedMotion } from 'framer-motion'
+import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
+import { maxCameraDistance, selectionPose, tutorialPose } from '@/lib/cameraPoses'
+import { chasePose } from '@/lib/ship/escort'
+import type { ShipMode } from '@/lib/ship/shipMachine'
+import type { Repo } from '@/lib/types'
+import { predictStopTime } from '@/lib/universe/clock'
+import type { OrbitSystem } from '@/lib/universe/orbits'
+import { shipPose } from '@/store/shipPose'
+import { simClock } from '@/store/simClock'
+import { useTutorial } from '@/store/tutorial'
+import { useUniverse } from '@/store/universe'
+
+export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[] }) {
+  const controls = useRef<ComponentRef<typeof CameraControls>>(null)
+  const lastShipMode = useRef<ShipMode>(shipPose.mode)
+  const [chasing, setChasing] = useState(false)
+  const selection = useUniverse((s) => s.selection)
+  const step = useTutorial((s) => s.step)
+  const layout = useMediaQuery(MOBILE_QUERY) ? 'bottom' : 'side'
+  const reduced = useReducedMotion() ?? false
+  const guided = step !== null && step !== 'free'
+  const focusing = selection.kind !== 'none'
+
+  useEffect(() => {
+    const stop = predictStopTime(simClock)
+    if (step !== null && step !== 'free') {
+      const pose = tutorialPose(step, system, repos, stop, layout)
+      void controls.current?.setLookAt(...pose.position, ...pose.target, true)
+      return
+    }
+    // Com movimento normal, focar algo começa pela perseguição da nave; a pose final vem na chegada.
+    if (focusing && !reduced) return
+    const pose = selectionPose(selection, system, stop, layout)
+    void controls.current?.setLookAt(...pose.position, ...pose.target, true)
+  }, [selection, step, focusing, reduced, system, repos, layout])
+
+  useFrame(() => {
+    const mode = shipPose.mode
+    const chase = mode === 'traveling' && shipPose.userTravel && !reduced
+    if (chase !== chasing) setChasing(chase)
+    if (chase) {
+      const pose = chasePose(shipPose.position, shipPose.tangent)
+      void controls.current?.setLookAt(...pose.position, ...pose.target, true)
+    } else if (lastShipMode.current === 'traveling' && mode === 'visiting' && shipPose.userTravel) {
+      const pose = selectionPose(useUniverse.getState().selection, system, simClock.time, layout)
+      void controls.current?.setLookAt(...pose.position, ...pose.target, true)
+    }
+    lastShipMode.current = mode
+  })
+
+  return (
+    <CameraControls
+      ref={controls}
+      makeDefault
+      enabled={!guided && !chasing}
+      minDistance={2}
+      maxDistance={maxCameraDistance(system)}
+      smoothTime={0.6}
+      dollyToCursor={false}
+    />
+  )
+}
+```
+
+Em `src/components/three/Scene.tsx`, importe `import { ShipRig } from './octocat/ShipRig'` e acrescente logo depois de `<CameraRig system={system} repos={universe.repos} />`:
+
+```tsx
+      <ShipRig system={system} repos={universe.repos} profileName={universe.profile.name} />
+```
+
+- [ ] **Step 10: Falas acessíveis, botão do tutorial e loader 2D**
+
+`src/hooks/useIdle.ts`:
+
+```ts
+import { useEffect } from 'react'
+import { IDLE_MS, LONG_IDLE_MS } from '@/lib/octocat/lines'
+
+const ACTIVITY_EVENTS = ['pointermove', 'pointerdown', 'wheel', 'keydown', 'touchstart'] as const
+
+export function useIdle(onIdle: (kind: 'idle' | 'longIdle') => void): void {
+  useEffect(() => {
+    let idle = 0
+    let longIdle = 0
+    const arm = () => {
+      window.clearTimeout(idle)
+      window.clearTimeout(longIdle)
+      idle = window.setTimeout(() => onIdle('idle'), IDLE_MS)
+      longIdle = window.setTimeout(() => onIdle('longIdle'), LONG_IDLE_MS)
+    }
+    for (const event of ACTIVITY_EVENTS) window.addEventListener(event, arm, { passive: true })
+    arm()
+    return () => {
+      window.clearTimeout(idle)
+      window.clearTimeout(longIdle)
+      for (const event of ACTIVITY_EVENTS) window.removeEventListener(event, arm)
+    }
+  }, [onIdle])
+}
+```
+
+`src/components/ui/OctocatSpeech.tsx`:
+
+```tsx
+import { useEffect } from 'react'
+import { useIdle } from '@/hooks/useIdle'
+import { formatLine, LINE_DURATION_MS } from '@/lib/octocat/lines'
+import { useUniverse } from '@/store/universe'
+
+/** Controla a duração das falas e as espelha para leitores de tela; o balão visível fica preso à nave. */
+export function OctocatSpeech({ profileName }: { profileName: string }) {
+  const bubble = useUniverse((s) => s.bubble)
+  const dismissBubble = useUniverse((s) => s.dismissBubble)
+  const emitGuide = useUniverse((s) => s.emitGuide)
+
+  useIdle(emitGuide)
+
+  useEffect(() => {
+    if (!bubble) return
+    const timer = window.setTimeout(() => dismissBubble(bubble.seq), LINE_DURATION_MS)
+    return () => window.clearTimeout(timer)
+  }, [bubble, dismissBubble])
+
+  return (
+    <div aria-live="polite" className="sr-only">
+      {bubble ? formatLine(bubble.line.text, profileName) : ''}
+    </div>
+  )
+}
+```
+
+`src/components/ui/TutorialButton.tsx`:
+
+```tsx
+import { useTutorial } from '@/store/tutorial'
+
+export function TutorialButton() {
+  const start = useTutorial((s) => s.start)
+  return (
+    <button
+      type="button"
+      onClick={start}
+      aria-label="Abrir tutorial com o Octocat"
+      className="fixed bottom-4 right-4 z-30 rounded-full border border-neon/40 bg-space/80 px-3 py-1.5 text-xs text-neon backdrop-blur hover:bg-neon/10"
+    >
+      ? Tutorial
+    </button>
+  )
+}
+```
+
+`src/components/ui/octocat/OctocatArt.tsx` (SVG 2D, usado só no loader):
 
 ```tsx
 import { useEffect, useState } from 'react'
@@ -4326,120 +6095,6 @@ export function OctocatArt({ expression, waving = false }: { expression: Octocat
 }
 ```
 
-- [ ] **Step 2: Hook de inatividade e componente do Octocat**
-
-`src/hooks/useIdle.ts`:
-
-```ts
-import { useEffect } from 'react'
-import { IDLE_MS, LONG_IDLE_MS } from '@/lib/octocat/lines'
-
-const ACTIVITY_EVENTS = ['pointermove', 'pointerdown', 'wheel', 'keydown', 'touchstart'] as const
-
-export function useIdle(onIdle: (kind: 'idle' | 'longIdle') => void): void {
-  useEffect(() => {
-    let idle = 0
-    let longIdle = 0
-    const arm = () => {
-      window.clearTimeout(idle)
-      window.clearTimeout(longIdle)
-      idle = window.setTimeout(() => onIdle('idle'), IDLE_MS)
-      longIdle = window.setTimeout(() => onIdle('longIdle'), LONG_IDLE_MS)
-    }
-    for (const event of ACTIVITY_EVENTS) window.addEventListener(event, arm, { passive: true })
-    arm()
-    return () => {
-      window.clearTimeout(idle)
-      window.clearTimeout(longIdle)
-      for (const event of ACTIVITY_EVENTS) window.removeEventListener(event, arm)
-    }
-  }, [onIdle])
-}
-```
-
-`src/components/ui/octocat/Octocat.tsx`:
-
-```tsx
-import { useEffect, useState } from 'react'
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { useIdle } from '@/hooks/useIdle'
-import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
-import { formatLine, LINE_DURATION_MS, type OctocatExpression } from '@/lib/octocat/lines'
-import { useTutorial } from '@/store/tutorial'
-import { useUniverse } from '@/store/universe'
-import { OctocatArt } from './OctocatArt'
-
-export function Octocat({ profileName }: { profileName: string }) {
-  const bubble = useUniverse((s) => s.bubble)
-  const dismissBubble = useUniverse((s) => s.dismissBubble)
-  const emitGuide = useUniverse((s) => s.emitGuide)
-  const panelOpen = useUniverse((s) => s.selection.kind !== 'none')
-  const startTutorial = useTutorial((s) => s.start)
-  const mobile = useMediaQuery(MOBILE_QUERY)
-  const reduced = useReducedMotion() ?? false
-  const [hover, setHover] = useState(false)
-  const [greeting, setGreeting] = useState(true)
-
-  useIdle(emitGuide)
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setGreeting(false), 2600)
-    return () => window.clearTimeout(timer)
-  }, [])
-
-  useEffect(() => {
-    if (!bubble) return
-    const timer = window.setTimeout(() => dismissBubble(bubble.seq), LINE_DURATION_MS)
-    return () => window.clearTimeout(timer)
-  }, [bubble, dismissBubble])
-
-  const expression: OctocatExpression = hover || greeting ? 'wink' : (bubble?.line.expression ?? 'neutral')
-  const hidden = panelOpen && mobile
-
-  return (
-    <motion.div
-      className="pointer-events-none fixed bottom-4 right-4 z-30 flex flex-col items-end gap-2"
-      initial={reduced ? { opacity: 0 } : { opacity: 0, y: -360 }}
-      animate={{ opacity: hidden ? 0 : 1, y: 0, x: panelOpen && !mobile ? -396 : 0 }}
-      transition={{ type: 'spring', stiffness: 110, damping: 16 }}
-    >
-      <div aria-live="polite">
-        <AnimatePresence>
-          {bubble && !hidden && (
-            <motion.p
-              key={bubble.seq}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className="max-w-[220px] rounded-2xl rounded-br-sm border border-neon/30 bg-space/90 px-4 py-2 text-sm text-slate-100 shadow-lg"
-            >
-              {formatLine(bubble.line.text, profileName)}
-            </motion.p>
-          )}
-        </AnimatePresence>
-      </div>
-      <motion.button
-        type="button"
-        aria-label="Abrir tutorial com o Octocat"
-        onClick={startTutorial}
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
-        onFocus={() => setHover(true)}
-        onBlur={() => setHover(false)}
-        tabIndex={hidden ? -1 : 0}
-        className={`w-24 md:w-40 ${hidden ? 'pointer-events-none' : 'pointer-events-auto'}`}
-        animate={reduced ? undefined : { y: [0, -6, 0] }}
-        transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-      >
-        <OctocatArt expression={expression} waving={hover || greeting} />
-      </motion.button>
-    </motion.div>
-  )
-}
-```
-
-- [ ] **Step 3: Loader com o Octocat "pensando" e montagem no app**
-
 Substitua `src/components/ui/Loader.tsx` por:
 
 ```tsx
@@ -4459,13 +6114,7 @@ export function Loader() {
 }
 ```
 
-Em `src/App.tsx`, importe `Octocat` de `@/components/ui/octocat/Octocat` e acrescente **antes** de `<Tutorial … />`:
-
-```tsx
-      <Octocat profileName={universe.profile.name} />
-```
-
-O `App.tsx` final fica assim:
+Substitua `src/App.tsx` pela versão final:
 
 ```tsx
 import { lazy, Suspense, useState } from 'react'
@@ -4473,11 +6122,12 @@ import { ActivityTooltip } from '@/components/ui/ActivityTooltip'
 import { BackButton } from '@/components/ui/BackButton'
 import { LoadError } from '@/components/ui/LoadError'
 import { Loader } from '@/components/ui/Loader'
-import { Octocat } from '@/components/ui/octocat/Octocat'
+import { OctocatSpeech } from '@/components/ui/OctocatSpeech'
 import { PlanetPanel } from '@/components/ui/PlanetPanel'
 import { ProfilePanel } from '@/components/ui/ProfilePanel'
 import { StaticFallback } from '@/components/ui/StaticFallback'
 import { Tutorial } from '@/components/ui/Tutorial'
+import { TutorialButton } from '@/components/ui/TutorialButton'
 import { useUniverseData } from '@/hooks/useUniverseData'
 import { supportsWebGL } from '@/hooks/webgl'
 
@@ -4501,36 +6151,38 @@ export function App() {
       <BackButton />
       <PlanetPanel universe={universe} />
       <ProfilePanel profile={universe.profile} />
-      <Octocat profileName={universe.profile.name} />
+      <OctocatSpeech profileName={universe.profile.name} />
+      <TutorialButton />
       <Tutorial profileName={universe.profile.name} />
     </main>
   )
 }
 ```
 
-- [ ] **Step 4: Verificar**
+- [ ] **Step 11: Verificar**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
 Expected: sem erros.
 
-Run: `pnpm dev` (aba anônima) e confira com a arte de `design/Octocat.dc.html` aberta ao lado:
-- no carregamento, o Octocat "pensando" (com as bolhas) aparece sobre "Carregando dados do GitHub…";
-- a nave **roxo clara** desce no canto inferior direito, o Octocat pisca o olho e acena por ~2,6 s; depois flutua devagar;
-- hover ou foco por teclado: acena e pisca; clique: abre o tutorial;
-- clicar no sol: balão "Esse é o perfil GitHub de Mona!"; primeiro planeta: "Uau, dá pra ver bem mais de perto!"; segundo: "Olha que legal esse repo aqui!"; lua: "Essa linguagem é importante nesse projeto!";
-- ~20 s sem mexer: "Oi, tá aí?"; ~60 s: "Ei, se precisar de ajuda, é comigo!" (cada um uma vez por sessão);
-- com o painel aberto no desktop, o Octocat recua para a esquerda do painel; no mobile, some.
+Run: `pnpm dev` (aba anônima) e confira:
+- a nave desce do alto, acena e fica na escolta no canto inferior direito da visão, flutuando e piscando; ao girar a câmera, ela acompanha com atraso;
+- clicar num planeta: a nave voa em arco (sobe acima das órbitas, nunca cruza o sol), inclina nas curvas, deixa rastro roxo, e a câmera vai atrás dela; na chegada a câmera assume a pose do planeta com o painel e libera o arrasto; a nave paira ao lado, apontando;
+- clicar no sol: viagem até o sol, painel de perfil, balão "Esse é o perfil GitHub de Mona!" preso à nave;
+- Esc ou "← Galáxia": a câmera volta à visão geral e a nave retorna à escolta;
+- no tutorial, a nave viaja até o sol (passo 1) e até o planeta de vitrine (passo 3), sem perseguição;
+- clicar na nave ou no botão "? Tutorial" abre o tutorial; hover na nave faz acenar;
+- com "Reduzir movimento": sem voo nem perseguição, a nave aparece direto ao lado do alvo.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
 git add src
-git commit -m "feat: Octocat piloto com falas contextuais"
+git commit -m "feat(octocat-3d): escolta, viagem em arco e câmera de perseguição"
 ```
 
 ---
 
-### Task 13: E2E, CI, deploy no GitHub Pages e README
+### Task 14: E2E, CI, deploy no GitHub Pages e README
 
 **Files:**
 - Create: `playwright.config.ts`, `e2e/smoke.spec.ts`, `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`

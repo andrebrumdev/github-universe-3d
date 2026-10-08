@@ -1,6 +1,6 @@
 # GitHub Universe 3D — Design (MVP)
 
-Data: 2026-10-08 (revisado no mesmo dia: GitHub Pages, órbitas de Kepler)
+Data: 2026-10-08 (revisado no mesmo dia: GitHub Pages, órbitas de Kepler, Octocat 3D)
 Base: `docs/brief.md`
 
 ## 1. Objetivo e escopo
@@ -20,7 +20,7 @@ Projeto de portfólio: o perfil do GitHub do autor vira uma galáxia 3D interati
 | Superfície do planeta | `CanvasTexture` 2:1 (832×416) com a grade 52×7 numa faixa do equador |
 | Movimento dos planetas | Órbitas de Kepler em anéis + eixo inclinado por ângulos de Euler |
 | Rosto do sol | Segue a câmera com atraso (mola) e inclina para cima e para baixo, como o globo de NY |
-| Octocat | SVG próprio a partir de `design/`, nave roxo claro, estilo inspirado no Jetpacktocat |
+| Octocat | Modelo 3D low-poly na cena (a partir de `design/`), nave roxo claro, viaja entre planetas com câmera de perseguição (estilo Astro Bot); estilo inspirado no Jetpacktocat |
 | Defaults assumidos | Lua ∝ √bytes da linguagem; planetas mais relevantes (stars + recência) no anel interno; intensidade do quadradinho varia com os commits; hover mostra data e contagem |
 
 ### Fora do MVP (V2)
@@ -33,7 +33,7 @@ scripts/snapshot.ts        # Node, roda no build: GitHub GraphQL → public/univ
 src/lib/github/            # queries, cliente GraphQL, fetchUniverse, normalize (só o script usa)
 src/lib/universe/          # funções puras: activity, ranking, orbits (Kepler), layout das luas
 src/data/loadUniverse.ts   # navegador: fetch(`${import.meta.env.BASE_URL}universe.json`)
-src/components/three/      # Scene, Sun, Planet, PlanetSurface, Moon, OrbitLines, CameraRig
+src/components/three/      # Scene, Sun, Planet, PlanetSurface, Moon, OrbitLines, CameraRig, octocat/ (OctocatShip, ShipRig)
 src/components/ui/         # SidePanel, PlanetPanel, ProfilePanel, Tooltip, Octocat, Tutorial
 src/store/                 # Zustand: seleção, hover, tutorial, relógio de simulação
 ```
@@ -104,11 +104,27 @@ Dois níveis no MVP: galáxia e planeta. No foco, a câmera acompanha o planeta 
 - Os dois usam o mesmo `SidePanel` (lateral no desktop, bottom sheet no mobile). Só um fica aberto por vez.
 - `Tooltip` do quadradinho: data e commits.
 
-**Octocat:** fixo no canto inferior direito, fora da câmera 3D. É um SVG/React animado com Framer Motion, a partir de `design/Octocat.dc.html`. Recua quando o painel abre no desktop e some no mobile.
-- Entrada com a nave descendo em parallax e aceno.
-- No hover, acena e pisca. O clique abre o tutorial.
-- Com ~20 s de inatividade diz "Oi, tá aí?" e, depois de mais tempo, "Ei, se precisar de ajuda, é comigo!".
-- Durante o carregamento do JSON, usa a expressão "pensando".
+**Octocat 3D (revisado em 2026-10-08):** o Octocat e a nave são um modelo 3D dentro da cena, que viaja entre os planetas no estilo Astro Bot.
+
+- **Modelo `OctocatShip`:** low-poly com primitivas do Three.js, nas cores de `design/Octocat.dc.html` (coordenadas do SVG convertidas para 3D, 100 px = 1 unidade, origem no centro do casco).
+  - **Nave:** casco elipsoide e asas `#C4B5FD`, faixa `#E6EAF0` com os 7 quadradinhos de contribuição, farol `#FFF3C4`, cúpula de vidro `#A5F3FC` translúcida, propulsor ciano `#67E8F9` atrás.
+  - **Octocat:** corpo e cabeça `#1F2329`; rosto num disco com `CanvasTexture`, desenhado com os mesmos paths SVG das expressões (neutro, feliz, piscadinha, surpreso, pensando), e piscada.
+  - **Gorro-Clawd:** blocos `#D97757` e aba `#B85C3E`, convertidos dos retângulos do SVG.
+  - **Braços:** um no manche (cilindro com bola `#D97757`) e um livre, que acena e aponta.
+  - **Propulsor:** cone aditivo que tremula, com rastro de partículas em viagem.
+  - Nada é carregado de arquivo; um `.glb` pode substituir o modelo depois.
+- **Página de preview (só em dev):** `?preview=octocat` mostra o modelo isolado, com seletor de expressão, aceno, propulsor e visibilidade por peça. Serve para o usuário aprovar o modelo parte por parte, antes da cena existir.
+- **Estados (máquina pura):**
+  - **Entrada:** desce do alto até a escolta e acena.
+  - **Escolta:** acompanha a câmera no canto inferior direito da visão, dentro da cena, com atraso de mola e flutuando de leve. Pisca; com ~20 s de inatividade diz "Oi, tá aí?" e depois "Ei, se precisar de ajuda, é comigo!".
+  - **Viagem:** ao focar um planeta ou o sol, voa por uma curva de Bézier cúbica em arco, erguida acima do plano das órbitas, que nunca passa a menos de `SUN_RADIUS + 2` do sol. Dura de 1,5 a 3 s, conforme a distância, com aceleração suave, inclinação nas curvas e rastro.
+  - **Visita:** paira ao lado do alvo, virada para a câmera, com o braço livre apontando.
+  - **Volta:** ao sair do foco, retorna à escolta.
+- **Câmera de perseguição:** durante a viagem iniciada pelo usuário, a câmera fica atrás e acima da nave, seguindo a tangente da curva, com os controles travados. Na chegada, faz a transição para a pose do alvo (a mesma de antes, com o painel) e libera os controles. O destino é o ponto onde o planeta vai parar (o tempo desacelera no foco). No tutorial, a nave viaja junto, mas a câmera segue as poses do tutorial, sem perseguição.
+- **Interação:** clique na nave abre o tutorial; hover faz acenar e piscar. Para teclado, leitores de tela e o e2e, há também um botão DOM "Abrir tutorial com o Octocat" no canto inferior direito.
+- **Falas:** balão preso à nave (`<Html>` do drei) e espelhadas numa região `aria-live` invisível.
+- **Reduzir movimento:** sem voo nem perseguição; a nave reaparece no destino e a câmera vai direto.
+- **Loader:** antes de o Three.js carregar, o Octocat "pensando" continua sendo o SVG 2D de `design/`.
 
 **Falas:** `octocatLines.ts` mapeia eventos do store para falas:
 - sol → "Esse é o perfil GitHub de {nome}!" (quem visita é o recrutador, não o dono do perfil);
@@ -147,7 +163,7 @@ Controles: [Próximo] e [Pular tutorial]. A câmera é conduzida pelos passos at
   - mola do rosto do sol: converge, pitch limitado;
   - máquinas de estado do sol e do tutorial, e falas do Octocat.
 - Contrato: `fetchUniverse` com fixtures GraphQL gravadas, sem rede.
-- Playwright: 1 smoke contra `vite preview` com o JSON commitado. O canvas aparece; pular tutorial; clicar no sol abre o perfil; o Octocat reabre o tutorial.
+- Playwright: 1 smoke contra `vite preview` com o JSON commitado. O canvas aparece; pular tutorial; clicar no sol abre o perfil; o botão "Abrir tutorial com o Octocat" reabre o tutorial.
 - Checklist visual manual com capturas no PR.
 
 **Performance**
