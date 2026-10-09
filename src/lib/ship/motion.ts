@@ -24,6 +24,34 @@ export function thrusterScale(t: number, level: number): number {
   return level * (1 + 0.15 * Math.sin(t * 31) + 0.08 * Math.sin(t * 53))
 }
 
+/**
+ * Nível do propulsor nas queimas da viagem (ver `burnPhase` em transfer.ts): no auge, acima do 1 da viagem antiga
+ * (chama máxima e longa); na planagem, só uma chama-piloto tremulando.
+ */
+export const BURN_THRUST = 1.2
+export const COAST_THRUST = 0.05
+
+/** Intensidade da queima (0..1) → nível do propulsor. */
+export function burnThrust(intensity: number): number {
+  const k = Math.min(1, Math.max(0, intensity))
+  return COAST_THRUST + (BURN_THRUST - COAST_THRUST) * k
+}
+
+/** Tranco ao acender uma queima: avanço (unidades do modelo da nave) do primeiro pico; quanto dura (s). */
+export const JOLT_SURGE = 0.3
+export const JOLT_SECONDS = 0.7
+const JOLT_FREQUENCY = 2.5
+const JOLT_DAMPING = 6
+
+/**
+ * Deslocamento da nave para a frente (+z do modelo), `t` s depois de acender: um empurrão que passa um pouco e volta,
+ * amortecido como uma mola. 0 fora de [0, JOLT_SECONDS).
+ */
+export function burnJolt(t: number): number {
+  if (!(t > 0 && t < JOLT_SECONDS)) return 0
+  return JOLT_SURGE * Math.sin(2 * Math.PI * JOLT_FREQUENCY * t) * Math.exp(-JOLT_DAMPING * t)
+}
+
 export const BLINK_EVERY = 4
 export const BLINK_LENGTH = 0.15
 export function isBlinking(t: number): boolean {

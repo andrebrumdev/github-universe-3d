@@ -39,6 +39,7 @@ import { planetMass } from '../universe/barycenter'
 import { SCALE_RATE, type ClockState } from '../universe/clock'
 import { planetPosition, type OrbitSystem, type Vec3 } from '../universe/orbits'
 import { LAUNCH_MARGIN, minSunDistance, SUN_SAFE_DISTANCE, travelDuration, type GravityAssist, type TravelPath } from './travel'
+import { burnPhaseAt, type BurnPhase } from './burn'
 import type { CameraFrame } from './cameraFrame'
 import { add, cross, dot, length, normalize, scale, sub } from './vec'
 
@@ -421,6 +422,9 @@ class Burn {
 
 interface Segment {
   readonly duration: number
+  /** Queima no começo / no fim do trecho (s); 0 = passa planando (costura com o vizinho, sobrevoo). */
+  readonly startBurn: number
+  readonly endBurn: number
   point(t: number, out: Vec3): Vec3
   velocity(t: number, out: Vec3): Vec3
 }
@@ -448,6 +452,8 @@ class ArcSegment implements Segment {
   private readonly dEnd: Vec3 | null
   readonly arc: PolarArc
   readonly duration: number
+  readonly startBurn: number
+  readonly endBurn: number
 
   constructor(arc: PolarArc, duration: number, ease: { start: boolean; end: boolean }, match: Match = {}) {
     this.arc = arc
@@ -458,6 +464,10 @@ class ArcSegment implements Segment {
     this.tbStart = Math.min(match.blendStart ?? this.tb, (match.end ? 0.45 : 0.75) * duration)
     this.dStart = match.start ? sub(match.start, this.baseVelocity(0, [0, 0, 0])) : null
     this.dEnd = match.end ? sub(match.end, this.baseVelocity(duration, [0, 0, 0])) : null
+    // Partida parada: a rampa da queima. Partida em voo (troca de destino): a correção que leva a velocidade atual à
+    // do arco novo é a queima. A correção do fim só costura com o sobrevoo (de graça, motor desligado).
+    this.startBurn = ease.start ? BURN_FRACTION * duration : match.start ? this.tbStart : 0
+    this.endBurn = ease.end ? BURN_FRACTION * duration : 0
   }
 
   private param(t: number): [number, number] {
@@ -531,6 +541,9 @@ class HyperbolaSegment implements Segment {
   readonly a: number
   readonly e: number
   readonly duration: number
+  /** Sobrevoo: só gravidade, motor desligado. */
+  readonly startBurn = 0
+  readonly endBurn = 0
 
   constructor(center: Vec3, P: Vec3, Q: Vec3, a: number, e: number, fw: number, duration: number) {
     this.center = center
@@ -580,9 +593,13 @@ function compose(segments: Segment[], assist: GravityAssist | null, duration?: n
     while (i > 0 && t < starts[i]) i--
     return i
   }
+  // as queimas são só as das pontas da viagem; as janelas nunca se cruzam
+  const departure = Math.min(segments[0].startBurn, total)
+  const arrival = Math.max(total - segments[segments.length - 1].endBurn, departure)
   return {
     duration: total,
     assist,
+    burns: { departure, arrival },
     point(t, out = [0, 0, 0]) {
       const c = clamp(t, 0, total)
       const i = find(c)
@@ -599,6 +616,13 @@ function compose(segments: Segment[], assist: GravityAssist | null, duration?: n
       return segments[i].velocity(t - starts[i], out)
     },
   }
+}
+
+// ————— queimas visíveis —————
+
+/** Fase do motor da viagem no instante `t` (s desde a partida): ver `burnPhaseAt` em burn.ts. */
+export function burnPhase(path: TravelPath, t: number): BurnPhase {
+  return burnPhaseAt(path.burns, path.duration, t)
 }
 
 // ————— planejamento —————

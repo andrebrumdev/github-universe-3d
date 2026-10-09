@@ -2,8 +2,8 @@
  * Volta da nave (de um planeta, do sol ou do meio de uma viagem) até o canto da escolta, perto da lente.
  *
  * O caminho é uma cadeia de Hermite cúbicas (C¹ por construção) em coordenadas da câmera (ver `cameraFrame`):
- * 1. **saída**: parte com a velocidade que tinha (parada, ou em voo) e se afasta pela tangente da órbita, numa queima
- *    curta (o propulsor sobe);
+ * 1. **saída**: parte com a velocidade que tinha (parada, ou em voo) e se afasta pela tangente da órbita, na queima
+ *    de partida (ver `returnBurnPhase`: a volta tem as mesmas fases de motor de toda viagem);
  * 2. **passagem**: curva até um ponto atrás e ao lado da câmera, fora do quadro;
  * 3. **entrada**: dá a volta e reaparece do lado, já na profundidade do canto (entra no quadro pela lateral, nunca
  *    mais perto da lente que a escolta, nunca enchendo a tela);
@@ -13,15 +13,15 @@
  * A frente da nave segue a velocidade e, na chegada, gira para quem vê, em três-quartos, como na escolta.
  */
 import type { Vec3 } from '../universe/orbits'
+import { burnPhaseAt, type BurnPhase, type BurnWindows } from './burn'
 import { blendFramesPoint, type CameraFrame } from './cameraFrame'
 import { MIN_SHIP_DISTANCE, THREE_QUARTER_YAW } from './escort'
 import { add, cross, dot, length, normalize, scale, sub } from './vec'
 
 export const RETURN_MIN_SECONDS = 1.2
 export const RETURN_MAX_SECONDS = 2
-/** Nível do propulsor na escolta (o mesmo do ShipRig parado) e no pico da queima. */
+/** Nível do propulsor na escolta (o mesmo do ShipRig parado): o fim da queima de chegada assenta nele. */
 export const ESCORT_THRUST = 0.25
-const BURN_THRUST = 1
 
 /** Instantes das juntas, em fração da duração. */
 const T_PULL = 0.18
@@ -251,10 +251,15 @@ export function returnHeading(plan: ReturnPlan, t: number): Vec3 {
   return slerpDir(along, plan.face, returnFaceWeight(plan, t))
 }
 
-/** Nível do propulsor: queima na saída, cruzeiro, e cai ao nível da escolta na chegada. */
-export function returnThrust(plan: ReturnPlan, t: number): number {
-  const T = plan.duration
-  const rise = smoothstep(0, 0.1 * T, t)
-  const fall = smoothstep(T_SIDE * T, T, t)
-  return 0.4 + (BURN_THRUST - 0.4) * rise - (BURN_THRUST - ESCORT_THRUST) * fall
+/**
+ * Janelas das queimas da volta, como numa transferência: a partida é o puxão para longe do planeta (até T_PULL), a
+ * planagem é a passagem por trás da câmera, e a chegada é a entrada pelo lado até assentar no canto (de T_SIDE ao fim).
+ */
+export function returnBurns(plan: ReturnPlan): BurnWindows {
+  return { departure: T_PULL * plan.duration, arrival: T_SIDE * plan.duration }
+}
+
+/** Fase do motor na volta (mesma forma de todo voo: ver `burnPhaseAt`). */
+export function returnBurnPhase(plan: ReturnPlan, t: number): BurnPhase {
+  return burnPhaseAt(returnBurns(plan), plan.duration, t)
 }

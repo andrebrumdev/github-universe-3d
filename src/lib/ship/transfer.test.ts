@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { planetMass } from '../universe/barycenter'
 import { advanceClock } from '../universe/clock'
 import { buildOrbits, planetPosition, type Vec3 } from '../universe/orbits'
+import { ARRIVAL_TAIL } from './burn'
 import {
   ASSIST_MIN_RADIUS,
+  BLEND_SECONDS,
   BURN_FRACTION,
+  burnPhase,
   clockTimeAfter,
   flybyDeflection,
   FLYBY_MARGIN,
@@ -433,5 +436,81 @@ describe('chegada prevista', () => {
     const bodies = travelBodies(system, 7)
     expect(bodies.map((b) => b.name)).toEqual(['grande', 'pequeno'])
     expect(bodies[0].position).toEqual(planetPosition(system.rings[0], system.orbits[0], 7))
+  })
+})
+
+describe('queimas: motor ligado só nas pontas, planagem no meio', () => {
+  const phases = (path: TravelPath, n = 400) => Array.from({ length: n + 1 }, (_, i) => ({ t: (i / n) * path.duration, ...burnPhase(path, (i / n) * path.duration) }))
+
+  it('partida parada: queima forte, motor desligado no meio, queima de chegada', () => {
+    for (const [, from, to] of tripCases) {
+      const path = planTransfer(from, to)
+      const T = path.duration
+      expect(path.burns.departure).toBeCloseTo(BURN_FRACTION * T, 9)
+      expect(path.burns.arrival).toBeCloseTo((1 - BURN_FRACTION) * T, 9)
+      expect(burnPhase(path, 0)).toEqual({ phase: 'departure', intensity: 1 })
+      expect(burnPhase(path, 0.3 * path.burns.departure).intensity).toBe(1)
+      expect(burnPhase(path, T / 2)).toEqual({ phase: 'coast', intensity: 0 })
+      expect(burnPhase(path, (path.burns.arrival + T) / 2)).toEqual({ phase: 'arrival', intensity: 1 })
+      // a chegada termina no nível de quem fica parado (sem estalo na troca para a visita)
+      expect(burnPhase(path, T)).toEqual({ phase: 'arrival', intensity: ARRIVAL_TAIL })
+    }
+  })
+
+  it('sequência partida → planagem → chegada, intensidade em 0..1 e contínua', () => {
+    for (const [, from, to] of tripCases) {
+      const path = planTransfer(from, to)
+      const list = phases(path)
+      const order = ['departure', 'coast', 'arrival']
+      for (let i = 1; i < list.length; i++) {
+        expect(order.indexOf(list[i].phase)).toBeGreaterThanOrEqual(order.indexOf(list[i - 1].phase))
+        expect(Math.abs(list[i].intensity - list[i - 1].intensity)).toBeLessThan(0.1)
+      }
+      for (const p of list) {
+        expect(p.intensity).toBeGreaterThanOrEqual(0)
+        expect(p.intensity).toBeLessThanOrEqual(1)
+        if (p.phase === 'coast') expect(p.intensity).toBe(0)
+      }
+    }
+  })
+
+  it('a queima acelera e a planagem não: a velocidade só muda muito dentro das queimas', () => {
+    const path = planTransfer(ring(12, 0), ring(40, 2.5))
+    const { departure, arrival } = path.burns
+    expect(length(path.velocity(0))).toBeLessThan(1e-9)
+    expect(length(path.velocity(departure))).toBeGreaterThan(0.5 * length(path.velocity(path.duration / 2)))
+    expect(length(path.velocity(path.duration))).toBeLessThan(1e-9)
+    expect(length(path.velocity(arrival))).toBeGreaterThan(0.5 * length(path.velocity(path.duration / 2)))
+  })
+
+  it('fora do voo: antes vale a partida, depois a chegada', () => {
+    const path = planTransfer(ring(12, 0), ring(40, 2.5))
+    expect(burnPhase(path, -1).phase).toBe('departure')
+    expect(burnPhase(path, path.duration + 5)).toEqual({ phase: 'arrival', intensity: ARRIVAL_TAIL })
+  })
+
+  it('troca de destino em voo: queima curta de correção (a costura da velocidade), depois planagem', () => {
+    const first = planTransfer(ring(12, 0), ring(45, 2.6))
+    const t = first.duration * 0.45
+    const second = planTransfer(first.point(t), ring(20, 4.2), { velocity: first.velocity(t) })
+    expect(second.burns.departure).toBeGreaterThan(0)
+    expect(second.burns.departure).toBeLessThanOrEqual(BLEND_SECONDS + 1e-9)
+    expect(burnPhase(second, 0).phase).toBe('departure')
+    expect(burnPhase(second, second.duration / 2).phase).toBe('coast')
+    expect(second.burns.arrival).toBeCloseTo((1 - BURN_FRACTION) * second.duration, 9)
+  })
+
+  it('estilingue no meio da planagem: o sobrevoo é de graça, motor desligado', () => {
+    const from = ring(12, 0)
+    const to = ring(60, Math.PI)
+    const direct = planTransfer(from, to)
+    const giant: TravelBody = { name: 'gigante', position: direct.point(direct.duration * 0.5), radius: 2.8, extent: 4.5 }
+    const path = planTransfer(from, to, { bodies: [giant] })
+    const { start, end } = path.assist!
+    expect(path.burns.departure).toBeLessThan(start)
+    expect(path.burns.arrival).toBeGreaterThan(end)
+    for (let i = 0; i <= 50; i++) expect(burnPhase(path, start + ((end - start) * i) / 50)).toEqual({ phase: 'coast', intensity: 0 })
+    expect(burnPhase(path, 0).intensity).toBe(1)
+    expect(burnPhase(path, path.duration).intensity).toBe(ARRIVAL_TAIL)
   })
 })

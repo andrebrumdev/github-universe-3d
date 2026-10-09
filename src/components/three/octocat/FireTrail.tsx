@@ -57,7 +57,9 @@ export function FireTrail({ ship, nozzle }: { ship: RefObject<THREE.Object3D | n
     updateTrailMaterial(material, params, st.boost, bloomLook(useBloom.getState().active).trail, reduced ? 0 : dt)
   })
 
-  return <mesh geometry={ribbon.geometry} material={material} frustumCulled={false} />
+  // Atrás da chama: desenhado antes dela (renderOrder −1) e sem escrever profundidade, como ela; os dois são aditivos,
+  // então o rastro só soma luz e nunca cobre o cone da chama no bocal.
+  return <mesh geometry={ribbon.geometry} material={material} frustumCulled={false} renderOrder={-1} raycast={() => null} />
 }
 
 /** Quadros em que o aquecimento fica visível (o primeiro já compila; os outros cobrem um quadro pulado). */

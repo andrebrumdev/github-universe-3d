@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Vec3 } from '../universe/orbits'
+import { ARRIVAL_TAIL } from './burn'
 import { frameFromPose, frameToLocal, frameToWorld, type CameraFrame } from './cameraFrame'
 import { MIN_SHIP_DISTANCE, THREE_QUARTER_YAW } from './escort'
 import {
@@ -10,7 +11,8 @@ import {
   returnHeading,
   returnLocal,
   returnPoint,
-  returnThrust,
+  returnBurnPhase,
+  returnBurns,
   type ReturnPlan,
 } from './returnFlight'
 import { dot, length, normalize, scale, sub } from './vec'
@@ -137,11 +139,17 @@ describe('volta do planeta até perto da tela', () => {
     }
   })
 
-  it('queima na saída e volta ao nível da escolta no fim', () => {
-    const plan = planReturn(cases()[1])
-    expect(returnThrust(plan, plan.duration * 0.15)).toBeGreaterThan(0.9)
-    expect(returnThrust(plan, plan.duration)).toBeCloseTo(0.25)
-    expect(returnThrust(plan, 0)).toBeLessThan(returnThrust(plan, plan.duration * 0.1))
+  it('queimas como toda viagem: partida ao sair, motor desligado por trás da câmera, chegada que assenta no canto', () => {
+    for (const c of cases()) {
+      const plan = planReturn(c)
+      const { departure, arrival } = returnBurns(plan)
+      expect(departure).toBeGreaterThan(0)
+      expect(arrival).toBeGreaterThan(departure)
+      expect(arrival).toBeLessThan(plan.duration)
+      expect(returnBurnPhase(plan, 0)).toEqual({ phase: 'departure', intensity: 1 })
+      expect(returnBurnPhase(plan, (departure + arrival) / 2)).toEqual({ phase: 'coast', intensity: 0 })
+      expect(returnBurnPhase(plan, plan.duration)).toEqual({ phase: 'arrival', intensity: ARRIVAL_TAIL })
+    }
   })
 
   it('passa um pouco do canto e assenta (mola)', () => {

@@ -1,4 +1,5 @@
 import { SUN_RADIUS, type Vec3 } from '../universe/orbits'
+import type { BurnWindows } from './burn'
 import { length, normalize } from './vec'
 
 export const SUN_SAFE_DISTANCE = SUN_RADIUS + 2
@@ -34,6 +35,11 @@ export interface TravelPath {
   /** Velocidade analítica (unidades/s) no instante t; zero fora de [0, duration]. Com `out`, escreve nele. */
   velocity(t: number, out?: Vec3): Vec3
   assist: GravityAssist | null
+  /**
+   * Janelas das queimas (s desde a partida): a de partida vai de 0 a `departure`, a de chegada de `arrival` ao fim;
+   * entre elas o motor fica desligado (planagem na cônica, estilingue incluído). Ver `burnPhase` em transfer.ts.
+   */
+  burns: BurnWindows
 }
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))

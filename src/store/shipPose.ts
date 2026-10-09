@@ -9,6 +9,13 @@ export interface ShipPose {
   velocity: Vec3
   /** Dentro da janela do estilingue gravitacional da viagem atual (o rastro esquenta). */
   slingshot: boolean
+  /**
+   * Força do motor na viagem, 0..1 (`burnPhase`): 1 nas queimas, 0 na planagem; fora da viagem, 1. O rastro de fogo
+   * só solta pedaço quente com o motor ligado.
+   */
+  engine: number
+  /** Planando na viagem (motor desligado entre as queimas): as pontas das asas soltam o rastro de vapor. */
+  coasting: boolean
   mode: ShipMode
   /** Alvo da viagem/visita atual (null na escolta). A apresentação compara com a parada para saber se a nave chegou. */
   target: ShipTarget | null
@@ -25,6 +32,8 @@ export const INITIAL_SHIP_POSE: Readonly<ShipPose> = {
   tangent: [0, 0, 1],
   velocity: [0, 0, 0],
   slingshot: false,
+  engine: 1,
+  coasting: false,
   mode: 'entering',
   target: null,
   userTravel: false,

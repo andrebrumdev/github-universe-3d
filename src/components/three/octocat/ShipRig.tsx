@@ -27,11 +27,12 @@ import {
   THREE_QUARTER_YAW,
   type ShipTarget,
 } from '@/lib/ship/escort'
-import { MAX_FRAME_DT } from '@/lib/ship/motion'
+import { burnJolt, burnThrust, JOLT_SURGE, MAX_FRAME_DT } from '@/lib/ship/motion'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
 import { blendFramesPoint, frameFromPose, frameToLocal, frameToWorld, type CameraFrame } from '@/lib/ship/cameraFrame'
-import { planReturn, returnBlend, returnFaceWeight, returnHeading, returnPoint, returnThrust, type ReturnPlan } from '@/lib/ship/returnFlight'
-import { planTransferTo, travelBodies } from '@/lib/ship/transfer'
+import { planReturn, returnBlend, returnFaceWeight, returnBurnPhase, returnHeading, returnPoint, type ReturnPlan } from '@/lib/ship/returnFlight'
+import type { BurnPhaseName } from '@/lib/ship/burn'
+import { burnPhase, planTransferTo, travelBodies } from '@/lib/ship/transfer'
 import { newVisitWatch, projectDisc, visitLocal, visitPlacement, visitStep, type Disc, type VisitWatch } from '@/lib/ship/visit'
 import { travelPoint, travelTangent, travelVelocity, type TravelPath } from '@/lib/ship/travel'
 import type { Repo } from '@/lib/types'
@@ -82,8 +83,10 @@ interface VisitSpot {
 const ASSIST_BANK = 1.8
 /** Aceno de "voltei" ao assentar no canto depois da volta (s). */
 const GREET_SECONDS = 1.6
-/** O nível do propulsor na volta vai para o React em degraus (cada degrau é uma renderização). */
+/** O nível do propulsor na volta e nas queimas vai para o React em degraus (cada degrau é uma renderização). */
 const THRUST_STEP = 0.05
+/** Arfagem (rad) no primeiro pico do tranco de uma queima: o nariz sobe um pouco com o empurrão. */
+const JOLT_PITCH = 0.06
 
 const newFrame = (): CameraFrame => ({ position: [0, 0, 0], right: [1, 0, 0], up: [0, 1, 0], back: [0, 0, 1] })
 /** Escreve em `f` o referencial de uma câmera (posição + orientação), sem alocar. */
@@ -110,6 +113,11 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   const [thrust, setThrust] = useState(0.25)
   const thrustRef = useRef(0.25)
   const greetUntil = useRef(-1)
+  /** Queima em curso (voo e fase), para notar quando uma nova acende: tranco na nave, sacudida no Verlet. */
+  const lastBurn = useRef<{ flight: TravelPath | ReturnPlan | null; phase: BurnPhaseName | null }>({ flight: null, phase: null })
+  const joltStart = useRef(-Infinity)
+  const jolt = useRef<THREE.Group>(null)
+  const [burnShake, setBurnShake] = useState(0)
   const [greeting, setGreeting] = useState(false)
   const [mode, setMode] = useState<ShipMode>('entering')
   // O modo também muda fora do tick (viagem/chegada no efeito): compara com o que foi renderizado.
@@ -381,11 +389,6 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
         heading[k] = then + (now - then) * w
       }
       facing = returnFaceWeight(plan, s.elapsed)
-      const level = Math.round(returnThrust(plan, s.elapsed) / THRUST_STEP) * THRUST_STEP
-      if (level !== thrustRef.current) {
-        thrustRef.current = level
-        setThrust(level)
-      }
     } else if (s.mode === 'entering' && !reduced) {
       // Desce de fora da imagem até o canto, no referencial da câmera.
       const k = Math.min(1, s.elapsed / ENTER_DURATION)
@@ -499,6 +502,33 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     if (s.mode === 'traveling' && s.path) travelVelocity(s.path, s.elapsed, shipPose.velocity)
     else shipPose.velocity.fill(0)
     shipPose.slingshot = slingshot
+    // Todo voo (viagem, troca de destino, salto da apresentação, tutorial, volta) tem as mesmas fases de motor:
+    // queima forte na partida, motor desligado na planagem, queima de chegada (ver lib/ship/burn).
+    const flight = s.mode === 'traveling' && s.path ? s.path : plan && !reduced ? plan : null
+    const burn = s.mode === 'traveling' && s.path ? burnPhase(s.path, s.elapsed) : plan && !reduced ? returnBurnPhase(plan, s.elapsed) : null
+    const last = lastBurn.current
+    if (burn && burn.phase !== 'coast' && (last.flight !== flight || last.phase !== burn.phase)) {
+      // uma queima acendeu: a nave dá um tranco e a antena e os tentáculos levam o empurrão
+      joltStart.current = clock.elapsedTime
+      setBurnShake((n) => n + 1)
+    }
+    last.flight = flight
+    last.phase = burn?.phase ?? null
+    shipPose.engine = burn ? burn.intensity : 1
+    shipPose.coasting = burn?.phase === 'coast'
+    if (burn) {
+      const level = Math.round(burnThrust(burn.intensity) / THRUST_STEP) * THRUST_STEP
+      if (level !== thrustRef.current) {
+        thrustRef.current = level
+        setThrust(level)
+      }
+    }
+    // tranco da queima, no grupo de dentro (a posição da nave no caminho não muda)
+    const surge = reduced ? 0 : burnJolt(clock.elapsedTime - joltStart.current)
+    if (jolt.current) {
+      jolt.current.position.z = surge
+      jolt.current.rotation.x = (-JOLT_PITCH * surge) / JOLT_SURGE
+    }
     shipPose.mode = s.mode
     shipPose.target = s.target
   })
@@ -507,7 +537,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     ? 'wink'
     : (bubble?.line.expression ?? (mode === 'traveling' || knocking ? 'happy' : 'neutral'))
   const armMode: ArmMode = hovered || knocking || greeting || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
-  const thrusterLevel = mode === 'traveling' ? 1 : mode === 'entering' ? 0.8 : mode === 'returning' && !reduced ? thrust : 0.25
+  // na viagem e na volta o nível vem do quadro (queimas e planagem), em degraus
+  const thrusterLevel = mode === 'traveling' || (mode === 'returning' && !reduced) ? thrust : mode === 'entering' ? 0.8 : 0.25
 
   return (
     <>
@@ -530,7 +561,9 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
         }}
         onPointerOut={() => setHovered(false)}
       >
-        <OctocatShip expression={expression} armMode={armMode} thrusterLevel={thrusterLevel} floating={mode !== 'traveling'} />
+        <group ref={jolt}>
+          <OctocatShip expression={expression} armMode={armMode} thrusterLevel={thrusterLevel} floating={mode !== 'traveling'} shake={burnShake} />
+        </group>
       </group>
     </>
   )
