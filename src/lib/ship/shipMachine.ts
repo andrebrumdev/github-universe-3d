@@ -8,6 +8,8 @@ export interface ShipState {
   elapsed: number
   path: TravelPath | null
   target: ShipTarget | null
+  /** Duração da volta em curso (s); sem ela, RETURN_DURATION. */
+  returnDuration?: number
 }
 
 export type ShipEvent =
@@ -15,7 +17,8 @@ export type ShipEvent =
   | { type: 'travel'; path: TravelPath; target: ShipTarget }
   /** Chegada instantânea (movimento reduzido). */
   | { type: 'arrive'; target: ShipTarget }
-  | { type: 'release' }
+  /** Volta para a escolta; `duration` é a da volta planejada (ver returnFlight). */
+  | { type: 'release'; duration?: number }
 
 export const ENTER_DURATION = 2
 export const RETURN_DURATION = 1.2
@@ -28,12 +31,14 @@ export function shipReducer(s: ShipState, e: ShipEvent): ShipState {
     case 'arrive':
       return { mode: 'visiting', elapsed: 0, path: null, target: e.target }
     case 'release':
-      return s.mode === 'traveling' || s.mode === 'visiting' ? { mode: 'returning', elapsed: 0, path: null, target: null } : s
+      return s.mode === 'traveling' || s.mode === 'visiting'
+        ? { mode: 'returning', elapsed: 0, path: null, target: null, returnDuration: e.duration ?? RETURN_DURATION }
+        : s
     case 'tick': {
       const elapsed = s.elapsed + e.dt
       if (s.mode === 'entering' && elapsed >= ENTER_DURATION) return { ...s, mode: 'escort', elapsed: 0 }
       if (s.mode === 'traveling' && s.path && elapsed >= s.path.duration) return { ...s, mode: 'visiting', elapsed: 0, path: null }
-      if (s.mode === 'returning' && elapsed >= RETURN_DURATION) return { ...s, mode: 'escort', elapsed: 0 }
+      if (s.mode === 'returning' && elapsed >= (s.returnDuration ?? RETURN_DURATION)) return { ...s, mode: 'escort', elapsed: 0 }
       return { ...s, elapsed }
     }
   }

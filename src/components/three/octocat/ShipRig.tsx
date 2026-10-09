@@ -28,6 +28,8 @@ import {
   type ShipTarget,
 } from '@/lib/ship/escort'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
+import { frameToLocal, type CameraFrame } from '@/lib/ship/cameraFrame'
+import { planReturn, returnFaceWeight, returnHeading, returnPoint, returnThrust, type ReturnPlan } from '@/lib/ship/returnFlight'
 import { clockTimeAfter, planTransferTo, travelBodies } from '@/lib/ship/transfer'
 import { travelPoint, travelTangent, travelVelocity, type TravelPath } from '@/lib/ship/travel'
 import type { Repo } from '@/lib/types'
@@ -64,6 +66,21 @@ const VISIT_SIDE = { side: 1, bottom: 0.35 } as const
 const TRAIL_WIDTH = 1.6
 /** No estilingue a curva é fechada e rápida: a nave inclina bem mais que numa curva comum. */
 const ASSIST_BANK = 1.8
+/** Aceno de "voltei" ao assentar no canto depois da volta (s). */
+const GREET_SECONDS = 1.6
+/** O nível do propulsor na volta vai para o React em degraus (cada degrau é uma renderização). */
+const THRUST_STEP = 0.05
+
+const newFrame = (): CameraFrame => ({ position: [0, 0, 0], right: [1, 0, 0], up: [0, 1, 0], back: [0, 0, 1] })
+/** Escreve em `f` o referencial de uma câmera (posição + orientação), sem alocar. */
+function writeFrame(f: CameraFrame, position: THREE.Vector3, q: THREE.Quaternion, v: THREE.Vector3): CameraFrame {
+  position.toArray(f.position)
+  v.set(1, 0, 0).applyQuaternion(q).toArray(f.right)
+  v.set(0, 1, 0).applyQuaternion(q).toArray(f.up)
+  v.set(0, 0, 1).applyQuaternion(q).toArray(f.back)
+  return f
+}
+const dotArr = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
 // `profileName` segue na assinatura (o Scene passa); o balão visível agora é DOM, no OctocatSpeech.
 export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[]; profileName: string }) {
@@ -74,6 +91,14 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
   const lastTangent = useRef<Vec3>([0, 0, 1])
   /** Viagem cujo estilingue já foi anunciado (a fala sai uma vez, ao entrar no sobrevoo). */
   const announced = useRef<TravelPath | null>(null)
+  /** Volta em curso (ver lib/ship/returnFlight) e o referencial da câmera na hora em que ela começou. */
+  const returnPlan = useRef<ReturnPlan | null>(null)
+  const returnFrame = useMemo(() => newFrame(), [])
+  const frameNow = useMemo(() => newFrame(), [])
+  const [thrust, setThrust] = useState(0.25)
+  const thrustRef = useRef(0.25)
+  const greetUntil = useRef(-1)
+  const [greeting, setGreeting] = useState(false)
   const [mode, setMode] = useState<ShipMode>('entering')
   // O modo também muda fora do tick (viagem/chegada no efeito): compara com o que foi renderizado.
   const renderedMode = useRef<ShipMode>('entering')
@@ -169,7 +194,28 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
   // perto da lente, onde uma órbita em volta do sol não faz sentido; ela segue assentando como antes (modo returning).
   useEffect(() => {
     if (!target) {
-      machine.current = shipReducer(machine.current, { type: 'release' })
+      const from = machine.current.mode
+      returnPlan.current = null
+      let duration: number | undefined
+      if (!reduced && (from === 'traveling' || from === 'visiting')) {
+        // Volta: no referencial da câmera (atrasada) desta hora; sai pela tangente da órbita em volta do sol.
+        writeFrame(returnFrame, camera.position, lagQuat, scratch)
+        const p = shipPose.position
+        const sun = barycenterOffset(system, simClock.time)
+        const rho = Math.hypot(p[0] - sun[0], p[2] - sun[2]) || 1
+        const tangent: Vec3 = [(p[2] - sun[2]) / rho, 0, -(p[0] - sun[0]) / rho]
+        const toLocal = (v: Vec3): Vec3 => [dotArr(v, returnFrame.right), dotArr(v, returnFrame.up), dotArr(v, returnFrame.back)]
+        const { base, side } = latestEscort.current
+        returnPlan.current = planReturn({
+          start: frameToLocal(returnFrame, p),
+          velocity: from === 'traveling' ? toLocal(shipPose.velocity) : [0, 0, 0],
+          departure: toLocal(tangent),
+          escort: base,
+          side,
+        })
+        duration = returnPlan.current.duration
+      }
+      machine.current = shipReducer(machine.current, { type: 'release', duration })
       shipPose.mode = machine.current.mode
       shipPose.target = machine.current.target
       shipPose.userTravel = false
@@ -210,7 +256,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     }
     shipPose.mode = machine.current.mode
     shipPose.target = machine.current.target
-  }, [target, system, camera, reduced, step, visitSide])
+  }, [target, system, camera, reduced, step, visitSide, lagQuat, returnFrame, scratch])
 
   useFrame(({ clock }, rawDt) => {
     const g = group.current
@@ -221,8 +267,17 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     if (s.mode === 'escort' || s.mode === 'visiting') s.elapsed += dt
     else s = shipReducer(s, { type: 'tick', dt })
     if (s.mode !== renderedMode.current) {
+      // Assentou no canto depois da volta: acena uma vez ("voltei").
+      if (renderedMode.current === 'returning' && s.mode === 'escort' && !reduced) {
+        greetUntil.current = clock.elapsedTime + GREET_SECONDS
+        setGreeting(true)
+      }
       renderedMode.current = s.mode
       setMode(s.mode)
+    }
+    if (greetUntil.current >= 0 && clock.elapsedTime > greetUntil.current) {
+      greetUntil.current = -1
+      setGreeting(false)
     }
     machine.current = s
 
@@ -244,6 +299,10 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     goal.fromArray(knockOffset(escort.base, knock, goalArr))
     let tangent: Vec3 | null = null
     let bank = 1
+    /** Na volta: frente da nave (mundo) e quanto ela já está de frente para quem vê (0..1). */
+    let heading: Vec3 | null = null
+    let facing = 0
+    const plan = s.mode === 'returning' ? returnPlan.current : null
 
     if (s.mode === 'traveling' && s.path) {
       hasLocal.current = false
@@ -257,6 +316,20 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
           announced.current = s.path
           if (shipPose.userTravel && !usePresentation.getState().state) useUniverse.getState().emitGuide('slingshot')
         }
+      }
+    } else if (plan && !reduced) {
+      // Volta: sai do mundo (referencial da hora da volta) e termina presa à câmera atrasada, no canto da escolta.
+      hasLocal.current = false
+      writeFrame(frameNow, camera.position, lagQuat, scratch)
+      g.position.fromArray(returnPoint(plan, s.elapsed, returnFrame, frameNow, posArr))
+      const h = returnHeading(plan, s.elapsed)
+      heading = [0, 0, 0]
+      for (let k = 0; k < 3; k++) heading[k] = h[0] * frameNow.right[k] + h[1] * frameNow.up[k] + h[2] * frameNow.back[k]
+      facing = returnFaceWeight(plan, s.elapsed)
+      const level = Math.round(returnThrust(plan, s.elapsed) / THRUST_STEP) * THRUST_STEP
+      if (level !== thrustRef.current) {
+        thrustRef.current = level
+        setThrust(level)
       }
     } else if (s.mode === 'entering' && !reduced) {
       // Desce de fora da imagem até o canto, no referencial da câmera.
@@ -300,6 +373,13 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
       helper.lookAt(look.set(...tangent).add(g.position))
       helper.rotateZ(bankAngle(lastTangent.current, tangent, dt) * bank)
       lastTangent.current = tangent
+    } else if (heading) {
+      // Volta: segue a frente planejada, inclinando nas curvas; ao chegar, o "para cima" passa a ser o da câmera
+      // (como na escolta) e a inclinação some: termina em três-quartos, de frente para quem vê.
+      helper.up.set(0, 1, 0).lerp(up, facing).normalize()
+      helper.lookAt(look.set(...heading).add(g.position))
+      helper.rotateZ(bankAngle(lastTangent.current, heading, dt) * (1 - facing))
+      lastTangent.current = heading
     } else {
       helper.up.copy(up)
       helper.lookAt(camera.position)
@@ -321,7 +401,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     trailHead.current?.position.set(...THRUSTER_ORIGIN)
     if (trailHead.current) g.localToWorld(trailHead.current.position)
     g.position.toArray(shipPose.position)
-    shipPose.tangent = tangent ?? shipPose.tangent
+    shipPose.tangent = tangent ?? heading ?? shipPose.tangent
     if (s.mode === 'traveling' && s.path) travelVelocity(s.path, s.elapsed, shipPose.velocity)
     else shipPose.velocity.fill(0)
     shipPose.mode = s.mode
@@ -331,8 +411,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
   const expression: OctocatExpression = hovered
     ? 'wink'
     : (bubble?.line.expression ?? (mode === 'traveling' || knocking ? 'happy' : 'neutral'))
-  const armMode: ArmMode = hovered || knocking || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
-  const thrusterLevel = mode === 'traveling' ? 1 : mode === 'entering' ? 0.8 : 0.25
+  const armMode: ArmMode = hovered || knocking || greeting || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
+  const thrusterLevel = mode === 'traveling' ? 1 : mode === 'entering' ? 0.8 : mode === 'returning' && !reduced ? thrust : 0.25
 
   return (
     <>

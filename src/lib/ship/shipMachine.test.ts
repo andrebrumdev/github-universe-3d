@@ -26,6 +26,13 @@ describe('shipReducer', () => {
     expect(apply(returning, { type: 'tick', dt: RETURN_DURATION }).mode).toBe('escort')
   })
 
+  it('a volta dura o que foi planejado', () => {
+    const visiting = apply(INITIAL_SHIP, { type: 'arrive', target: sun })
+    const returning = apply(visiting, { type: 'release', duration: 1.7 })
+    expect(apply(returning, { type: 'tick', dt: 1.6 }).mode).toBe('returning')
+    expect(apply(returning, { type: 'tick', dt: 1.7 }).mode).toBe('escort')
+  })
+
   it('soltar na escolta não muda nada', () => {
     const escort = apply(INITIAL_SHIP, { type: 'tick', dt: ENTER_DURATION })
     expect(shipReducer(escort, { type: 'release' })).toBe(escort)
