@@ -184,6 +184,8 @@ export interface ScriptContext {
   parked: boolean
   /** Movimento reduzido: as falas e expressões seguem, o movimento não. */
   reduced: boolean
+  /** Painel aberto agora (`planet:<repo>`, `sun`…), ou null: a fala de repo guardada só sai com o painel dela aberto. */
+  panelKey: string | null
 }
 
 export type ScriptAction = 'sleep' | 'wake' | 'brace' | 'dizzy'
@@ -218,6 +220,8 @@ export interface ScriptState {
   lastShrinkAt: number
   lastZoomDizzyAt: number
   sleeping: boolean
+  /** Fala de repo esperando o balão da vez sumir (a chegada não corta o guia, o estilingue nem o disco). */
+  pendingRepo: { name: string; key: string; line: ScriptLine } | null
 }
 
 export function newScriptState(): ScriptState {
@@ -231,6 +235,7 @@ export function newScriptState(): ScriptState {
     lastShrinkAt: -Infinity,
     lastZoomDizzyAt: -Infinity,
     sleeping: false,
+    pendingRepo: null,
   }
 }
 
@@ -244,8 +249,23 @@ const directive = (over: Partial<Directive>): Directive => ({ line: null, guide:
 /** Livre para uma fala espontânea: fora do tutorial/apresentação, sem balão e com o intervalo cumprido. */
 const isFree = (s: ScriptState, c: ScriptContext) => !c.busy && !c.bubble && c.now - s.lastLineAt >= MIN_GAP_MS
 
-/** As falas espontâneas na fila, uma por vez: recrutador antes do fps. */
+/** Sai a fala de repo guardada (ela já gastou a vez e o intervalo na chegada). */
+function sayRepo(s: ScriptState, c: ScriptContext, pending: NonNullable<ScriptState['pendingRepo']>): Directive {
+  s.pendingRepo = null
+  s.spoken.add(pending.key)
+  s.lastRepoLineAt = c.now
+  noteLine(s, c.now)
+  return directive({ line: pending.line })
+}
+
+/**
+ * As falas na fila, uma por vez: primeiro a de repo guardada (é resposta à chegada: sai assim que o balão some, sem o
+ * intervalo das espontâneas, e cai fora se o painel dela fechou), depois as espontâneas, recrutador antes do fps.
+ */
 function flush(s: ScriptState, c: ScriptContext): Directive | null {
+  const pending = s.pendingRepo
+  if (pending && c.panelKey !== `planet:${pending.name}`) s.pendingRepo = null
+  else if (pending && !c.busy && !c.bubble) return sayRepo(s, c, pending)
   if (!isFree(s, c)) return null
   if (s.recruiter !== null) {
     const text = s.recruiter
@@ -287,10 +307,13 @@ export function direct(s: ScriptState, cue: Cue, c: ScriptContext): Directive | 
       if (!kind) return null
       const key = `${kind}:${cue.repo.name}`
       if (s.spoken.has(key) || c.now - s.lastRepoLineAt < MIN_GAP_MS) return null
-      s.spoken.add(key)
-      s.lastRepoLineAt = c.now
-      noteLine(s, c.now)
-      return directive({ line: { text: repoLineText(kind, cue.repo), expression: REPO_EXPRESSION[kind] } })
+      const pending = { name: cue.repo.name, key, line: { text: repoLineText(kind, cue.repo), expression: REPO_EXPRESSION[kind] } }
+      // outra fala no balão (o guia de "Olha que legal…", o estilingue, o disco): espera ela sumir em vez de cortá-la
+      if (c.bubble) {
+        s.pendingRepo = pending
+        return null
+      }
+      return sayRepo(s, c, pending)
     }
     case 'longIdle': {
       if (c.busy || !c.parked || s.sleeping) return null

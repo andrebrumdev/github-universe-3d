@@ -40,6 +40,7 @@ const free = (now: number, over: Partial<ScriptContext> = {}): ScriptContext => 
   bubble: false,
   parked: true,
   reduced: false,
+  panelKey: null,
   ...over,
 })
 
@@ -195,7 +196,7 @@ describe('roteiro: repos ao abrir o painel', () => {
     const empty = repo({ name: 'vazio', totalCommits: 0 })
     // a fala do guia ("Olha que legal esse repo aqui!") acabou de sair: a chegada responde mesmo assim
     noteLine(s, 900)
-    const d = direct(s, { type: 'arrival', repo: fav, favorite: 'fav' }, free(1000, { bubble: true }))
+    const d = direct(s, { type: 'arrival', repo: fav, favorite: 'fav' }, free(1000))
     expect(d?.line).toEqual({ text: SCRIPT_LINES.favorite, expression: 'happy' })
     // outro planeta logo em seguida: segura (intervalo)
     expect(direct(s, { type: 'arrival', repo: empty, favorite: 'fav' }, free(1000 + MIN_GAP_MS - 1))).toBeNull()
@@ -204,6 +205,33 @@ describe('roteiro: repos ao abrir o painel', () => {
     expect(direct(s, { type: 'arrival', repo: fav, favorite: 'fav' }, free(100_000))).toBeNull()
     // repo sem nada a dizer
     expect(direct(s, { type: 'arrival', repo: repo({ name: 'comum' }), favorite: 'fav' }, free(200_000))).toBeNull()
+  })
+
+  it('não corta a fala que está no balão: guarda a do repo e solta quando o balão some (movimento reduzido: tudo no mesmo tick)', () => {
+    const s = fresh()
+    const fav = repo({ name: 'fav', stars: 9 })
+    const open = { panelKey: 'planet:fav', reduced: true }
+    // o guia acabou de falar e o painel abriu no mesmo instante
+    noteLine(s, 1000)
+    expect(direct(s, { type: 'arrival', repo: fav, favorite: 'fav' }, free(1000, { ...open, bubble: true }))).toBeNull()
+    // balão ainda na tela: nada
+    expect(direct(s, { type: 'tick' }, free(3000, { ...open, bubble: true }))).toBeNull()
+    // balão sumiu: sai a do repo, sem esperar o intervalo das espontâneas
+    expect(direct(s, { type: 'tick' }, free(5000, open))?.line).toEqual({ text: SCRIPT_LINES.favorite, expression: 'happy' })
+    // e só uma vez
+    expect(direct(s, { type: 'tick' }, free(6000, open))).toBeNull()
+    expect(direct(s, { type: 'arrival', repo: fav, favorite: 'fav' }, free(100_000, open))).toBeNull()
+  })
+
+  it('a fala de repo guardada cai fora se o painel dela fechou antes (e pode sair noutra visita)', () => {
+    const s = fresh()
+    const fav = repo({ name: 'fav', stars: 9 })
+    expect(direct(s, { type: 'arrival', repo: fav, favorite: 'fav' }, free(1000, { panelKey: 'planet:fav', bubble: true }))).toBeNull()
+    // foi para outro planeta antes do balão sumir
+    expect(direct(s, { type: 'tick' }, free(4000, { panelKey: 'planet:outro' }))).toBeNull()
+    expect(s.pendingRepo).toBeNull()
+    // de volta ao favorito depois: a fala não foi gasta
+    expect(direct(s, { type: 'arrival', repo: fav, favorite: 'fav' }, free(20_000, { panelKey: 'planet:fav' }))?.line?.text).toBe(SCRIPT_LINES.favorite)
   })
 
   it('nunca no tutorial nem na apresentação', () => {

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { direct, newScriptState, noteLine, type Cue, type Directive, type ScriptContext } from '@/lib/octocat/script'
+import { usePanelReadyKey } from './panelReady'
 import { shipPose } from './shipPose'
 import { usePresentation } from './presentation'
 import { useTutorial } from './tutorial'
@@ -60,8 +61,10 @@ export const useFourthWall = create<FourthWallState>()(() => ({
 const script = newScriptState()
 
 // Toda fala nova no balão (do guia, da apresentação, do roteiro) conta para o intervalo das espontâneas.
+// O balão sumiu: a fala de repo guardada sai já, sem esperar o próximo tick.
 useUniverse.subscribe((state, prev) => {
   if (state.bubble && state.bubble !== prev.bubble) noteLine(script, performance.now())
+  else if (!state.bubble && prev.bubble && script.pendingRepo) cue({ type: 'tick' })
 })
 
 const prefersReducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
@@ -74,6 +77,7 @@ function context(): ScriptContext {
     bubble: bubble !== null,
     parked: shipPose.mode === 'escort' && selection.kind === 'none',
     reduced: prefersReducedMotion(),
+    panelKey: usePanelReadyKey.getState().key,
   }
 }
 
