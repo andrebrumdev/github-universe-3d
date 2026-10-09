@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   axisAngles,
   bodyExtent,
+  FOCUS_SPIN_RATE,
+  focusSpinStep,
   languageShares,
   MAX_MOON_ECCENTRICITY,
   MAX_MOONS,
@@ -250,5 +252,29 @@ describe('axisAngles', () => {
     expect(hi - lo).toBeGreaterThan(1.8 * s.nutationAmplitude)
     expect(hi).toBeLessThanOrEqual(s.obliquity + s.nutationAmplitude + 1e-12)
     expect(lo).toBeGreaterThanOrEqual(s.obliquity - s.nutationAmplitude - 1e-12)
+  })
+})
+
+describe('focusSpinStep', () => {
+  it('em foco e com o tempo parado, gira devagar (uma volta em ~40 s)', () => {
+    let a = 0
+    for (let i = 0; i < 60; i++) a = focusSpinStep(a, 1 / 60, true, 0)
+    expect(a).toBeCloseTo(FOCUS_SPIN_RATE, 6)
+    expect((2 * Math.PI) / FOCUS_SPIN_RATE).toBeGreaterThan(30)
+    expect((2 * Math.PI) / FOCUS_SPIN_RATE).toBeLessThan(60)
+  })
+
+  it('entra aos poucos conforme o relógio da simulação desacelera', () => {
+    expect(focusSpinStep(0, 0.1, true, 1)).toBe(0)
+    expect(focusSpinStep(0, 0.1, true, 0.5)).toBeCloseTo(0.5 * FOCUS_SPIN_RATE * 0.1, 9)
+  })
+
+  it('fora de foco ou com movimento reduzido mantém o ângulo (sem salto)', () => {
+    expect(focusSpinStep(1.3, 0.1, false, 0)).toBe(1.3)
+    expect(focusSpinStep(1.3, 0.1, true, 0, true)).toBe(1.3)
+  })
+
+  it('limita o dt de uma aba que volta do segundo plano', () => {
+    expect(focusSpinStep(0, 30, true, 0)).toBeCloseTo(FOCUS_SPIN_RATE * 0.1, 9)
   })
 })

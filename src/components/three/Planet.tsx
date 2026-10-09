@@ -1,12 +1,13 @@
 import { useMemo, useRef, useState } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useCursor } from '@react-three/drei'
+import { useReducedMotion } from 'framer-motion'
 import type * as THREE from 'three'
 import { selectedPlanet } from '@/lib/interaction'
 import type { Repo } from '@/lib/types'
 import { cellDate } from '@/lib/universe/activity'
 import { planetPosition, type PlanetOrbit, type Ring, type Vec3 } from '@/lib/universe/orbits'
-import { axisAngles, moonOrbits, planetSpin } from '@/lib/universe/planets'
+import { axisAngles, focusSpinStep, moonOrbits, planetSpin } from '@/lib/universe/planets'
 import { simClock } from '@/store/simClock'
 import { useUniverse } from '@/store/universe'
 import {
@@ -37,9 +38,13 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
   const isReal = repo.activity.source === 'real'
 
   const pos = useMemo<Vec3>(() => [0, 0, 0], [])
+  const reduced = useReducedMotion() ?? false
+  /** Giro extra enquanto o planeta está em foco (o relógio para, mas ele continua girando devagar no eixo). */
+  const focusSpin = useRef(0)
 
-  useFrame(() => {
+  useFrame((_, dt) => {
     const t = simClock.time
+    focusSpin.current = focusSpinStep(focusSpin.current, dt, isSelected, simClock.scale, reduced)
     // já com a precessão do periélio do anel; sem alocar por frame
     planetPosition(ring, orbit, t, pos)
     root.current?.position.set(pos[0], pos[1], pos[2])
@@ -48,7 +53,7 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
     const angles = axisAngles(spin, t)
     if (precession.current) precession.current.rotation.y = angles.precession
     if (tilt.current) tilt.current.rotation.z = angles.obliquity
-    if (surface.current) surface.current.rotation.y = angles.spin
+    if (surface.current) surface.current.rotation.y = angles.spin + focusSpin.current
   })
 
   function handleMove(e: ThreeEvent<PointerEvent>) {

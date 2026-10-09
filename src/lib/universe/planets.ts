@@ -227,3 +227,19 @@ export function axisAngles(s: PlanetSpin, t: number): AxisAngles {
     spin: s.spinSpeed * t,
   }
 }
+
+/** Rotação extra do planeta em foco (rad por segundo real): uma volta em ~42 s, para ver todos os lados. */
+export const FOCUS_SPIN_RATE = 0.15
+const FOCUS_SPIN_MAX_DT = 0.1
+
+/**
+ * Avança o ângulo extra de rotação própria do planeta em foco. Com o relógio da simulação parando (escala → 0), a
+ * rotação "normal" congela; esta entra no lugar, na medida em que a escala cai. Fora de foco (ou com movimento
+ * reduzido) o ângulo fica onde está: nada salta quando o foco sai.
+ */
+export function focusSpinStep(angle: number, dt: number, focused: boolean, clockScale: number, reduced = false): number {
+  if (!focused || reduced) return angle
+  const step = Math.min(Math.max(dt, 0), FOCUS_SPIN_MAX_DT)
+  const blend = 1 - Math.min(Math.max(clockScale, 0), 1)
+  return angle + FOCUS_SPIN_RATE * blend * step
+}
