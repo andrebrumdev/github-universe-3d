@@ -36,6 +36,14 @@ describe('visual com bloom: um só interruptor', () => {
     expect(DUST_MATERIAL.opacity).toBe(BLOOM_LOOK.plain.dustTail)
   })
 
+  it('rastro da nave (aditivo): sem bloom fica como desenhado (1); com bloom, mais fraco', () => {
+    expect(BLOOM_LOOK.plain.trail).toBe(1)
+    expect(BLOOM_LOOK.bloom.trail).toBeLessThan(BLOOM_LOOK.plain.trail)
+    expect(BLOOM_LOOK.bloom.trail).toBeGreaterThan(0)
+    expect(bloomLook(true).trail).toBe(BLOOM_LOOK.bloom.trail)
+    expect(bloomLook(false).trail).toBe(BLOOM_LOOK.plain.trail)
+  })
+
   it('sem bloom, o cometa fica como foi aprovado (íons 0,9, poeira 0,55, coma 0,6)', () => {
     expect([BLOOM_LOOK.plain.ionTail, BLOOM_LOOK.plain.dustTail, BLOOM_LOOK.plain.coma]).toEqual([0.9, 0.55, 0.6])
   })

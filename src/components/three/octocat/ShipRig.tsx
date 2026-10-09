@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Trail, useCursor } from '@react-three/drei'
+import { useCursor } from '@react-three/drei'
 import { useReducedMotion } from 'framer-motion'
 import * as THREE from 'three'
 import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
@@ -42,6 +42,7 @@ import { usePresentation } from '@/store/presentation'
 import { simClock } from '@/store/simClock'
 import { useTutorial } from '@/store/tutorial'
 import { useUniverse } from '@/store/universe'
+import { FireTrail } from './FireTrail'
 import { OctocatShip, type ArmMode } from './OctocatShip'
 import { THRUSTER_ORIGIN } from './shipParts'
 
@@ -62,8 +63,6 @@ const enterRise = (local: Vec3, fov: number) => -local[2] * Math.tan((fov * Math
  * já que a pose de foco põe o alvo à esquerda); no celular, perto do alvo para não sair da tela estreita.
  */
 const VISIT_SIDE = { side: 1, bottom: 0.35 } as const
-/** Largura do rastro (o Trail do drei usa 0,1 × width em unidades do mundo): ~ o diâmetro do bocal. */
-const TRAIL_WIDTH = 1.6
 /** No estilingue a curva é fechada e rápida: a nave inclina bem mais que numa curva comum. */
 const ASSIST_BANK = 1.8
 /** Aceno de "voltei" ao assentar no canto depois da volta (s). */
@@ -87,7 +86,6 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
   const group = useRef<THREE.Group>(null)
   // Cópia própria: na escolta e na visita o tick só avança `elapsed` no lugar (ver o useFrame).
   const machine = useRef<ShipState>({ ...INITIAL_SHIP })
-  const trailHead = useRef<THREE.Mesh>(null)
   const lastTangent = useRef<Vec3>([0, 0, 1])
   /** Viagem cujo estilingue já foi anunciado (a fala sai uma vez, ao entrar no sobrevoo). */
   const announced = useRef<TravelPath | null>(null)
@@ -299,6 +297,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     goal.fromArray(knockOffset(escort.base, knock, goalArr))
     let tangent: Vec3 | null = null
     let bank = 1
+    let slingshot = false
     /** Na volta: frente da nave (mundo) e quanto ela já está de frente para quem vê (0..1). */
     let heading: Vec3 | null = null
     let facing = 0
@@ -312,6 +311,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
       const assist = s.path.assist
       if (assist && s.elapsed >= assist.start && s.elapsed <= assist.end) {
         bank = ASSIST_BANK
+        slingshot = true
         if (announced.current !== s.path) {
           announced.current = s.path
           if (shipPose.userTravel && !usePresentation.getState().state) useUniverse.getState().emitGuide('slingshot')
@@ -398,12 +398,11 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     shipPose.speechY = ((1 - speech.y) / 2) * size.height
     shipPose.speechOnScreen = speech.z < 1 && Math.abs(speech.x) < 1.2 && Math.abs(speech.y) < 1.2
 
-    trailHead.current?.position.set(...THRUSTER_ORIGIN)
-    if (trailHead.current) g.localToWorld(trailHead.current.position)
     g.position.toArray(shipPose.position)
     shipPose.tangent = tangent ?? heading ?? shipPose.tangent
     if (s.mode === 'traveling' && s.path) travelVelocity(s.path, s.elapsed, shipPose.velocity)
     else shipPose.velocity.fill(0)
+    shipPose.slingshot = slingshot
     shipPose.mode = s.mode
     shipPose.target = s.target
   })
@@ -416,16 +415,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
 
   return (
     <>
-      {/* rastro em coordenadas do mundo, só em voo (perto da lente ele viraria uma faixa grossa; o Trail
-          semeia os pontos na posição de montagem, que é a da nave) */}
-      {!reduced && (mode === 'traveling' || mode === 'returning') && (
-        <Trail width={TRAIL_WIDTH} length={6} color="#C4B5FD" attenuation={(w) => w * w}>
-          <mesh ref={trailHead} position={shipPose.position}>
-            <sphereGeometry args={[0.01, 4, 2]} />
-            <meshBasicMaterial visible={false} />
-          </mesh>
-        </Trail>
-      )}
+      {/* rastro de fogo em coordenadas do mundo, só em voo (perto da lente ele viraria uma faixa grossa) */}
+      {!reduced && (mode === 'traveling' || mode === 'returning') && <FireTrail ship={group} nozzle={THRUSTER_ORIGIN} />}
       <group
         ref={group}
         scale={SHIP_SCALE}

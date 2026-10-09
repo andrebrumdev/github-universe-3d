@@ -7,6 +7,8 @@ export interface ShipPose {
   tangent: Vec3
   /** Velocidade analítica no caminho (unidades/s); zero fora de viagem. A câmera antecipa por ela. */
   velocity: Vec3
+  /** Dentro da janela do estilingue gravitacional da viagem atual (o rastro esquenta). */
+  slingshot: boolean
   mode: ShipMode
   /** Alvo da viagem/visita atual (null na escolta). A apresentação compara com a parada para saber se a nave chegou. */
   target: ShipTarget | null
@@ -22,6 +24,7 @@ export const INITIAL_SHIP_POSE: Readonly<ShipPose> = {
   position: [0, 40, 60],
   tangent: [0, 0, 1],
   velocity: [0, 0, 0],
+  slingshot: false,
   mode: 'entering',
   target: null,
   userTravel: false,
