@@ -118,7 +118,11 @@ export function solveKepler(M: number, e: number): number {
   return E
 }
 
-export function positionFromE(ring: Ring, E: number): Vec3 {
+/** Elementos keplerianos que bastam para posicionar um corpo (anel, lua, cometa). */
+export type OrbitElements = Pick<Ring, 'a' | 'e' | 'inclination' | 'node' | 'periapsis'>
+
+/** Com `out`, escreve nele (para o laço por frame não alocar) e o devolve. */
+export function positionFromE(ring: OrbitElements, E: number, out?: Vec3): Vec3 {
   const { a, e, node, inclination, periapsis } = ring
   const xp = a * (Math.cos(E) - e)
   const yp = a * Math.sqrt(1 - e * e) * Math.sin(E)
@@ -130,11 +134,15 @@ export function positionFromE(ring: Ring, E: number): Vec3 {
   const Y = (sO * cw + cO * sw * ci) * xp + (-sO * sw + cO * cw * ci) * yp
   const Z = sw * si * xp + cw * si * yp
   // Astronomia usa Z para cima; Three.js usa Y para cima.
-  return [X, Z, -Y]
+  if (!out) return [X, Z, -Y]
+  out[0] = X
+  out[1] = Z
+  out[2] = -Y
+  return out
 }
 
-export function orbitPosition(ring: Ring, M: number): Vec3 {
-  return positionFromE(ring, solveKepler(M, ring.e))
+export function orbitPosition(ring: OrbitElements, M: number, out?: Vec3): Vec3 {
+  return positionFromE(ring, solveKepler(M, ring.e), out)
 }
 
 export function planetPosition(ring: Ring, orbit: PlanetOrbit, t: number): Vec3 {

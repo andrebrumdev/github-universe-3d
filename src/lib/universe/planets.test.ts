@@ -3,12 +3,16 @@ import {
   axisAngles,
   bodyExtent,
   languageShares,
+  MAX_MOON_ECCENTRICITY,
   MAX_MOONS,
   MAX_MOON_RADIUS,
   MAX_PLANET_RADIUS,
+  MIN_MOON_ECCENTRICITY,
   MIN_PLANET_RADIUS,
   maxPlanetWeight,
   moonOrbits,
+  moonPeriod,
+  moonPosition,
   planetRadius,
   planetSpin,
   planetWeight,
@@ -17,6 +21,9 @@ import {
 
 const NOW = new Date('2026-10-08T00:00:00Z')
 const lang = (name: string, bytes: number) => ({ name, color: '#fff', bytes })
+type V = [number, number, number]
+const len = (v: V) => Math.hypot(v[0], v[1], v[2])
+const dist = (a: V, b: V) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
 describe('planetRadius', () => {
   it('normaliza pelo maior repo do perfil: o maior ganha o máximo, sem atividade ganha o mínimo', () => {
@@ -79,25 +86,90 @@ describe('moonOrbits', () => {
     for (let i = 1; i < moons.length; i++) expect(moons[i].radius).toBeLessThanOrEqual(moons[i - 1].radius)
   })
 
-  it('órbitas crescem e não encostam no planeta nem entre si, mesmo com 6 luas máximas', () => {
+  it('órbitas de Kepler: excentricidade pequena (0,02–0,12), inclinadas e determinísticas por planeta', () => {
     const equal = Array.from({ length: MAX_MOONS }, (_, i) => lang(`L${i}`, 900))
     for (const r of [MIN_PLANET_RADIUS, 1, 2, MAX_PLANET_RADIUS]) {
-      const moons = moonOrbits(r, equal)
+      const moons = moonOrbits(r, equal, 'repo')
       expect(moons[0].radius).toBeCloseTo(MAX_MOON_RADIUS, 12)
-      expect(moons[0].orbitRadius - moons[0].radius).toBeGreaterThan(r + 0.05)
-      for (let i = 1; i < moons.length; i++) {
-        expect(moons[i].orbitRadius - moons[i - 1].orbitRadius).toBeGreaterThan(moons[i].radius + moons[i - 1].radius)
+      for (let i = 0; i < moons.length; i++) {
+        expect(moons[i].e).toBeGreaterThanOrEqual(MIN_MOON_ECCENTRICITY)
+        expect(moons[i].e).toBeLessThanOrEqual(MAX_MOON_ECCENTRICITY)
+        expect(Math.abs(moons[i].inclination)).toBeGreaterThan(0)
+        if (i > 0) expect(moons[i].a).toBeGreaterThan(moons[i - 1].a)
       }
     }
+    expect(moonOrbits(1.5, equal, 'x')).toEqual(moonOrbits(1.5, equal, 'x'))
+    expect(moonOrbits(1.5, equal, 'x')[0].periapsis).not.toBe(moonOrbits(1.5, equal, 'y')[0].periapsis)
+    // a primeira lua de um planeta pequeno é visivelmente elíptica
+    const small = Array.from({ length: 40 }, (_, k) => moonOrbits(MIN_PLANET_RADIUS, equal, `s${k}`)[0].e)
+    expect(Math.max(...small)).toBeGreaterThan(0.08)
+  })
+
+  it('período pela 3ª lei de Kepler em volta do planeta: T ∝ a^1,5; a lua interna de um planeta médio leva 8–15 s', () => {
+    const equal = Array.from({ length: MAX_MOONS }, (_, i) => lang(`L${i}`, 900))
+    for (const r of [1.5, 1.7, 2]) {
+      const moons = moonOrbits(r, equal, 'mid')
+      expect(moons[0].period).toBeGreaterThanOrEqual(8)
+      expect(moons[0].period).toBeLessThanOrEqual(15)
+      for (const m of moons) expect(m.period / moons[0].period).toBeCloseTo(Math.pow(m.a / moons[0].a, 1.5), 9)
+    }
+    // mesmo semieixo relativo ao raio (planeta ∝ r³) → mesmo período
+    expect(moonPeriod(2, 1)).toBeCloseTo(moonPeriod(4, 2), 12)
+  })
+
+  it('posição pelo solver de Kepler: periapse a(1−e), apoapse a(1+e), volta ao ponto depois de um período', () => {
+    const [m] = moonOrbits(1.5, [lang('Go', 1)], 'kepler')
+    let lo = Infinity
+    let hi = 0
+    for (let s = 0; s < 2000; s++) {
+      const r = len(moonPosition(m, (s / 2000) * m.period))
+      lo = Math.min(lo, r)
+      hi = Math.max(hi, r)
+    }
+    expect(lo).toBeCloseTo(m.a * (1 - m.e), 3)
+    expect(hi).toBeCloseTo(m.a * (1 + m.e), 3)
+    const out: [number, number, number] = [0, 0, 0]
+    const p0 = moonPosition(m, 3.3)
+    expect(moonPosition(m, 3.3 + m.period, out)).toBe(out)
+    expect(dist(p0, out)).toBeLessThan(1e-9)
+  })
+
+  it('nenhuma lua encosta no planeta nem em outra, com 6 luas máximas (menor folga)', () => {
+    const equal = Array.from({ length: MAX_MOONS }, (_, i) => lang(`L${i}`, 900))
+    let planetGap = Infinity
+    let pairGap = Infinity
+    for (const r of [MIN_PLANET_RADIUS, 1, 1.7, 2.4, MAX_PLANET_RADIUS]) {
+      for (const seed of ['a', 'b', 'c']) {
+        const moons = moonOrbits(r, equal, seed)
+        const slowest = moons[moons.length - 1].period
+        const STEPS = 3000
+        for (let s = 0; s < STEPS; s++) {
+          const t = (s / STEPS) * 3 * slowest
+          const pos = moons.map((m) => moonPosition(m, t))
+          for (let i = 0; i < moons.length; i++) {
+            planetGap = Math.min(planetGap, len(pos[i]) - r - moons[i].radius)
+            for (let j = i + 1; j < moons.length; j++) pairGap = Math.min(pairGap, dist(pos[i], pos[j]) - moons[i].radius - moons[j].radius)
+          }
+        }
+      }
+    }
+    expect(planetGap).toBeGreaterThan(0)
+    expect(pairGap).toBeGreaterThan(0)
   })
 })
 
 describe('bodyExtent', () => {
-  it('sem luas é o próprio raio; com luas, a órbita mais externa mais o maior raio de lua', () => {
+  it('sem luas é o próprio raio; com luas, a apoapse mais externa possível mais o maior raio de lua', () => {
     expect(bodyExtent(1.7, 0)).toBe(1.7)
-    const six = moonOrbits(3, Array.from({ length: 6 }, (_, i) => lang(`L${i}`, 900)))
-    expect(bodyExtent(3, 6)).toBeCloseTo(six[5].orbitRadius + MAX_MOON_RADIUS, 12)
     expect(bodyExtent(3, 9)).toBe(bodyExtent(3, MAX_MOONS))
+    // com qualquer semente, a apoapse da última lua cabe no alcance (que não depende do nome)
+    const six = Array.from({ length: 6 }, (_, i) => lang(`L${i}`, 900))
+    let worst = 0
+    for (let k = 0; k < 30; k++) {
+      const m = moonOrbits(3, six, `seed-${k}`)[5]
+      worst = Math.max(worst, m.a * (1 + m.e) + m.radius)
+    }
+    expect(worst).toBeLessThanOrEqual(bodyExtent(3, 6) + 1e-12)
   })
 
   it('cobre todas as luas reais e cresce com o número de luas sem explodir', () => {
@@ -105,12 +177,14 @@ describe('bodyExtent', () => {
     for (const r of [MIN_PLANET_RADIUS, 1.3, MAX_PLANET_RADIUS]) {
       for (let n = 1; n <= langs.length; n++) {
         const ext = bodyExtent(r, n)
-        for (const m of moonOrbits(r, langs.slice(0, n))) expect(m.orbitRadius + m.radius).toBeLessThanOrEqual(ext + 1e-12)
+        for (const m of moonOrbits(r, langs.slice(0, n), 'p')) {
+          for (let s = 0; s < 400; s++) expect(len(moonPosition(m, (s / 400) * m.period)) + m.radius).toBeLessThanOrEqual(ext + 1e-9)
+        }
         expect(ext).toBeGreaterThan(bodyExtent(r, n - 1))
       }
     }
-    // o planeta maior com 6 luas não passa de ~2,6× o próprio raio
-    expect(bodyExtent(MAX_PLANET_RADIUS, MAX_MOONS)).toBeLessThan(8)
+    // o planeta maior com 6 luas não passa de ~3,2× o próprio raio (órbitas elípticas pedem mais folga)
+    expect(bodyExtent(MAX_PLANET_RADIUS, MAX_MOONS)).toBeLessThan(9.6)
   })
 })
 

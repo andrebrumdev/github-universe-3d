@@ -29,7 +29,7 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
   useCursor(hovered)
   const material = usePlanetMaterial(repo.activity.weeks)
   const spin = useMemo(() => planetSpin(repo.name), [repo.name])
-  const moons = useMemo(() => moonOrbits(orbit.radius, repo.languages), [orbit.radius, repo.languages])
+  const moons = useMemo(() => moonOrbits(orbit.radius, repo.languages, repo.name), [orbit.radius, repo.languages, repo.name])
   const select = useUniverse((s) => s.select)
   const setHoveredCell = useUniverse((s) => s.setHoveredCell)
   const isSelected = useUniverse((s) => selectedPlanet(s.selection) === repo.name)

@@ -2,43 +2,43 @@ import { useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useCursor } from '@react-three/drei'
 import type * as THREE from 'three'
-import type { MoonSpec } from '@/lib/universe/planets'
+import type { Vec3 } from '@/lib/universe/orbits'
+import { moonPosition, type MoonSpec } from '@/lib/universe/planets'
 import { simClock } from '@/store/simClock'
 import { useUniverse } from '@/store/universe'
 import { MOON_GEOMETRY } from './geometries'
 import { getMoonTexture } from './moonTexture'
 
 export function Moon({ spec, planet }: { spec: MoonSpec; planet: string }) {
-  const pivot = useRef<THREE.Group>(null)
+  const mesh = useRef<THREE.Mesh>(null)
   const [hovered, setHovered] = useState(false)
   useCursor(hovered)
   const map = useMemo(() => getMoonTexture(spec.language, spec.color), [spec.language, spec.color])
   const select = useUniverse((s) => s.select)
+  const pos = useMemo<Vec3>(() => [0, 0, 0], [])
 
+  // Órbita de Kepler em volta do planeta (no plano do equador, inclinada): rápida no periapse, lenta na apoapse.
   useFrame(() => {
-    if (pivot.current) pivot.current.rotation.y = spec.phase + spec.speed * simClock.time
+    moonPosition(spec, simClock.time, pos)
+    mesh.current?.position.set(pos[0], pos[1], pos[2])
   })
 
   return (
-    <group rotation={[spec.inclination, 0, 0]}>
-      <group ref={pivot}>
-        <mesh
-          geometry={MOON_GEOMETRY}
-          scale={spec.radius}
-          position={[spec.orbitRadius, 0, 0]}
-          onClick={(e) => {
-            e.stopPropagation()
-            select({ kind: 'moon', planet, language: spec.language })
-          }}
-          onPointerOver={(e) => {
-            e.stopPropagation()
-            setHovered(true)
-          }}
-          onPointerOut={() => setHovered(false)}
-        >
-          <meshStandardMaterial map={map} emissive="#ffffff" emissiveMap={map} emissiveIntensity={0.25} roughness={0.6} />
-        </mesh>
-      </group>
-    </group>
+    <mesh
+      ref={mesh}
+      geometry={MOON_GEOMETRY}
+      scale={spec.radius}
+      onClick={(e) => {
+        e.stopPropagation()
+        select({ kind: 'moon', planet, language: spec.language })
+      }}
+      onPointerOver={(e) => {
+        e.stopPropagation()
+        setHovered(true)
+      }}
+      onPointerOut={() => setHovered(false)}
+    >
+      <meshStandardMaterial map={map} emissive="#ffffff" emissiveMap={map} emissiveIntensity={0.25} roughness={0.6} />
+    </mesh>
   )
 }

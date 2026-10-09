@@ -17,10 +17,10 @@ import {
 } from './orbits'
 
 /**
- * Trava de regressão do pior caso (40 planetas máximos com 6 luas, alcance ≈ 336). O enquadramento é testado em
- * cameraPoses.test; nesse pior caso a câmera da visão geral fica fora da casca de estrelas (260–340).
+ * Trava de regressão do pior caso (40 planetas máximos com 6 luas, alcance ≈ 392 com as luas em órbitas de Kepler,
+ * que pedem mais folga entre as cascas). O enquadramento é testado em cameraPoses.test.
  */
-const REACH_LIMIT = 345
+const REACH_LIMIT = 400
 const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2])
 const dist = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
