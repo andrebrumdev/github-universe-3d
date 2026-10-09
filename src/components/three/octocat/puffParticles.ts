@@ -5,7 +5,7 @@
  *
  * O puff: em cada bico, um clarão curto e branco e nuvens branco-ciano que saem para a frente (no sentido da viagem,
  * mais a velocidade da nave) em velocidades escalonadas — juntas, uma nuvem só —, crescem, perdem velocidade (arrasto)
- * e somem em ~PUFF_LIFE s. A nave, freando, entra nela.
+ * e somem em ~PUFF_LIFE s. A nuvem herda a velocidade da nave e sai à frente dela.
  */
 import * as THREE from 'three'
 import { COLORS } from '@/lib/ship/geometry'
@@ -21,9 +21,9 @@ export const CLOUDS_PER_NOZZLE = 5
 export const PUFF_SPEED = 7
 export const PUFF_DRAG = 2.8
 /** Tamanho (meia largura, unidades do mundo) ao nascer e no fim; o clarão. */
-export const PUFF_SIZE = { start: 0.08, end: 0.6, flash: 0.13 } as const
+export const PUFF_SIZE = { start: 0.06, end: 0.38, flash: 0.1 } as const
 /** Brilho no visual sem bloom. */
-export const PUFF_BRIGHTNESS = 0.8
+export const PUFF_BRIGHTNESS = 0.45
 
 const STRIDE = 12 // x y z, vx vy vz, idade, vida, tamanho inicial, final, força, tipo
 

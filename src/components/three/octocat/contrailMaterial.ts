@@ -1,5 +1,5 @@
 /**
- * Rastro de vapor das pontas das asas na planagem (motor desligado): duas faixas finas (`Ribbon` de trailRibbon.ts),
+ * Rastro de vapor das pontas das asas na planagem (chama-piloto): duas faixas finas (`Ribbon` de trailRibbon.ts),
  * brancas puxando para o lilás da nave com a idade, que alargam um pouco e somem em CONTRAIL_SECONDS. Sem fogo: nada
  * de ruído nem brasas, só um vapor suave nas bordas.
  *

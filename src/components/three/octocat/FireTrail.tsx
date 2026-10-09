@@ -56,7 +56,7 @@ export function FireTrail({ ship, nozzle }: { ship: RefObject<THREE.Object3D | n
     // o fogo segue o motor: quente nas queimas (mesmo saindo devagar da partida), nada novo na planagem
     const engine = shipPose.engine
     trailParams(Math.max(speed, engine * BURN_TRAIL_SPEED), 0, params)
-    // o estilingue cai na planagem: sobrevoo de graça, motor desligado, o fogo não esquenta
+    // o estilingue cai na planagem: sobrevoo de graça, motor na chama-piloto, o fogo não esquenta
     st.boost = easeSlingshot(st.boost, shipPose.slingshot && engine > 0, dt)
     ribbon.update(head, clock.elapsedTime, camera.position, params.heat + 0.4 * st.boost, engine)
     updateTrailMaterial(material, params, st.boost, bloomLook(useBloom.getState().active).trail, reduced ? 0 : dt)

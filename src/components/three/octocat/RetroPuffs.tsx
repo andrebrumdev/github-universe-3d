@@ -18,9 +18,17 @@ class PuffState {
   seq = 0
   frames = 0
   started = false
+  flying = false
   readonly last = new THREE.Vector3()
   readonly velocity = new THREE.Vector3()
   private readonly delta = new THREE.Vector3()
+
+  /** Um voo novo começou (de parada)? O que sobrou do anterior é esvaziado. */
+  departed(flying: boolean): boolean {
+    const started = flying && !this.flying
+    this.flying = flying
+    return started
+  }
 
   /** Um puff novo desde o último quadro? */
   fresh(seq: number): boolean {
@@ -71,6 +79,7 @@ export function RetroPuffs({ ship, nozzles }: { ship: RefObject<THREE.Object3D |
     const g = ship.current
     if (!g) return
     const dt = Math.min(rawDt, MAX_FRAME_DT)
+    if (state.departed(shipPose.mode === 'traveling' || shipPose.mode === 'returning')) pool.clear()
     const velocity = state.measure(g.position, dt, shipPose.velocity)
     if (state.fresh(shipPose.puff.seq)) {
       // para a frente no sentido do movimento (na volta a nave já vira de frente para a lente; o puff não)

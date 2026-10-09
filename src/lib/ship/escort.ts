@@ -242,9 +242,9 @@ export function keepAway(pos: Vec3, center: Vec3, minDist: number, out?: Vec3): 
 
 /** Câmera de perseguição: quanto atrás da nave (no sentido da viagem), quanto acima, e para onde olha à frente. */
 export const CHASE_BACK = 5.5
-export const CHASE_HEIGHT = 1.5
+export const CHASE_HEIGHT = 2.3
 export const CHASE_LOOK_AHEAD = 7
-export const CHASE_LOOK_LIFT = 0.5
+export const CHASE_LOOK_LIFT = 0.2
 
 /**
  * Câmera que segue a viagem por trás: atrás da nave pela tangente do caminho e um pouco acima, olhando para um ponto à
@@ -269,10 +269,11 @@ export function chaseRoll(shipBank: number): number {
 
 /**
  * "Para cima" estável da câmera de perseguição: o para-cima do mundo tirada a parte na direção de visão `forward`
- * (unitária) — num trecho quase vertical, o anterior (`prev`) projetado, para nunca virar —, girado `roll` rad em
- * volta da direção de visão. Com `out`, escreve nele.
+ * (unitária) — num trecho quase vertical, o anterior (`prev`, sem inclinação: passe o `base` do quadro anterior)
+ * projetado, para nunca virar —, girado `roll` rad em volta da direção de visão. Com `out`, escreve nele; com `base`,
+ * escreve nele o "para cima" antes da inclinação.
  */
-export function chaseUp(forward: Vec3, prev: Vec3, roll: number, out: Vec3 = [0, 1, 0]): Vec3 {
+export function chaseUp(forward: Vec3, prev: Vec3, roll: number, out: Vec3 = [0, 1, 0], base?: Vec3): Vec3 {
   const f = forward
   let ux = -f[0] * f[1]
   let uy = 1 - f[1] * f[1]
@@ -288,6 +289,12 @@ export function chaseUp(forward: Vec3, prev: Vec3, roll: number, out: Vec3 = [0,
   ux /= l
   uy /= l
   uz /= l
+  // o "para cima" sem a inclinação: é ele que volta como `prev` no quadro seguinte (a inclinação não se acumula)
+  if (base) {
+    base[0] = ux
+    base[1] = uy
+    base[2] = uz
+  }
   // Rodrigues em torno de f (u ⟂ f): u·cos + (f × u)·sin
   const c = Math.cos(roll)
   const sn = Math.sin(roll)
@@ -342,7 +349,7 @@ export function springStep(s: Spring3, goal: Vec3, omega: number, dt: number): S
   return { position, velocity }
 }
 
-/** Maior antecipação da perseguição (unidades): uma distância de perseguição e pouco. */
+/** Maior antecipação da perseguição (unidades): cobre o atraso de regime (2v/ω) até ~30 u/s; acima, a câmera atrasa um pouco. */
 export const MAX_CHASE_LEAD = 12
 
 /**
@@ -357,8 +364,8 @@ export function springLead(goal: Vec3, goalVelocity: Vec3, omega: number, maxLea
 }
 
 /**
- * A câmera começa a ir para o enquadramento final nos últimos ARRIVAL_BLEND_SECONDS da viagem (no máximo
- * ARRIVAL_BLEND_FRACTION dela, num salto curto), ou no começo da chegada (o puff de ré), o que vier antes.
+ * A câmera começa a ir para o enquadramento final nos últimos ARRIVAL_BLEND_FRACTION da viagem (no mínimo a chegada,
+ * o puff de ré), com teto de ARRIVAL_BLEND_SECONDS: viagens longas usam os últimos 2,5 s, as curtas os últimos 30%.
  */
 export const ARRIVAL_BLEND_FRACTION = 0.3
 export const ARRIVAL_BLEND_SECONDS = 2.5
@@ -375,7 +382,7 @@ const smootherstep = (x: number) => {
  * chegada (frenagem) começa em `arrivalStart`: 0 até a janela, sobe em smootherstep e é 1 com a nave parada.
  */
 export function arrivalBlendWeight(t: number, duration: number, arrivalStart: number): number {
-  const start = Math.min(arrivalStart, duration - Math.min(ARRIVAL_BLEND_SECONDS, ARRIVAL_BLEND_FRACTION * duration))
+  const start = duration - Math.min(ARRIVAL_BLEND_SECONDS, Math.max(ARRIVAL_BLEND_FRACTION * duration, duration - arrivalStart))
   if (!(duration > start)) return t >= duration ? 1 : 0
   return smootherstep((t - start) / (duration - start))
 }
@@ -395,4 +402,55 @@ export function blendPose(a: Pose, b: Pose, w: number): Pose {
 export function easeArrivalBlend(current: number, target: number, dt: number): number {
   if (target >= current) return target
   return current + (target - current) * (1 - Math.exp(-BLEND_RELEASE * dt))
+}
+
+/** "Para cima" da câmera: durante a condução, o da perseguição (`chaseUp`); fora dela, exatamente o do mundo. */
+export function driveUp(active: boolean, forward: Vec3, prevBase: Vec3, roll: number, out: Vec3, base?: Vec3): Vec3 {
+  if (active) return chaseUp(forward, prevBase, roll, out, base)
+  out[0] = 0
+  out[1] = 1
+  out[2] = 0
+  if (base) {
+    base[0] = 0
+    base[1] = 1
+    base[2] = 0
+  }
+  return out
+}
+
+/** Enquadramento final da chegada na câmera: peso atual, a pose (reaproveitada) e de qual destino ela é. */
+export interface ArrivalFrame {
+  weight: number
+  pose: Pose
+  key: string | null
+}
+
+export function createArrivalFrame(): ArrivalFrame {
+  return { weight: 0, pose: { position: [0, 0, 0], target: [0, 0, 0] }, key: null }
+}
+
+/**
+ * Avança o enquadramento final da chegada: com o peso pedido (`arrivalBlendWeight`) subindo, segue a pose de destino
+ * `dest` do destino `key`. Numa troca de destino no meio da mistura (outra chave com peso ainda aceso), solta de volta
+ * para a perseguição pelo enquadramento ANTIGO (nunca puxa a câmera para o destino novo); só com o peso em zero a
+ * mistura passa ao destino novo. Escreve no próprio `frame`, sem alocar.
+ */
+export function stepArrivalFrame(frame: ArrivalFrame, requested: number, dest: Pose, key: string, dt: number): ArrivalFrame {
+  if (frame.weight > 0 && frame.key !== null && frame.key !== key) {
+    frame.weight = easeArrivalBlend(frame.weight, 0, dt)
+  } else if (requested >= frame.weight) {
+    for (let k = 0; k < 3; k++) {
+      frame.pose.position[k] = dest.position[k]
+      frame.pose.target[k] = dest.target[k]
+    }
+    frame.key = key
+    frame.weight = requested
+  } else {
+    frame.weight = easeArrivalBlend(frame.weight, requested, dt)
+  }
+  if (frame.weight < 1e-3 && requested <= 0) {
+    frame.weight = 0
+    frame.key = null
+  }
+  return frame
 }

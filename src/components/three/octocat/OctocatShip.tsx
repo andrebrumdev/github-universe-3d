@@ -25,6 +25,8 @@ interface OctocatShipProps {
   expression?: OctocatExpression
   armMode?: ArmMode
   thrusterLevel?: number
+  /** Nível do propulsor lido a cada quadro (o ShipRig no voo): sem re-render do React a cada degrau da chama. */
+  thrusterRef?: { readonly current: number }
   floating?: boolean
   parts?: OctocatShipParts
   /** Muda a cada pedido de tranco (botão "Sacudir" do preview): tentáculos e antena balançam. */
@@ -43,6 +45,7 @@ export function OctocatShip({
   expression = 'neutral',
   armMode = 'rest',
   thrusterLevel = 0.3,
+  thrusterRef,
   floating = true,
   parts = ALL_PARTS,
   shake = 0,
@@ -70,7 +73,7 @@ export function OctocatShip({
 
   return (
     <group ref={root}>
-      {parts.ship && <Ship thrusterLevel={thrusterLevel} shake={shake} inertiaFrame={inertiaFrame} />}
+      {parts.ship && <Ship thrusterLevel={thrusterLevel} thrusterRef={thrusterRef} shake={shake} inertiaFrame={inertiaFrame} />}
       {/* piloto e gorro em coordenadas do SVG, levados para dentro da bolha pelo COCKPIT, de frente para +z */}
       <group position={COCKPIT.position} scale={COCKPIT.scale}>
         {parts.pilot && <Pilot expression={expression} blinking={blinking} armMode={armMode} shake={shake} inertiaFrame={inertiaFrame} />}

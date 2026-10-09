@@ -18,11 +18,11 @@ export interface ShipPose {
    * só solta pedaço quente com o motor ligado.
    */
   engine: number
-  /** Planando na viagem (motor desligado entre as queimas): as pontas das asas soltam o rastro de vapor. */
+  /** Planando na viagem (motor principal na chama-piloto entre as queimas): as pontas das asas soltam o rastro de vapor. */
   coasting: boolean
   /**
    * Último puff de ré da frenagem: `seq` sobe a cada um (quem desenha os puffs nota a mudança), com a força relativa
-   * ao puff médio (1 = médio; os primeiros são mais fortes), a duração (s) e a escala do desenho (menor perto da lente).
+   * ao puff médio (1 = o puff único da chegada), a duração (s) e a escala do desenho (menor perto da lente).
    */
   puff: { seq: number; strength: number; duration: number; scale: number }
   mode: ShipMode

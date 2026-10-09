@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react'
 import { Vector3, type PerspectiveCamera } from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
 import { CameraControls } from '@react-three/drei'
@@ -10,20 +10,21 @@ import {
   CHASE_SPRING,
   chasePose,
   chaseRoll,
-  chaseUp,
-  easeArrivalBlend,
+  createArrivalFrame,
+  driveUp,
   FOCUS_SPRING,
   MAX_CHASE_LEAD,
   springLead,
   springStep,
+  stepArrivalFrame,
   type Spring3,
 } from '@/lib/ship/escort'
-import { MAX_FRAME_DT } from '@/lib/ship/motion'
-import { length, normalize, sub } from '@/lib/ship/vec'
+import { length, sub } from '@/lib/ship/vec'
 import type { Repo } from '@/lib/types'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
 import { usePresentation } from '@/store/presentation'
+import { flightClock } from '@/store/frameClock'
 import { shipPose } from '@/store/shipPose'
 import { simClock } from '@/store/simClock'
 import { useTutorial } from '@/store/tutorial'
@@ -66,11 +67,33 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
   const focusRequest = useRef(false)
   const scratch = useMemo(() => new Vector3(), [])
   const camera = useThree((s) => s.camera)
-  /** Inclinação atual da câmera (rad) e o "para cima" do quadro anterior (estável, ver `chaseUp`). */
+  /** Inclinação atual da câmera (rad); o "para cima" do quadro (com e sem a inclinação, ver `chaseUp`). */
   const roll = useRef(0)
-  /** Peso do enquadramento final durante a chegada (0 = perseguição), com a soltura suave numa troca de destino. */
-  const arrivalWeight = useRef(0)
-  const up = useMemo<Vec3>(() => [0, 1, 0], [])
+  const up = useRef<Vec3>([0, 1, 0])
+  const upBase = useRef<Vec3>([0, 1, 0])
+  /** Enquadramento final da chegada (peso, pose e destino), misturado depois da mola: pousa nele com a nave parada. */
+  const arrival = useRef(createArrivalFrame())
+  /** Pose entregue no último quadro de perseguição e se ele estava misturado com o enquadramento final. */
+  const lastOut = useRef<Pose>({ position: [0, 0, 0], target: [0, 0, 0] })
+  const wasBlended = useRef(false)
+  const view = useRef<Vec3>([0, 0, -1])
+
+  /**
+   * Larga a condução por qualquer caminho (pousou, tutorial guiado, movimento reduzido, troca de seleção): sem mola,
+   * sem inclinação e com o "para cima" do mundo de volta no CameraControls (senão o tutorial sairia torto).
+   */
+  const releaseDrive = useCallback(() => {
+    drive.current = null
+    roll.current = 0
+    arrival.current.weight = 0
+    arrival.current.key = null
+    wasBlended.current = false
+    driveUp(false, view.current, upBase.current, 0, up.current, upBase.current)
+    if (camera.up.x !== 0 || camera.up.y !== 1 || camera.up.z !== 0) {
+      camera.up.set(0, 1, 0)
+      controls.current?.updateCameraUp()
+    }
+  }, [camera])
   // Início do gesto do usuário na câmera (posição e alvo pedidos), para separar um arrasto de um clique.
   const gesture = useRef({ from: new Vector3(), fromTarget: new Vector3(), now: new Vector3(), active: false })
 
@@ -79,7 +102,7 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
     // O tempo desacelera até parar ao focar: mira onde o planeta vai estar quando parar.
     const stop = predictStopTime(simClock)
     if (guided && step) {
-      drive.current = null
+      releaseDrive()
       focusRequest.current = false
       const pose = tutorialPose(step, system, repos, stop, layout, vp)
       void controls.current?.setLookAt(...pose.position, ...pose.target, !reduced)
@@ -90,22 +113,23 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
       focusRequest.current = true
       return
     }
-    drive.current = null
+    releaseDrive()
     focusRequest.current = false
     const pose = selectionPose(sel, system, stop, layout, vp)
     void controls.current?.setLookAt(...pose.position, ...pose.target, false)
-  }, [selection, step, guided, repos, system, layout, reduced, viewportKey])
+  }, [selection, step, guided, repos, system, layout, reduced, viewportKey, releaseDrive])
 
   // Roda depois dos efeitos do commit: a nave já decidiu (no efeito dela) se viaja ou não.
-  useFrame((_, rawDt) => {
+  useFrame(({ clock }, rawDt) => {
     const c = controls.current
     if (!c) return
     if (reduced || guided) {
-      drive.current = null
+      if (drive.current) releaseDrive()
       if (driving) setDriving(false)
       return
     }
-    const dt = Math.min(rawDt, MAX_FRAME_DT)
+    // o mesmo passo suavizado da nave (ver store/frameClock): câmera e nave andam juntas, sem tremido
+    const dt = flightClock.step(clock.elapsedTime, rawDt)
     const chase = shipPose.mode === 'traveling' && shipPose.userTravel
     let goal: Pose | null = null
     if (chase) {
@@ -116,19 +140,20 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
         position: springLead(raw.position, shipPose.velocity, CHASE_SPRING, MAX_CHASE_LEAD),
         target: springLead(raw.target, shipPose.velocity, CHASE_SPRING, MAX_CHASE_LEAD),
       }
-      // Chegando: a câmera já vai para o enquadramento final (o mesmo da seleção), pousando nele quando a nave para.
-      arrivalWeight.current = easeArrivalBlend(arrivalWeight.current, shipPose.arrival, dt)
-      if (arrivalWeight.current > 0) {
-        const { selection: sel, viewport: vp, layout: lay } = latest.current
-        goal = blendPose(goal, selectionPose(sel, system, predictStopTime(simClock), lay, vp), arrivalWeight.current)
-      }
-      // Ao chegar, a mesma mola leva a câmera da perseguição até a pose da seleção.
+      // Ao chegar, a câmera já está no enquadramento da seleção (misturado depois da mola, abaixo).
       focusRequest.current = true
     } else if (focusRequest.current || drive.current) {
-      arrivalWeight.current = 0
       const { selection: sel, viewport: vp, layout: lay } = latest.current
       goal = selectionPose(sel, system, predictStopTime(simClock), lay, vp)
       focusRequest.current = false
+      // Saindo da perseguição misturada (chegou): a mola parte da pose entregue, parada — sem acerto depois.
+      if (wasBlended.current && drive.current) {
+        drive.current.position = { position: [...lastOut.current.position], velocity: [0, 0, 0] }
+        drive.current.target = { position: [...lastOut.current.target], velocity: [0, 0, 0] }
+      }
+      wasBlended.current = false
+      arrival.current.weight = 0
+      arrival.current.key = null
     }
     if (!goal) return
 
@@ -141,24 +166,45 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
     d.position = springStep(d.position, goal.position, omega, dt)
     d.target = springStep(d.target, goal.target, omega, dt)
 
+    // Chegando: o enquadramento final é misturado DEPOIS da mola (peso 1 com a nave parada = exatamente a pose
+    // final); numa troca de destino no meio, solta de volta pela pose antiga (ver `stepArrivalFrame`).
+    let out: Pose = { position: d.position.position, target: d.target.position }
+    const a = arrival.current
+    if (chase && (shipPose.arrival > 0 || a.weight > 0)) {
+      const { selection: sel, viewport: vp, layout: lay } = latest.current
+      const t = shipPose.target
+      const key = t ? (t.kind === 'sun' ? 'sun' : t.name) : ''
+      stepArrivalFrame(a, shipPose.arrival, selectionPose(sel, system, predictStopTime(simClock), lay, vp), key, dt)
+      if (a.weight > 0) out = blendPose(out, a.pose, a.weight)
+    }
+    if (chase) {
+      for (let k = 0; k < 3; k++) {
+        lastOut.current.position[k] = out.position[k]
+        lastOut.current.target[k] = out.target[k]
+      }
+      wasBlended.current = a.weight > 0
+    }
+
     const settled =
       !chase &&
       length(sub(d.position.position, goal.position)) < HANDOFF_DISTANCE &&
       length(sub(d.target.position, goal.target)) < HANDOFF_DISTANCE
     // Inclina só um pouco com a nave (e volta a zero fora da perseguição); o "para cima" nunca vira.
-    const rollGoal = chase ? chaseRoll(shipPose.bank) * (1 - arrivalWeight.current) : 0
+    const rollGoal = chase ? chaseRoll(shipPose.bank) * (1 - a.weight) : 0
     roll.current += (rollGoal - roll.current) * (1 - Math.exp(-ROLL_RATE * dt))
     if (settled) {
-      drive.current = null
-      roll.current = 0
-      camera.up.set(0, 1, 0)
-      c.updateCameraUp()
+      // entrega exatamente na pose final, sem transição (a mola já está nela)
+      releaseDrive()
       void c.setLookAt(...goal.position, ...goal.target, false)
     } else {
-      chaseUp(normalize(sub(d.target.position, d.position.position), [0, 0, -1]), up, Math.abs(roll.current) < 1e-4 ? 0 : roll.current, up)
-      camera.up.set(up[0], up[1], up[2])
+      const v = view.current
+      for (let k = 0; k < 3; k++) v[k] = out.target[k] - out.position[k]
+      const l = Math.hypot(v[0], v[1], v[2]) || 1
+      for (let k = 0; k < 3; k++) v[k] /= l
+      const u = driveUp(true, v, upBase.current, Math.abs(roll.current) < 1e-4 ? 0 : roll.current, up.current, upBase.current)
+      camera.up.set(u[0], u[1], u[2])
       c.updateCameraUp()
-      void c.setLookAt(...d.position.position, ...d.target.position, false)
+      void c.setLookAt(...out.position, ...out.target, false)
     }
     if (driving !== !settled) setDriving(!settled)
   })

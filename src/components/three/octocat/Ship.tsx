@@ -145,11 +145,14 @@ const HEADLIGHTS_GEOMETRY = mergeParts(headlightFrames.map((matrix) => ({ geomet
 const ENGINE_BANDS_GEOMETRY = mergeParts(ENGINE_BAND_GEOMETRIES.map((geometry) => ({ geometry })))
 
 export function Ship({
-  thrusterLevel,
+  thrusterLevel: levelProp,
+  thrusterRef,
   shake = 0,
   inertiaFrame = 'auto',
 }: {
   thrusterLevel: number
+  /** Quando existe, o nível vem dele a cada quadro (sem re-render); senão, da prop. */
+  thrusterRef?: { readonly current: number }
   shake?: number
   inertiaFrame?: InertiaFrame
 }) {
@@ -211,6 +214,7 @@ export function Ship({
     if (!reducedMotion) ringPulse.update(delta)
     // chama tremulando (steady com movimento reduzido): comprimento em z pelo nível, ruído e cor no shader.
     // Movimento reduzido: delta 0 congela o relógio do ruído (chama parada).
+    const thrusterLevel = thrusterRef ? thrusterRef.current : levelProp
     const s = reducedMotion ? thrusterLevel : thrusterScale(clock.elapsedTime, thrusterLevel)
     const params = thrusterParams(thrusterLevel, s, flameParams)
     updateThrusterMaterial(flameMaterial, params, reducedMotion ? 0 : delta)

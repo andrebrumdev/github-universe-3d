@@ -21,7 +21,7 @@ import { length } from './vec'
 const ring = (r: number, angle: number, y = 0): Vec3 => [Math.cos(angle) * r, y, -Math.sin(angle) * r]
 const ORDER = ['departure', 'coast', 'arrival'] as const
 
-/** Percorre o voo inteiro: fases só avançam (partida → planagem → chegada), todas aparecem, planagem com motor desligado. */
+/** Percorre o voo inteiro: fases só avançam (partida → planagem → chegada), todas aparecem, planagem com o motor principal só na chama-piloto. */
 function expectOrdered(phaseAt: (t: number) => BurnPhase, duration: number) {
   const seen = new Set<string>()
   let prev = phaseAt(0)
@@ -48,6 +48,8 @@ function expectPuffBraking(path: TravelPath) {
   expect(puffs.length).toBe(1)
   expect(puffs[0].time).toBeCloseTo(arrival, 9)
   expect(puffs[0].time + puffs[0].duration).toBeCloseTo(T, 9)
+  // nunca curto: no mínimo PUFF_MIN_SECONDS, nem depois de um estilingue
+  expect(puffs[0].duration).toBeGreaterThanOrEqual(PUFF_MIN_SECONDS - 1e-9)
   const speed = (t: number) => length(path.velocity(t))
   const cruise = speed(arrival)
   expect(cruise).toBeGreaterThan(0)
@@ -128,7 +130,7 @@ describe('fase do motor, igual para todo tipo de voo', () => {
     expect(path.assist).not.toBeNull()
     expect(path.burns.arrival).toBeGreaterThan(path.assist!.end)
     // a frenagem é a da viagem toda (não encolhe com o último trecho)
-    expect(path.duration - path.burns.arrival).toBeGreaterThanOrEqual(Math.min(BRAKE_SECONDS, 0.85 * (path.duration - path.assist!.end)) - 1e-9)
+    expect(path.duration - path.burns.arrival).toBeCloseTo(BRAKE_SECONDS, 9)
     expectOrdered((t) => burnPhase(path, t), path.duration)
     expectPuffBraking(path)
   })
@@ -147,6 +149,29 @@ describe('fase do motor, igual para todo tipo de voo', () => {
       expect(puffs[0].duration).toBeLessThanOrEqual(PUFF_MAX_SECONDS)
     }
   })
+
+  it('puff de pelo menos PUFF_MIN_SECONDS em viagens sorteadas com planetas grandes (estilingue perto do destino incluso)', () => {
+    let a = 20261010 >>> 0
+    const rnd = () => {
+      a = (a + 0x6d2b79f5) >>> 0
+      let t = a
+      t = Math.imul(t ^ (t >>> 15), t | 1)
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+    const giants = Array.from({ length: 10 }, (_, i) => ({ name: `g${i}`, position: ring(12 + i * 6, i * 2.1, 0.5), radius: 2.5, extent: 4 }))
+    let assists = 0
+    for (let i = 0; i < 160; i++) {
+      const from = ring(5 + rnd() * 75, rnd() * 2 * Math.PI, (rnd() - 0.5) * 6)
+      const to = ring(5 + rnd() * 75, rnd() * 2 * Math.PI, (rnd() - 0.5) * 6)
+      const path = planTransfer(from, to, { bodies: giants })
+      if (path.assist) assists++
+      expect(path.burns.puffs.length).toBe(1)
+      expect(path.burns.puffs[0].duration).toBeGreaterThanOrEqual(PUFF_MIN_SECONDS - 1e-9)
+      expect(length(path.velocity(path.duration))).toBeLessThan(1e-9)
+    }
+    expect(assists).toBeGreaterThan(5)
+  }, 30_000)
 
   it('janelas vazias: sem queima, o voo inteiro é planagem', () => {
     const none: BurnWindows = { departure: 0, arrival: 5, puffs: [] }

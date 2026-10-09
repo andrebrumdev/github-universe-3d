@@ -10,6 +10,7 @@ import {
   returnDuration,
   returnHeading,
   returnLocal,
+  returnLocalVelocity,
   returnPoint,
   returnBurnPhase,
   returnBurns,
@@ -139,7 +140,7 @@ describe('volta do planeta até perto da tela', () => {
     }
   })
 
-  it('queimas como toda viagem: partida ao sair, motor desligado por trás da câmera, chegada que assenta no canto', () => {
+  it('queimas como toda viagem: partida ao sair, chama-piloto por trás da câmera, puff que para no canto', () => {
     for (const c of cases()) {
       const plan = planReturn(c)
       const { departure, arrival } = returnBurns(plan)
@@ -152,14 +153,36 @@ describe('volta do planeta até perto da tela', () => {
     }
   })
 
-  it('passa um pouco do canto e assenta (mola)', () => {
-    const plan = planReturn(cases()[1])
-    const toEscort = (t: number) => length(sub(returnLocal(plan, t), plan.escort))
-    let overshoot = 0
-    // depois de chegar ao canto: passa um pouco e volta
-    for (const t of samples(plan)) if (t >= plan.duration * 0.88) overshoot = Math.max(overshoot, toEscort(t))
-    expect(overshoot).toBeGreaterThan(0.05)
-    expect(overshoot).toBeLessThan(0.6)
+  it('freia numa curva só, alinhada com o puff: cruzeiro constante, depois a velocidade só cai até parar no canto', () => {
+    for (const c of cases()) {
+      const plan = planReturn(c)
+      const T = plan.duration
+      const { departure, puffs } = returnBurns(plan)
+      const puff = puffs[0]
+      expect(puff.time + puff.duration).toBeCloseTo(T, 9)
+      const speed = (t: number) => length(returnLocalVelocity(plan, t))
+      const cruise = speed((departure + puff.time) / 2)
+      expect(cruise).toBeGreaterThan(0)
+      // planagem: velocidade de cruzeiro, sem cair
+      for (let i = 0; i <= 60; i++) {
+        const t = departure + ((puff.time - departure) * i) / 60
+        expect(Math.abs(speed(t) - cruise)).toBeLessThan(1e-6 * cruise + 1e-9)
+      }
+      // puff: nunca sobe, chega a zero no fim; a nave só se aproxima do canto (sem passar e voltar)
+      let prevV = speed(puff.time)
+      let prevD = length(sub(returnLocal(plan, puff.time), c.escort))
+      for (let i = 1; i <= 200; i++) {
+        const t = puff.time + (puff.duration * i) / 200
+        const v = speed(t)
+        const d = length(sub(returnLocal(plan, t), c.escort))
+        expect(v).toBeLessThanOrEqual(prevV + 1e-9)
+        expect(d).toBeLessThanOrEqual(prevD + 1e-9)
+        prevV = v
+        prevD = d
+      }
+      expect(speed(T)).toBeLessThan(1e-9)
+      expect(length(sub(returnLocal(plan, T), c.escort))).toBeLessThan(1e-9)
+    }
   })
 })
 

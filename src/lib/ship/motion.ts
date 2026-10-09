@@ -31,7 +31,7 @@ export function thrusterScale(t: number, level: number): number {
  */
 export const BURN_THRUST = 1.25
 export const COAST_THRUST = 0.4
-/** O nível vai para o React em degraus deste tamanho (cada degrau é uma renderização). */
+/** Maior mudança do nível da chama por quadro enquanto ela assenta (ver `settleThrust`). */
 export const THRUST_STEP = 0.05
 /** Ritmo (1/s) com que a chama assenta no nível de quem fica parado (visita, escolta, entrada). */
 const SETTLE_RATE = 4

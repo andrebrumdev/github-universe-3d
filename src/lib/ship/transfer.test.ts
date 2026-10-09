@@ -465,7 +465,7 @@ describe('chegada prevista', () => {
 describe('queimas: motor ligado só nas pontas, planagem no meio', () => {
   const phases = (path: TravelPath, n = 400) => Array.from({ length: n + 1 }, (_, i) => ({ t: (i / n) * path.duration, ...burnPhase(path, (i / n) * path.duration) }))
 
-  it('partida parada: queima forte, motor desligado no meio, chegada freando com o puff de ré', () => {
+  it('partida parada: queima forte, chama-piloto no meio, chegada freando com o puff de ré', () => {
     for (const [, from, to] of tripCases) {
       const path = planTransfer(from, to)
       const T = path.duration
@@ -527,7 +527,7 @@ describe('queimas: motor ligado só nas pontas, planagem no meio', () => {
     expect(second.burns.puffs.length).toBe(1)
   })
 
-  it('estilingue no meio da planagem: o sobrevoo é de graça, motor desligado', () => {
+  it('estilingue no meio da planagem: o sobrevoo é de graça, sem queima', () => {
     const from = ring(12, 0)
     const to = ring(60, Math.PI)
     const direct = planTransfer(from, to)

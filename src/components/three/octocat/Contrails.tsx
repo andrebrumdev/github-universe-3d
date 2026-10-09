@@ -50,7 +50,7 @@ class ContrailState {
 }
 
 /**
- * Rastro de vapor das pontas das asas: só na planagem (`shipPose.coasting`, motor desligado entre as queimas),
+ * Rastro de vapor das pontas das asas: só na planagem (`shipPose.coasting`, motor principal na chama-piloto entre as queimas),
  * acendendo devagar quando ela começa e parando de soltar quando a queima de chegada acende — o que já saiu some
  * sozinho em CONTRAIL_SECONDS. Em coordenadas do mundo: monte como irmão do grupo da nave (mesmo pai, sem
  * transformação), sempre montado com movimento (o vapor some depois da chegada e o programa compila na montagem).

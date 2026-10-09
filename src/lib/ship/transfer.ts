@@ -22,7 +22,7 @@
  *    espera.
  * 3. **Tempo.** 2ª lei de Kepler: dt ∝ r²·dθ (área varrida constante), então a nave é mais rápida perto do sol.
  *    A integral é feita por Gauss–Legendre e invertida por Newton, de modo que posição e velocidade analítica
- *    concordam. O tempo físico é mapeado na duração limitada de sempre (`travelDuration`, 1,5–3 s): o perfil de
+ *    concordam. O tempo físico é mapeado na duração limitada de sempre (`travelDuration`, 2–8 s pelo comprimento em CRUISE_SPEED): o perfil de
  *    velocidade é o de Kepler, com queimas suaves só nas pontas (BURN_FRACTION da viagem em cada uma).
  * 4. **Estilingue** (no máximo um por viagem, só por planeta grande, raio ≥ ASSIST_MIN_RADIUS): quando o arco
  *    planejado passa a menos de FLYBY_REACH × o alcance do planeta (planeta + luas), aquele trecho vira uma hipérbole
@@ -91,6 +91,8 @@ export const FLYBY_MARGIN = 1.2
  * Afinado no perfil de exemplo (4 planetas com raio ≥ 2) para ~10% das viagens; com 2,5× seria ~3,6%.
  */
 export const FLYBY_REACH = 4.5
+/** Menor fração da viagem de cada trecho do estilingue (ida, sobrevoo, chegada). */
+const MIN_SHARE = 0.12
 /** Raio da janela do sobrevoo, em periápsides: onde a hipérbole começa e termina. */
 export const FLYBY_WINDOW = 1.6
 /** O sobrevoo não pode virar desvio: o caminho com estilingue fica até este múltiplo do direto. */
@@ -428,7 +430,7 @@ const smoothRamp = (y: number) => y * y * y - (y * y * y * y) / 2
 
 /**
  * Tempo normalizado x ∈ [0, 1] → tempo de Kepler τ ∈ [0, 1]: ritmo constante, com a queima de partida (rampa suave)
- * no começo e a frenagem dos puffs no fim (a velocidade cai em degraus, um por puff: ver `brakeFactor`), só nas pontas
+ * no começo e a frenagem dos puffs no fim (o puff de ré: a velocidade cai numa curva só, ver `brakeFactor`), só nas pontas
  * pedidas. Sem rampa numa ponta, a nave passa por ela em cruzeiro (costura com o vizinho).
  */
 class Burn {
@@ -527,7 +529,7 @@ class ArcSegment implements Segment {
     this.dStart = match.start ? sub(match.start, this.baseVelocity(0, [0, 0, 0])) : null
     this.dEnd = match.end ? sub(match.end, this.baseVelocity(duration, [0, 0, 0])) : null
     // Partida parada: a rampa da queima. Partida em voo (troca de destino): a correção que leva a velocidade atual à
-    // do arco novo é a queima. A correção do fim só costura com o sobrevoo (de graça, motor desligado).
+    // do arco novo é a queima. A correção do fim só costura com o sobrevoo (de graça, sem queima).
     this.startBurn = ease.start ? BURN_FRACTION * duration : match.start ? this.tbStart : 0
     this.endBurn = brakeWindow
   }
@@ -603,7 +605,7 @@ class HyperbolaSegment implements Segment {
   readonly a: number
   readonly e: number
   readonly duration: number
-  /** Sobrevoo: só gravidade, motor desligado. */
+  /** Sobrevoo: só gravidade (motor na chama-piloto). */
   readonly startBurn = 0
   readonly endBurn = 0
   readonly puffs: readonly Puff[] = []
@@ -899,11 +901,22 @@ function planetFlyby(plan: Plan, bodies: readonly TravelBody[], exclude: string 
   const kB = length(new ArcSegment(arcB, 1, { start: false, end: true }).baseVelocity(0, [0, 0, 0]))
   const kH = length(probe.velocity(0, [0, 0, 0]))
   const total = travelDuration(arcLength(arcA) + arcLength({ point: (u: number, out?: Vec3) => probe.point(u, out ?? [0, 0, 0]) }) + arcLength(arcB))
-  const shares = [kA, kH, kB].map((k) => Math.max(k / (kA + kH + kB), 0.12))
+  const shares = [kA, kH, kB].map((k) => Math.max(k / (kA + kH + kB), MIN_SHARE))
   const sum = shares[0] + shares[1] + shares[2]
-  const tA = (total * shares[0]) / sum
-  const tB = (total * shares[2]) / sum
+  let tA = (total * shares[0]) / sum
+  let tB = (total * shares[2]) / sum
+  // O último trecho leva a costura da hipérbole e o puff inteiro (nunca menos que PUFF_MIN_SECONDS): se ele ficou
+  // curto, tira o tempo que falta dos outros dois, na proporção; se não couber, fica o caminho direto.
+  const minB = BLEND_SECONDS + brakeWindowFor(total)
+  if (tB < minB) {
+    const rest = total - tB
+    const take = minB - tB
+    if (rest - take < 2 * MIN_SHARE * total) return null
+    tA -= (take * tA) / rest
+    tB = minB
+  }
   const tH = total - tA - tB
+  if (tA < MIN_SHARE * total || tH < MIN_SHARE * total) return null
 
   const hyper = new HyperbolaSegment(B, P, Q, a, e, fw, tH)
   const startA = startOf(plan, arcA, tA)

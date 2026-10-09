@@ -35,8 +35,8 @@ export interface BurnWindows {
 }
 
 /**
- * Intensidade no fim da chegada: o motor principal fica na chama-piloto (COAST_THRUST, 0,3), um degrau só (0,05)
- * acima do nível de quem fica parado (visita, escolta: 0,25) — sem estalo na troca.
+ * Intensidade no fim da chegada: 0 — o motor principal termina na chama-piloto (COAST_THRUST) e o ShipRig a assenta
+ * aos poucos no nível de quem fica parado (`settleThrust`), sem estalo na troca.
  */
 export const ARRIVAL_TAIL = 0
 /** Duração do puff de ré (s): a janela inteira da frenagem fica entre estes limites. */
@@ -67,10 +67,9 @@ export function puffSchedule(start: number, end: number): Puff[] {
  */
 export function burnPhaseAt(burns: BurnWindows, duration: number, t: number): BurnPhase {
   const { departure, arrival } = burns
-  if (t < departure) return { phase: 'departure', intensity: 1 - smoothstep(0.55, 1, Math.max(0, t) / departure) }
+  if (t < departure) return { phase: 'departure', intensity: departure > 0 ? 1 - smoothstep(0.55, 1, Math.max(0, t) / departure) : 0 }
   if (t < arrival || arrival >= duration) return { phase: 'coast', intensity: 0 }
-  const u = Math.min(1, (t - arrival) / (duration - arrival))
-  return { phase: 'arrival', intensity: ARRIVAL_TAIL * smoothstep(0.8, 1, u) }
+  return { phase: 'arrival', intensity: ARRIVAL_TAIL }
 }
 
 /** Puff ativo no instante `t` (índice), ou −1. */
