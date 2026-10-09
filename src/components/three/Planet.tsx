@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useCursor } from '@react-three/drei'
 import { useReducedMotion } from 'framer-motion'
@@ -56,8 +56,14 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
     if (surface.current) surface.current.rotation.y = angles.spin + focusSpin.current
   })
 
+  // Saiu do foco com o cursor parado sobre o planeta: o detalhe do dia não pode ficar na tela.
+  useEffect(() => {
+    if (!isSelected && useUniverse.getState().hoveredCell?.planet === repo.name) setHoveredCell(null)
+  }, [isSelected, repo.name, setHoveredCell])
+
   function handleMove(e: ThreeEvent<PointerEvent>) {
-    if (!isReal || !e.uv) return setHoveredCell(null)
+    // O detalhe do dia (data e commits) só com o planeta em foco; de longe vale o cartão geral do repo.
+    if (!isSelected || !isReal || !e.uv) return setHoveredCell(null)
     const cell = cellFromUv(e.uv.x, e.uv.y)
     if (!cell) return setHoveredCell(null)
     setHoveredCell({
