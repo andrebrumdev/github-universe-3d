@@ -12,9 +12,6 @@ import { useUniverse } from '@/store/universe'
 import {
   ATMOSPHERE_MATERIAL,
   ATMOSPHERE_SCALE,
-  AXIS_GEOMETRY,
-  AXIS_LENGTH,
-  AXIS_MATERIAL,
   PLANET_GEOMETRY_HI,
   PLANET_GEOMETRY_LO,
 } from './geometries'
@@ -50,8 +47,6 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
     if (tilt.current) tilt.current.rotation.z = angles.obliquity
     if (surface.current) surface.current.rotation.y = angles.spin
   })
-
-  const axisWidth = Math.max(0.05, 0.04 * orbit.radius)
 
   function handleMove(e: ThreeEvent<PointerEvent>) {
     if (!isReal || !e.uv) return setHoveredCell(null)
@@ -95,13 +90,6 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
             geometry={PLANET_GEOMETRY_LO}
             material={ATMOSPHERE_MATERIAL}
             scale={orbit.radius * ATMOSPHERE_SCALE}
-            raycast={() => null}
-          />
-          {/* Eixo de rotação pelos polos: fica no grupo da obliquidade, então mostra a inclinação, a precessão e a nutação. */}
-          <mesh
-            geometry={AXIS_GEOMETRY}
-            material={AXIS_MATERIAL}
-            scale={[axisWidth, 2 * orbit.radius * AXIS_LENGTH, axisWidth]}
             raycast={() => null}
           />
           {moons.map((moon) => (
