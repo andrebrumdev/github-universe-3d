@@ -130,5 +130,6 @@ describe('a chance cresce com o embalo', () => {
     const rate = crashes / returns.length
     expect(rate).toBeGreaterThanOrEqual(0.08)
     expect(rate).toBeLessThanOrEqual(0.15)
-  })
+    // 6000 voltas planejadas (com a tabela de arco de cada uma): leva uns segundos com a suíte inteira rodando
+  }, 30_000)
 })

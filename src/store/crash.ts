@@ -32,6 +32,12 @@ export const useCrash = create<CrashStore>((set, get) => ({
  */
 export const crashTimeline: CrashTimeline = newCrashTimeline()
 
+/**
+ * Câmera durante o voo da trombada: `hold` enquanto a nave vem para a lente (até o impacto) — a câmera para onde está
+ * (sem ir para a visão geral nem enquadrar uma chegada). Escrito pela nave a cada quadro; lido pelo CameraRig.
+ */
+export const crashCamera = { hold: false }
+
 /** A camada do vidro já pode sair (curou, foi cancelada e curou, ou a trombada acabou). */
 export function overlayExpired(tl: CrashTimeline): boolean {
   return !crashOverlayOn(tl)

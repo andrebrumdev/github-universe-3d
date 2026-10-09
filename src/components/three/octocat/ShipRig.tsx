@@ -11,6 +11,7 @@ import {
   crashBlend,
   crashBurnPhase,
   crashBurns,
+  crashHoldsCamera,
   crashFaceWeight,
   crashHeading,
   crashPoint,
@@ -68,7 +69,7 @@ import { reservedRects } from '@/lib/uiLayout'
 import { barycenterOffset } from '@/lib/universe/barycenter'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
-import { CRASH_OVERRIDE, crashSession, crashTimeline, endCrash, useCrash } from '@/store/crash'
+import { CRASH_OVERRIDE, crashCamera, crashSession, crashTimeline, endCrash, useCrash } from '@/store/crash'
 import { flightClock } from '@/store/frameClock'
 import { resetShipPose, shipPose } from '@/store/shipPose'
 import { usePresentation } from '@/store/presentation'
@@ -390,6 +391,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
           override: CRASH_OVERRIDE,
         })
         if (!fromFocus) crashSession.history = recordReturn(crashSession.history, crash)
+        // a câmera para já neste commit (o CameraRig roda antes da nave no próximo quadro e iria para a visão geral)
+        crashCamera.hold = crash
         if (crash) {
           crashPlan.current = planCrash(input)
           duration = crashTotal(crashPlan.current)
@@ -530,6 +533,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     let facing = 0
     const plan = s.mode === 'returning' ? returnPlan.current : null
     const crashFlight = s.mode === 'returning' && !reduced ? crashPlan.current : null
+    // a câmera fica onde está enquanto a nave vem para a lente (CameraRig)
+    crashCamera.hold = crashHoldsCamera(crashFlight, s.elapsed)
 
     if (s.mode === 'traveling' && s.path) {
       hasLocal.current = false

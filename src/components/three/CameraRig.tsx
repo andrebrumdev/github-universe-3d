@@ -25,6 +25,7 @@ import type { Repo } from '@/lib/types'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
 import { bindCameraLock } from '@/store/cameraLock'
+import { crashCamera } from '@/store/crash'
 import { usePresentation } from '@/store/presentation'
 import { flightClock } from '@/store/frameClock'
 import { shipPose } from '@/store/shipPose'
@@ -196,6 +197,13 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
       }
       // Ao chegar, a câmera já está no enquadramento da seleção (misturado depois da mola, abaixo).
       focusRequest.current = true
+    } else if (crashCamera.hold) {
+      // Trombada: enquanto a nave vem para a lente, a câmera freia até parar onde está (o alvo de cada mola é onde
+      // ela pararia deslizando), sem ir para a visão geral; o pedido de foco fica para depois do impacto.
+      const d = drive.current
+      if (!d) return
+      const coast = (s: Spring3): Vec3 => [0, 1, 2].map((k) => s.position[k] + s.velocity[k] / FOCUS_SPRING) as Vec3
+      goal = { position: coast(d.position), target: coast(d.target) }
     } else if (focusRequest.current || drive.current) {
       const { selection: sel, viewport: vp, layout: lay } = latest.current
       goal = selectionPose(sel, system, predictStopTime(simClock), lay, vp)
