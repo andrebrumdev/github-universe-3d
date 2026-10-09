@@ -184,8 +184,49 @@ Controles: [Próximo] e [Pular tutorial]. A câmera é conduzida pelos passos at
 
 ## 6. Visual
 
-- **Cores gerais:** fundo `#0a0e27`; quadradinhos `#10b981`; luas na cor oficial da linguagem; texto branco/cinza claro com destaques ciano neon.
-- **Sol:** azul e verde, olhos brancos com pupila preta, boca rosa, glow ciano.
+- **Cores gerais:** fundo `#03050d`; planetas `#5b7bc0` com dia vazio `#1f2a4a`; quadradinhos `#10b981`; luas na cor oficial da linguagem; texto branco/cinza claro com destaques ciano neon.
+- **Sol:** ver a seção 7 (amarelo de LED no estilo do Sphere de Las Vegas).
 - **Octocat e nave:** seguem a arte de `design/Octocat.dc.html` (corpo `#1F2329`, rosto `#F2C9A6`, gorro-Clawd `#D97757`, cúpula `#A5F3FC`), que substitui as cores do brief. A exceção é a nave, em roxo claro (`#C4B5FD` no casco e nas asas, em vez do vermelho `#D7263D` da arte).
 - **Referência de estilo** (não de asset): o [Jetpacktocat](https://octodex.github.com/jetpacktocat/) do Octodex, para traço, proporções e expressividade. A arte continua sendo SVG próprio, com a nave.
 - **Outras referências:** `demo/index.html` e `design/`.
+
+## 7. Revisões pedidas durante a execução (2026-10-08/09)
+
+Estes pedidos do usuário chegaram depois da spec original. Eles valem sobre as seções anteriores onde houver conflito.
+
+- **Planetas:**
+  - O raio é relativo ao próprio perfil: o repo de maior peso (estrelas + 2·forks) fica com o raio máximo, de 0,45 a 3,0.
+  - A grade de contribuições cobre o planeta de polo a polo, dividida em dois hemisférios. O norte tem as semanas 0–25 e o sul as semanas 26–51, numa grade de 26×14 células quase quadradas, com calotas polares e sem emenda.
+  - Os quadradinhos verdes têm brilho próprio, com um pulso que roda em shader. O bloom fica só no desktop e pode ser desligado com `?nobloom`.
+  - Há uma atmosfera ciano e nenhuma haste de eixo.
+- **Física:**
+  - **Órbitas:** são de Kepler, elípticas (e de 0,12 a 0,25) e inclinadas até ±14°. Têm precessão do periélio e ressonâncias entre os anéis.
+  - **Espaçamento:** é feito pelo alcance do corpo, contando o planeta e as luas.
+  - **Rotação dos planetas:** usa os ângulos de Euler, com precessão, obliquidade com nutação e rotação própria.
+  - **Luas:** seguem órbitas de Kepler e mostram a marca da linguagem.
+  - **Sol:** bamboleia em torno do baricentro.
+  - **Troianos:** cada fork vira um troiano nos pontos L4/L5 do planeta do repo.
+  - **Cometas:** um repo com push nos últimos 7 dias vira um cometa, com e≈0,9 e cauda anti-solar.
+- **Sol:**
+  - O estilo é o do Sphere de Las Vegas, com o emoji: amarelo de LED liso, olhos brancos grandes, sobrancelhas grossas e boca pequena.
+  - Ele tem squash & stretch, uma textura de LED, névoa e aberração cromática só no sol.
+  - Fica fora do bloom e do tone mapping do composer, para manter as cores iguais às do modo sem bloom.
+  - O olhar tem personalidade: o sol olha para a câmera, para o mouse ou para a nave, e às vezes admira um planeta. Ele interrompe o que está fazendo no hover, no clique, durante a viagem da nave e quando algo ganha foco.
+- **Nave e Octocat:**
+  - **Escolta:** a nave fica perto da lente, de frente para quem vê, e de vez em quando bate no vidro, quebrando a quarta parede. Ela respeita os botões e os cartões em qualquer tela.
+  - **Viagem:** é uma transferência de Hohmann de verdade, com o sol no foco. Tem estilingue gravitacional em planetas grandes e nunca atravessa a lente.
+  - **Câmera:** é puxada pela nave como no Astro Bot. A volta para perto da tela é suave.
+  - **Visita:** quando apresenta um planeta, a nave fica em primeiro plano.
+  - **Movimento secundário:** tentáculos e antena usam física de Verlet, com a inércia medida em relação à câmera durante a escolta e a visita.
+  - **Propulsor e rastro:** os dois usam shader de fogo, com ruído animado e gradiente de temperatura.
+- **UI:**
+  - Um cartão com o resumo do README aparece no hover de um planeta. O resumo é gerado no snapshot e só para o top 40.
+  - O painel ganha uma seção "Sobre".
+  - Há um modo apresentação, aberto pelo botão "▶ Apresentação" ou por `?apresentacao`. Ele percorre o perfil e o top 10 dos repos, com controles e narração do Octocat.
+  - O céu tem uma camada de estrelas com paralaxe, com menos estrelas que antes, para destacar os planetas.
+- **Referências de estilo** (só de estilo, sem logos):
+  - nave: máquina do tempo de *A Família do Futuro*;
+  - Octocat: clássico do GitHub e Universe '24, com o Clawd em pé na cabeça;
+  - sol: o Sphere de Las Vegas.
+
+  Todas ficam na skill `universe-low-poly`, em `references/`.
