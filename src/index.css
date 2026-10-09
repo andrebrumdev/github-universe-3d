@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --color-space: #0a0e27;
+  --color-space: #03050d;
   --color-neon: #22d3ee;
   --color-grid: #10b981;
   --color-panel: #0f1535;
@@ -11,6 +11,27 @@ html,
 body,
 #root {
   height: 100%;
-  background: #0a0e27;
+  background: #03050d;
   color: #f1f5f9;
+}
+
+@keyframes planet-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.planet-card {
+  animation: planet-card-in 140ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .planet-card {
+    animation: none;
+  }
 }
