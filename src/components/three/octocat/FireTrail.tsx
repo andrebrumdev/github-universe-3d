@@ -76,6 +76,9 @@ const WARMUP_FRAMES = 3
  * do clique: uma faixa vazia (drawRange 0, nada aparece) com o mesmo material renderiza nos primeiros quadros, no
  * mesmo caminho do render de verdade (com ou sem o EffectComposer, então a chave do programa é a mesma). Depois fica
  * invisível e montada: enquanto este material vive, o three guarda o programa, e o FireTrail de cada voo o reaproveita.
+ * O programa muda com o bloom (com ele, a cena desenha no alvo do EffectComposer: sem tone mapping e em sRGB linear),
+ * e o bloom monta depois da cena: quando ele liga ou desliga, aquece de novo. Sem isso, cada voo compilava o programa
+ * do rastro e o largava na chegada.
  */
 export function TrailWarmup() {
   const ribbon = useMemo(() => new TrailRibbon(), [])
@@ -89,6 +92,11 @@ export function TrailWarmup() {
   )
   const mesh = useRef<THREE.Mesh>(null)
   const frames = useRef(0)
+  const bloomActive = useBloom((s) => s.active)
+  useEffect(() => {
+    frames.current = 0
+    if (mesh.current) mesh.current.visible = true
+  }, [bloomActive])
   useFrame(() => {
     if (frames.current > WARMUP_FRAMES || !mesh.current) return
     frames.current++

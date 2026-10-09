@@ -118,7 +118,15 @@ export function Starfield({ radius }: { radius: number }) {
     geometry.dispose()
     return f
   }, [radius, outer, reducedMotion])
-  useEffect(() => () => field.dispose(), [field])
+  useEffect(
+    () => () => {
+      // o dispose da lib solta a geometria e o material, mas não os buffers por instância (matriz e cor) do
+      // InstancedMesh: sem o dispose dele, cada troca da casca (raio, movimento reduzido) os deixaria na GPU
+      field.dispose()
+      field.mesh.dispose()
+    },
+    [field],
+  )
   useFrame(({ clock }) => {
     if (!reducedMotion) field.update(clock.elapsedTime)
   })

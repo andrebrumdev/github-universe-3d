@@ -55,6 +55,12 @@ describe('overviewPose', () => {
     expect(pose.position.every(Number.isFinite)).toBe(true)
     expect(pose).toEqual(overviewPose(system))
   })
+
+  it('a mesma pose depois de muitos aspectos (o cache tem teto e recalcula o que saiu dele)', () => {
+    const first = overviewPose(system, { aspect: 1.6, fov: 50 })
+    for (let i = 0; i < 50; i++) overviewPose(system, { aspect: 1 + i / 100, fov: 50 })
+    expect(overviewPose(system, { aspect: 1.6, fov: 50 })).toEqual(first)
+  })
 })
 
 /**

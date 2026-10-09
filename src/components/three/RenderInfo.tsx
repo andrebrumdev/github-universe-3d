@@ -1,13 +1,18 @@
 import { useEffect, useRef } from 'react'
-import { useFrame, useThree } from '@react-three/fiber'
+import { useFrame, useThree, type RootState } from '@react-three/fiber'
 
 /** Quantos quadros somar antes de atualizar o painel (a média fica estável e o DOM não muda a cada quadro). */
 const WINDOW = 30
 
 declare global {
   interface Window {
-    /** `?perf`: médias por quadro do renderer.info (draw calls, triângulos) e programas compilados. */
-    __renderInfo?: { calls: number; triangles: number; programs: number }
+    /**
+     * `?perf`: médias por quadro do renderer.info (draw calls, triângulos), programas compilados e o que está na GPU
+     * (geometrias e texturas vivas, do `renderer.info.memory`).
+     */
+    __renderInfo?: { calls: number; triangles: number; programs: number; geometries: number; textures: number }
+    /** `?perf`: o estado do R3F (renderer, cena, câmera), para medir memória de fora da página. */
+    __r3f?: () => RootState
   }
 }
 
@@ -28,10 +33,12 @@ export function RenderInfo() {
     const { info } = get().gl
     const autoReset = info.autoReset
     info.autoReset = false
+    window.__r3f = get
     return () => {
       info.autoReset = autoReset
       el.remove()
       label.current = null
+      delete window.__r3f
     }
   }, [get])
   useFrame(({ gl }) => {
@@ -41,7 +48,13 @@ export function RenderInfo() {
     a.triangles += gl.info.render.triangles
     gl.info.reset()
     if (a.frames < WINDOW) return
-    const info = { calls: Math.round(a.calls / a.frames), triangles: Math.round(a.triangles / a.frames), programs: gl.info.programs?.length ?? 0 }
+    const info = {
+      calls: Math.round(a.calls / a.frames),
+      triangles: Math.round(a.triangles / a.frames),
+      programs: gl.info.programs?.length ?? 0,
+      geometries: gl.info.memory.geometries,
+      textures: gl.info.memory.textures,
+    }
     window.__renderInfo = info
     if (label.current) label.current.textContent = `draws ${info.calls} · tris ${info.triangles} · programs ${info.programs}`
     a.frames = a.calls = a.triangles = 0

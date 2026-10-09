@@ -1,3 +1,4 @@
+import { BoundedCache } from './boundedCache'
 import { selectedPlanet, type UniverseSelection } from './interaction'
 import type { TutorialStep } from './tutorial'
 import type { RepoBase } from './types'
@@ -80,8 +81,12 @@ function screenExtent(samples: { p: Vec3; r: number }[], eye: Vec3, target: Vec3
 
 const overviewAt = (d: number, lead: number): Pose => ({ position: [0, d * OVERVIEW_RISE, lead + d], target: [0, 0, lead] })
 
-/** Uma pose por sistema e viewport: a busca roda a cada frame da mola da câmera. */
-const overviewCache = new WeakMap<OrbitSystem, Map<string, Pose>>()
+/**
+ * Uma pose por sistema e viewport: a busca roda a cada frame da mola da câmera. Com teto: arrastar a borda da janela
+ * passa por centenas de aspectos, e cada um viraria uma entrada para sempre.
+ */
+const OVERVIEW_CACHE_LIMIT = 8
+const overviewCache = new WeakMap<OrbitSystem, BoundedCache<string, Pose>>()
 
 /**
  * Visão geral: a menor distância em que todas as órbitas (com o alcance dos corpos e a inclinação) cabem na tela
@@ -118,7 +123,7 @@ export function overviewPose(system: OrbitSystem, viewport: Viewport = DEFAULT_V
     else lo = mid
   }
   const pose = overviewAt(hi, lead)
-  if (!cache) overviewCache.set(system, (cache = new Map()))
+  if (!cache) overviewCache.set(system, (cache = new BoundedCache(OVERVIEW_CACHE_LIMIT)))
   cache.set(key, pose)
   return pose
 }
