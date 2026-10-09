@@ -4,9 +4,10 @@ import { create } from 'zustand'
  * Trava da câmera com dono: quem gira uma peça arrastando (a nave no modo de foco, o sol) pega a trava no próprio
  * `pointerdown` e só o dono solta. Ela é aplicada na hora, direto na instância do CameraControls (`bindCameraLock`,
  * ligada pelo CameraRig), sem esperar um render do React e sem parar a propagação do evento nativo:
- * - desliga só o giro de um ponteiro (botão esquerdo e um dedo); rodinha, botão do meio e dois dedos (pinça) seguem;
- * - chama `cancel()`, para o caso de o CameraControls já ter começado um giro com este aperto.
- * Nada de `enabled = false`: isso também limparia o `touch-action` do canvas e o navegador poderia dar zoom na página.
+ * - desliga só o giro de um ponteiro (botão esquerdo e um dedo); rodinha, botão do meio e dois dedos (pinça) seguem.
+ * Basta isso mesmo se o CameraControls já viu este aperto: ele refaz a ação a cada movimento a partir desses botões.
+ * Nada de `cancel()`: ele esvazia a lista de ponteiros do CameraControls, e o segundo dedo de uma pinça viraria um
+ * dedo só (sem zoom). Nada de `enabled = false`: limparia o `touch-action` do canvas (zoom da página no celular).
  */
 export type CameraLockOwner = 'ship' | 'sun'
 
@@ -29,7 +30,6 @@ export function releaseCameraLock(owner: CameraLockOwner): void {
 export interface LockableControls {
   mouseButtons: { left: number }
   touches: { one: number }
-  cancel: () => void
 }
 
 /**
@@ -44,7 +44,6 @@ export function bindCameraLock(controls: LockableControls, none: number): () => 
       saved = { left: controls.mouseButtons.left, one: controls.touches.one }
       controls.mouseButtons.left = none
       controls.touches.one = none
-      controls.cancel()
     } else if (!locked && saved) {
       controls.mouseButtons.left = saved.left
       controls.touches.one = saved.one

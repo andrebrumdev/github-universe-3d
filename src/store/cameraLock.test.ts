@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { acquireCameraLock, bindCameraLock, releaseCameraLock, useCameraLock, type LockableControls } from './cameraLock'
 
 const NONE = 0
@@ -7,18 +7,16 @@ const DOLLY = 8
 const TOUCH_ROTATE = 64
 const TOUCH_DOLLY = 1024
 
-/** O que o CameraControls tem de botões, com um `cancel` espião. */
+/** O que o CameraControls tem de botões (a pinça de verdade está em cameraLock.real.test.ts). */
 interface FakeControls extends LockableControls {
   mouseButtons: { left: number; middle: number; right: number; wheel: number }
   touches: { one: number; two: number; three: number }
-  cancel: ReturnType<typeof vi.fn<() => void>>
 }
 
 function fakeControls(): FakeControls {
   return {
     mouseButtons: { left: ROTATE, middle: DOLLY, right: 2, wheel: DOLLY },
     touches: { one: TOUCH_ROTATE, two: TOUCH_DOLLY, three: 0 },
-    cancel: vi.fn<() => void>(),
   }
 }
 
@@ -45,14 +43,13 @@ describe('trava da câmera com dono', () => {
 })
 
 describe('trava aplicada no CameraControls na hora (sem esperar o React)', () => {
-  it('pegar desliga só o giro de um ponteiro (botão esquerdo, um dedo) e cancela um giro começado, no mesmo instante', () => {
+  it('pegar desliga só o giro de um ponteiro (botão esquerdo, um dedo), no mesmo instante', () => {
     const c = fakeControls()
     const unbind = bindCameraLock(c, NONE)
     acquireCameraLock('ship')
     // síncrono: já aplicado quando acquire volta
     expect(c.mouseButtons.left).toBe(NONE)
     expect(c.touches.one).toBe(NONE)
-    expect(c.cancel).toHaveBeenCalledTimes(1)
     // rodinha, botão do meio e dois dedos (pinça) continuam
     expect(c.mouseButtons.wheel).toBe(DOLLY)
     expect(c.mouseButtons.middle).toBe(DOLLY)
