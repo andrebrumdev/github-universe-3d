@@ -15,6 +15,7 @@ import { useSceneReady } from '@/store/sceneReady'
 import { preToneMapped } from './acesBackground'
 import { CameraRig } from './CameraRig'
 import { Comets } from './Comets'
+import { FlightWarmup } from './octocat/FlightWarmup'
 import { ShipRig } from './octocat/ShipRig'
 import { OrbitLines } from './OrbitLines'
 import { Planet } from './Planet'
@@ -134,6 +135,8 @@ export function Scene({ universe }: { universe: Universe }) {
       <Comets system={system} repos={universe.repos} />
       <CameraRig system={system} repos={universe.repos} />
       <ShipRig system={system} repos={universe.repos} />
+      {/* programas dos efeitos de voo compilados na montagem (e quando o bloom liga), não no primeiro voo */}
+      <FlightWarmup />
       {bloom && (
         <BloomBoundary>
           <Suspense fallback={null}>

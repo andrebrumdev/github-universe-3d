@@ -55,6 +55,35 @@ void main() {
 }
 `
 
+/** Faixa de 4 vértices (2 triângulos): a posição sai dos uniforms, `aPlume` diz onde cada vértice fica na pluma. */
+export function createPlumeGeometry(): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3))
+  g.setAttribute('aPlume', new THREE.BufferAttribute(new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]), 2))
+  g.setIndex([0, 1, 2, 2, 1, 3])
+  return g
+}
+
+/** Material da pluma (aditivo, sem escrever profundidade); um por pluma, descartado com ela. */
+export function createPlumeMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uStart: { value: new THREE.Vector3() },
+      uEnd: { value: new THREE.Vector3() },
+      uHalfWidth: { value: PLUME_HALF_WIDTH },
+      uOpacity: { value: 0 },
+      uCore: { value: new THREE.Color('#E6FDFF') },
+      uEdge: { value: new THREE.Color(COLORS.thruster) },
+    },
+    vertexShader: VERTEX,
+    fragmentShader: FRAGMENT,
+    blending: THREE.AdditiveBlending,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  })
+}
+
 /** Uniforms do quadro: da boca do bocal `start` para trás (`back`, unitário) por PLUME_LENGTH, com a opacidade. */
 function setPlume(material: THREE.ShaderMaterial, start: THREE.Vector3, back: THREE.Vector3, opacity: number): void {
   const u = material.uniforms
@@ -89,33 +118,8 @@ class PlumeState {
  * da nave, com o bocal em `nozzle` (espaço do modelo).
  */
 export function CoastPlume({ ship, nozzle }: { ship: RefObject<THREE.Object3D | null>; nozzle: readonly [number, number, number] }) {
-  const geometry = useMemo(() => {
-    const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3))
-    g.setAttribute('aPlume', new THREE.BufferAttribute(new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]), 2))
-    g.setIndex([0, 1, 2, 2, 1, 3])
-    return g
-  }, [])
-  const material = useMemo(
-    () =>
-      new THREE.ShaderMaterial({
-        uniforms: {
-          uStart: { value: new THREE.Vector3() },
-          uEnd: { value: new THREE.Vector3() },
-          uHalfWidth: { value: PLUME_HALF_WIDTH },
-          uOpacity: { value: 0 },
-          uCore: { value: new THREE.Color('#E6FDFF') },
-          uEdge: { value: new THREE.Color(COLORS.thruster) },
-        },
-        vertexShader: VERTEX,
-        fragmentShader: FRAGMENT,
-        blending: THREE.AdditiveBlending,
-        transparent: true,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      }),
-    [],
-  )
+  const geometry = useMemo(() => createPlumeGeometry(), [])
+  const material = useMemo(() => createPlumeMaterial(), [])
   useEffect(
     () => () => {
       geometry.dispose()
