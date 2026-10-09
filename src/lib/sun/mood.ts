@@ -10,7 +10,7 @@ import type { SunExpression } from './sunMachine'
  * | nada acontecendo por mais de ~8 s                | deriva    | viajando (dormindo, Z z z)                  |
  * | primeira carga / boas-vindas do tutorial         | quem vê   | feliz (cumprimentando); nunca começa dormindo|
  * | mouse em cima do sol                             | mouse     | feliz                                       |
- * | clique no sol / painel do perfil aberto          | quem vê   | surpreso (~0,6 s), depois feliz (orgulhoso) |
+ * | clique no sol / painel do perfil aberto          | quem vê   | surpreso (≥1,2 s), depois feliz (orgulhoso) |
  * | nave saindo ou viajando                          | nave      | sério; de olho se ela está bem de lado      |
  * | estilingue perto do sol / nave passando raspando | nave      | surpreso                                    |
  * | planeta selecionado ou em foco                   | o planeta | admirando                                   |
@@ -90,6 +90,10 @@ export const CALM: MoodContext = {
 export const IDLE_SLEEP = 8
 /** Tempo mínimo em cada humor (s), a não ser que entre um evento mais alto. */
 export const MIN_DWELL = 1.2
+/**
+ * Os surpresos curtos (clique, cometa, aba) duram na prática pelo menos `MIN_DWELL`: o humor seguinte tem prioridade
+ * menor e espera o mínimo. Estes valores dizem quando a situação deixa de pedir surpresa.
+ */
 export const CLICK_SURPRISE = 0.6
 export const LEAVE_SAD = 1.5
 export const ARRIVAL_ADMIRE = 1.5

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { crashOverride, INITIAL_CRASH_HISTORY, type CrashHistory, type CrashOverride } from '@/lib/crash/rarity'
 import { crashOverlayOn, crashReset, newCrashTimeline, type CrashTimeline } from '@/lib/crash/timeline'
+import { useUniverse } from './universe'
 
 /** Impacto na tela: ponto (px, tela cheia como o canvas) e semente da trinca; `seq` sobe a cada trombada. */
 export interface CrashImpact {
@@ -41,6 +42,17 @@ export function endCrash(): void {
   crashReset(crashTimeline)
   useCrash.setState({ impact: null })
 }
+
+/**
+ * Falas de desculpa da trombada que saíram de verdade: sobe quando o balão do Octocat mostra a fala 'crash' (a nave
+ * só a emite quando a linha do tempo chega à fala sem cancelamento). Cancelada, encerrada à força (`endCrash`) ou
+ * cancelada entre dois quadros, nenhuma fala sai e o contador não sobe. O sol ri só quando ele sobe (sunEvents).
+ */
+export const crashApology = { count: 0 }
+
+useUniverse.subscribe((state, prev) => {
+  if (state.bubble && state.bubble !== prev.bubble && state.bubble.line.id === 'crash') crashApology.count++
+})
 
 /** Voltas desta sessão (vale enquanto a página fica aberta; uma remontagem da cena não zera). */
 export const crashSession: { history: CrashHistory; rng: () => number } = {

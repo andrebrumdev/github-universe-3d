@@ -43,7 +43,7 @@ describe('moodFor: cada linha da tabela de humores', () => {
     expect(mood({ hover: true })).toMatchObject({ expression: 'happy', target: 'mouse' })
   })
 
-  it('clique no sol: surpreso para quem vê (~0,6 s) e depois feliz (orgulhoso) com o painel do perfil aberto', () => {
+  it('clique no sol: surpreso para quem vê (a situação pede 0,6 s; o tempo mínimo segura 1,2 s) e depois feliz com o painel aberto', () => {
     expect(mood({ sinceClick: 0.1, profileOpen: true })).toMatchObject({ expression: 'surprised', target: 'viewer' })
     expect(mood({ sinceClick: CLICK_SURPRISE + 0.1, profileOpen: true })).toMatchObject({ expression: 'happy', target: 'viewer' })
   })
@@ -190,6 +190,23 @@ describe('stepMood: tempo mínimo em cada humor (sem piscar de um para outro)', 
     const after = run(sad, Array.from({ length: 20 }, () => ({})))
     const flip = after.findIndex((s) => s.mood.expression !== 'sad')
     expect((flip + 1) * 0.1).toBeGreaterThanOrEqual(MIN_DWELL - 1e-9)
+  })
+
+  it('clique: o surpreso dura o tempo mínimo (1,2 s), não os 0,6 s da situação, e só então vira feliz', () => {
+    let st: MoodState = MOOD_AT_START
+    let t = 0
+    const dt = 0.05
+    st = stepMood(st, { ...quiet, sinceClick: 0, profileOpen: true }, dt)
+    expect(st.mood.expression).toBe('surprised')
+    let surprised = 0
+    while (st.mood.expression === 'surprised' && t < 5) {
+      t += dt
+      st = stepMood(st, { ...quiet, sinceClick: t, profileOpen: true }, dt)
+      if (st.mood.expression === 'surprised') surprised += dt
+    }
+    expect(surprised).toBeGreaterThanOrEqual(MIN_DWELL - dt - 1e-9)
+    expect(surprised).toBeLessThan(MIN_DWELL + dt)
+    expect(st.mood.expression).toBe('happy')
   })
 
   it('um evento mais alto passa na frente na hora', () => {

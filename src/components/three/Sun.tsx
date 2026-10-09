@@ -10,6 +10,7 @@ import { hasEyes, hasSparkle, PUPIL, PUPIL_REACH, pupilLook, zzzState } from '@/
 import { FACE_AT_REST, faceTarget, stepFaceSpring, wrapAngle, type FaceSpring } from '@/lib/sun/faceSpring'
 import { headOffset, limitTurn, MOTION_AT_REST, quantizePupil, stepGazeMotion, type GazeMotion } from '@/lib/sun/gaze'
 import { CALM, MOOD_AT_START, moodFor, stepMood, type MoodContext, type MoodState } from '@/lib/sun/mood'
+import { deriveSunEvents, isClosePass, newSunEvents, newSunEventState, newSunSnapshot } from '@/lib/sun/sunEvents'
 import { kickSquash, SQUASH_AT_REST, SQUASH_TARGET, squashScale, stepSquash, type Squash } from '@/lib/sun/squash'
 import {
   CLICK_DURATION,
@@ -18,14 +19,13 @@ import {
   SUN_LOOK,
   sunReducer,
   type SunExpression,
-  type SunMode,
   type SunState,
 } from '@/lib/sun/sunMachine'
 import type { RepoBase } from '@/lib/types'
 import { barycenterOffset } from '@/lib/universe/barycenter'
 import { buildComets, cometPosition } from '@/lib/universe/comets'
 import { planetPosition, SUN_RADIUS, type OrbitSystem, type Vec3 } from '@/lib/universe/orbits'
-import { crashTimeline } from '@/store/crash'
+import { crashApology, crashTimeline } from '@/store/crash'
 import { bloomLook, useBloom } from '@/store/bloom'
 import { usePresentation } from '@/store/presentation'
 import { shipPose } from '@/store/shipPose'
@@ -54,38 +54,22 @@ const NO_RAYCAST = () => undefined
 
 /** Para onde o mouse "está" para o olhar: no raio do ponteiro, um pouco à frente do sol (em raios do sol). */
 const MOUSE_LOOK_AHEAD = 3
-/** Nave passando raspando: a menos disto do centro do sol (em raios do sol). */
-const CLOSE_PASS = 4
 /** Nave "bem de lado" para quem vê: mais que isto entre a direção da nave e a da câmera, vistas do sol. */
 const FAR_SIDE = (60 * Math.PI) / 180
 /** Cometa "perto do periélio": a menos disto × o periélio do sol. */
 const COMET_NEAR = 1.4
-/** A fala de desculpa da trombada dura mais ou menos isto (s): o sol ri junto. */
-const CRASH_LAUGH = 2.5
-/** A aba precisa ficar escondida mais que isto (ms) para o sol "acordar" quando ela volta. */
-const TAB_AWAY_MS = 10_000
 /** Piscada de transição entre humores (ms). */
 const TRANSITION_BLINK_MS = 130
 
 type SunRepo = Pick<RepoBase, 'name' | 'languages' | 'pushedAt' | 'lastCommit'>
 
-/** Relógios e marcas dos eventos que o humor precisa (s do relógio da cena; −Infinity = nunca). */
-interface MoodEvents {
-  startAt: number
+/** O que só o Sun sabe (clique, entrada do usuário, aba); as transições do resto ficam em `deriveSunEvents`. */
+interface SunInputs {
+  started: boolean
   clickAt: number
   clickPending: boolean
-  crashActive: boolean
-  crashCancelled: boolean
-  laughUntil: number
-  shipMode: string
-  arrivalAt: number
-  arrivalPlanet: string | null
-  cometNearAt: number
-  tabReturnPending: boolean
-  tabReturnAt: number
-  profileOpen: boolean
-  mode: SunMode
-  leaveAt: number
+  /** Quanto a aba ficou escondida (ms), informado uma vez no quadro seguinte à volta. */
+  tabHiddenMs: number
   /** performance.now() da última entrada do usuário ou evento. */
   lastActivity: number
 }
@@ -123,24 +107,11 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   const mood = useRef<MoodState>(MOOD_AT_START)
   const motion = useRef<GazeMotion>(MOTION_AT_REST)
   const moodCtx = useRef<MoodContext>({ ...CALM })
-  const events = useRef<MoodEvents>({
-    startAt: -1,
-    clickAt: -Infinity,
-    clickPending: false,
-    crashActive: false,
-    crashCancelled: false,
-    laughUntil: -Infinity,
-    shipMode: shipPose.mode,
-    arrivalAt: -Infinity,
-    arrivalPlanet: null,
-    cometNearAt: -1,
-    tabReturnPending: false,
-    tabReturnAt: -Infinity,
-    profileOpen: false,
-    mode: 'idle',
-    leaveAt: -Infinity,
-    lastActivity: 0,
-  })
+  const events = useRef<SunInputs>({ started: false, clickAt: -Infinity, clickPending: false, tabHiddenMs: 0, lastActivity: 0 })
+  // Retrato da cena, estado e saída das transições (lib/sun/sunEvents): reaproveitados a cada quadro, sem alocar.
+  const eventState = useRef(newSunEventState())
+  const snapshotRef = useRef(newSunSnapshot())
+  const sunEvents = useRef(newSunEvents())
   // Expressão do humor; repinta só quando muda. Começa acordado (cumprimentando), nunca dormindo.
   const [expression, setExpression] = useState<SunExpression>(MOOD_AT_START.mood.expression)
   const expressionNow = useRef<SunExpression>(MOOD_AT_START.mood.expression)
@@ -173,7 +144,11 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     let hiddenAt = 0
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') hiddenAt = performance.now()
-      else if (hiddenAt && performance.now() - hiddenAt > TAB_AWAY_MS) ev.tabReturnPending = true
+      else if (hiddenAt) {
+        // quanto ficou escondida: o próximo quadro passa para deriveSunEvents; zera para não contar duas vezes
+        ev.tabHiddenMs = performance.now() - hiddenAt
+        hiddenAt = 0
+      }
     }
     const inputs = ['pointermove', 'pointerdown', 'wheel', 'keydown'] as const
     for (const name of inputs) window.addEventListener(name, onInput, { passive: true })
@@ -310,10 +285,10 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
       bounce.current.scale.setScalar(!reduced && next.mode === 'idle' ? 1 + Math.sin(t * 1.6) * 0.03 : 1)
     }
 
-    // Humor coerente com o que acontece: monta a situação (stores, nave, trombada, cometas, aba) e segue a tabela.
+    // Humor coerente com o que acontece: retrato da cena (stores, nave, trombada, cometas, aba) → eventos → tabela.
     const ev = events.current
-    if (ev.startAt < 0) {
-      ev.startAt = t
+    if (!ev.started) {
+      ev.started = true
       ev.lastActivity = performance.now()
     }
     if (ev.clickPending) {
@@ -321,23 +296,7 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
       ev.clickAt = t
     }
     const { selection } = useUniverse.getState()
-    const profileOpen = selection.kind === 'profile'
-    // quem interagia saiu: fechou o painel do perfil, ou o mouse foi embora do sol
-    if ((ev.profileOpen && !profileOpen) || (ev.mode === 'hover' && next.mode === 'away')) ev.leaveAt = t
-    ev.profileOpen = profileOpen
-    ev.mode = next.mode
-    // trombada: impacto enquanto a linha do tempo corre; rindo quando ela termina pela fala (não cancelada)
-    const crashActive = crashTimeline.since >= 0
-    if (ev.crashActive && !crashActive && !ev.crashCancelled) ev.laughUntil = t + CRASH_LAUGH
-    ev.crashActive = crashActive
-    ev.crashCancelled = crashActive && crashTimeline.cancelledAt >= 0
-    // nave: viajando, chegando num planeta, passando raspando, bem de lado
     const traveling = shipPose.mode === 'traveling' || shipPose.mode === 'returning'
-    if ((ev.shipMode === 'traveling' || ev.shipMode === 'returning') && shipPose.mode === 'visiting') {
-      ev.arrivalAt = t
-      ev.arrivalPlanet = shipPose.target?.kind === 'planet' ? shipPose.target.name : null
-    }
-    ev.shipMode = shipPose.mode
     toShip.fromArray(shipPose.position).sub(sunAt)
     toCamera.copy(camera.position).sub(sunAt)
     // cometa perto do periélio (o mais perto)
@@ -352,29 +311,36 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
         nearComet.fromArray(cometAt)
       }
     }
-    if (cometNear && ev.cometNearAt < 0) ev.cometNearAt = t
-    if (!cometNear) ev.cometNearAt = -1
-    if (ev.tabReturnPending) {
-      ev.tabReturnPending = false
-      ev.tabReturnAt = t
-    }
+    const snapshot = snapshotRef.current
+    snapshot.t = t
+    snapshot.profileOpen = selection.kind === 'profile'
+    snapshot.mode = next.mode
+    snapshot.shipMode = shipPose.mode
+    snapshot.shipTarget = shipPose.target?.kind === 'planet' ? shipPose.target.name : null
+    snapshot.crashActive = crashTimeline.since >= 0 && crashTimeline.cancelledAt < 0
+    snapshot.apologies = crashApology.count
+    snapshot.cometNear = cometNear
+    snapshot.tabHiddenMs = ev.tabHiddenMs
+    ev.tabHiddenMs = 0
+    const happened = deriveSunEvents(eventState.current, snapshot, sunEvents.current)
     const ctx = moodCtx.current
     ctx.hover = next.mode === 'hover'
     ctx.sinceClick = t - ev.clickAt
-    ctx.crash = crashActive && !ev.crashCancelled ? 'impact' : t < ev.laughUntil ? 'laugh' : 'none'
+    ctx.crash = happened.crash
     ctx.shipTraveling = traveling
-    ctx.closePass = traveling && (shipPose.slingshot || toShip.length() < CLOSE_PASS * SUN_RADIUS)
+    // raspão (cobre o estilingue): só pela distância, sem depender do sinal da nave
+    ctx.closePass = isClosePass(traveling, toShip.length() / SUN_RADIUS)
     ctx.shipFarSide = toShip.angleTo(toCamera) > FAR_SIDE
-    ctx.sinceArrival = t - ev.arrivalAt
-    ctx.arrivalPlanet = ev.arrivalPlanet
+    ctx.sinceArrival = happened.sinceArrival
+    ctx.arrivalPlanet = happened.arrivalPlanet
     ctx.focusPlanet = selectedPlanet(selection) ?? focusedPlanet(showcase)
-    ctx.profileOpen = profileOpen
+    ctx.profileOpen = snapshot.profileOpen
     ctx.cometNear = cometNear
-    ctx.sinceCometNear = cometNear ? t - ev.cometNearAt : Infinity
-    ctx.sinceTabReturn = t - ev.tabReturnAt
-    ctx.sinceStart = t - ev.startAt
+    ctx.sinceCometNear = happened.sinceCometNear
+    ctx.sinceTabReturn = happened.sinceTabReturn
+    ctx.sinceStart = happened.sinceStart
     ctx.tutorialWelcome = useTutorial.getState().step === 'welcome'
-    ctx.sinceLeave = t - ev.leaveAt
+    ctx.sinceLeave = happened.sinceLeave
     // qualquer evento conta como atividade: o sono só vem com nada acontecendo
     ctx.idleFor = 0
     if (moodFor(ctx).rank > 0) ev.lastActivity = performance.now()
