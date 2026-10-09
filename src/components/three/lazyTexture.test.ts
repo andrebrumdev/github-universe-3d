@@ -46,4 +46,15 @@ describe('lazyDataTexture', () => {
     expect(pixels.data).toHaveLength(4)
     expect(builds).toBe(2)
   })
+
+  it('com `ready`, o primeiro upload espera os pixels (versão 0 até lá: o three usa a textura vazia)', async () => {
+    let release!: () => void
+    const ready = new Promise<void>((r) => (release = r))
+    const texture = lazyDataTexture(1, 1, () => new Uint8Array(4), ready)
+    expect(texture.version).toBe(0)
+    release()
+    await ready
+    await Promise.resolve()
+    expect(texture.version).toBeGreaterThan(0)
+  })
 })

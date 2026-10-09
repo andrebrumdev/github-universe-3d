@@ -10,7 +10,7 @@ import { canvasDpr } from '@/lib/renderBudget'
 import { useBloom } from '@/store/bloom'
 import { missCanvas } from '@/store/presentation'
 import { useSceneReady } from '@/store/sceneReady'
-import { prepareScene } from '@/workers/sceneAssets'
+import { prepareScene, type SceneJobs } from '@/workers/sceneAssets'
 import { preToneMapped } from './acesBackground'
 import { CameraRig } from './CameraRig'
 import { Comets } from './Comets'
@@ -77,6 +77,12 @@ function ContextLossWatcher({ onLost }: { onLost: () => void }) {
   return null
 }
 
+/** Suspende até as texturas do worker chegarem: o sinal de pronto (e a saída do Loader) espera por elas. */
+function TexturesReady({ textures }: { textures: SceneJobs['textures'] }) {
+  use(textures)
+  return null
+}
+
 /** Marca a cena como pronta no primeiro quadro (e desfaz ao desmontar, no "Tentar de novo"). */
 function SceneReadySignal() {
   const setReady = useSceneReady((s) => s.setReady)
@@ -95,8 +101,9 @@ export function Scene({ universe }: { universe: Universe }) {
   const [contextLost, setContextLost] = useState(false)
   const onContextLost = useCallback(() => setContextLost(true), [])
   // Órbitas e casca de estrelas (que cresce com o sistema) vêm do worker da cena, começadas quando os dados chegaram;
-  // até lá a Scene suspende atrás do Loader.
-  const { system, starRadius } = use(prepareScene(universe.repos)).layout
+  // até lá a Scene suspende atrás do Loader. As texturas seguem no worker enquanto o canvas monta.
+  const jobs = prepareScene(universe.repos)
+  const { system, starRadius } = use(jobs.layout)
   const bloom = useBloomEnabled()
   // O fundo segue o bloom que de fato montou: se o remendo do shader falhar, o GlowBloom não monta e não há ACES.
   const bloomActive = useBloom((s) => s.active)
@@ -108,12 +115,17 @@ export function Scene({ universe }: { universe: Universe }) {
     <Canvas dpr={dpr} camera={{ position: [0, 40, 70], fov: 50, near: 0.1, far: CAMERA_FAR }} onPointerMissed={missCanvas}>
       {bloomActive ? <color attach="background" args={BACKGROUND_BLOOM} /> : <color attach="background" args={[BACKGROUND]} />}
       <ContextLossWatcher onLost={onContextLost} />
-      <SceneReadySignal />
       <ambientLight intensity={0.25} />
       <hemisphereLight args={['#9bd8ff', '#1a2350', 0.2]} />
       <Starfield radius={starRadius} />
       <SimClockDriver />
       <PlanetGlowDriver />
+      {/* Sol, planetas e luas montam e compilam já; o primeiro upload das texturas espera o worker (lazyDataTexture).
+          O sinal de pronto espera todas: o Loader só sai com tudo texturizado. */}
+      <Suspense fallback={null}>
+        <TexturesReady textures={jobs.textures} />
+        <SceneReadySignal />
+      </Suspense>
       <Sun system={system} repos={universe.repos} />
       <OrbitLines rings={system.rings} />
       {system.orbits.map((orbit, i) => (

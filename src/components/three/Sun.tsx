@@ -9,7 +9,7 @@ import { aberrationLimbPx, fringeRho, sunScreenRadius } from '@/lib/sun/aberrati
 import { showcasePlanet } from '@/lib/cameraPoses'
 import { selectedPlanet } from '@/lib/interaction'
 import { isTap } from '@/lib/pointerDrag'
-import { dizzyStars, hasEyes, hasSparkle, PUPIL, PUPIL_REACH, pupilLook, zzzState } from '@/lib/sun/face'
+import { dizzyStars, faceKey, hasEyes, hasSparkle, PUPIL, PUPIL_REACH, pupilLook, zzzState } from '@/lib/sun/face'
 import { FACE_AT_REST, faceTarget, stepFaceSpring, wrapAngle, type FaceSpring } from '@/lib/sun/faceSpring'
 import { headOffset, limitTurn, MOTION_AT_REST, quantizePupil, stepGazeMotion, type GazeMotion } from '@/lib/sun/gaze'
 import { CALM, MOOD_AT_START, moodFor, stepMood, type MoodContext, type MoodState } from '@/lib/sun/mood'
@@ -37,8 +37,9 @@ import { shipPose } from '@/store/shipPose'
 import { simClock } from '@/store/simClock'
 import { useTutorial } from '@/store/tutorial'
 import { useUniverse } from '@/store/universe'
+import { sunFaceRegion, sunReady } from '@/workers/sceneAssets'
 import { HitProxy } from './HitProxy'
-import { drawSunFace, SUN_TEX_H, SUN_TEX_W } from './sunFace'
+import { paintedSunFace, SunFaceTexture } from './sunFaceTexture'
 import {
   createGlowGeometry,
   createGlowMaterial,
@@ -138,7 +139,7 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   const [waking, setWaking] = useState(false)
   const wakeTimer = useRef(0)
   useEffect(() => () => window.clearTimeout(wakeTimer.current), [])
-  // Fechado só piscando e com olhos (viajando não tem): a textura só é refeita quando o desenho muda (ver `faceKey`).
+  // Fechado só piscando e com olhos (viajando não tem): a textura só muda quando o desenho muda (ver `faceKey`).
   const closed = (blink || waking) && hasEyes(expression)
   const showcase = useMemo(() => showcasePlanet(repos), [repos])
   // Os mesmos cometas do Comets (a lista é fixa enquanto a página fica aberta), só para saber quando um passa perto.
@@ -221,26 +222,14 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     }
   }, [gl])
 
-  const texture = useMemo(() => {
-    const canvas = document.createElement('canvas')
-    canvas.width = SUN_TEX_W
-    canvas.height = SUN_TEX_H
-    const tex = new THREE.CanvasTexture(canvas)
-    tex.colorSpace = THREE.SRGBColorSpace
-    // o rosto fica de lado quando a câmera gira: sobrancelhas e boca continuam nítidas
-    tex.anisotropy = 8
-    return tex
-  }, [])
-
-  useEffect(() => {
-    const ctx = (texture.image as HTMLCanvasElement).getContext('2d')
-    if (!ctx) return
-    drawSunFace(ctx, expression, closed)
-    // oxlint-disable-next-line react/immutability -- API imperativa de textura do Three.js
-    texture.needsUpdate = true
-  }, [expression, closed, texture])
-
-  useEffect(() => () => texture.dispose(), [texture])
+  // Rosto: os 15 desenhos vêm pré-pintados do worker da cena (sem ele, cada um é pintado aqui uma vez); trocar de
+  // expressão ou piscar copia só o pedaço do rosto para a textura na GPU, sem repintar (ver SunFaceTexture).
+  const [faceTexture] = useState(
+    () => new SunFaceTexture((key) => sunFaceRegion(key) ?? paintedSunFace(key), faceKey(expression, closed), sunReady()),
+  )
+  useEffect(() => faceTexture.show(faceKey(expression, closed), gl), [faceTexture, expression, closed, gl])
+  useEffect(() => () => faceTexture.dispose(), [faceTexture])
+  const texture = faceTexture.texture
 
   const sunGeometry = useMemo(() => createSunGeometry(), [])
   const sunMaterial = useMemo(() => createSunMaterial(texture), [texture])

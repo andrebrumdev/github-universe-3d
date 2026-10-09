@@ -30,8 +30,10 @@ export class LazyPixels {
 /**
  * Textura RGBA de 8 bits gerada por `build` (de baixo para cima, sem flipY) e solta da memória da CPU logo depois de
  * cada upload: a cópia que importa fica na GPU. Filtros, mipmaps, wrap e espaço de cor ficam com quem chama.
+ * Com `ready` (os pixels vindo do worker da cena), o primeiro upload espera por ele: até lá o material já compila e
+ * desenha com a textura vazia do three (atrás do Loader), sem pintar nada na thread principal.
  */
-export function lazyDataTexture(width: number, height: number, build: () => Uint8Array): THREE.DataTexture {
+export function lazyDataTexture(width: number, height: number, build: () => Uint8Array, ready?: PromiseLike<unknown> | null): THREE.DataTexture {
   const pixels = new LazyPixels(width, height, build)
   const texture = new THREE.DataTexture(null, width, height, THREE.RGBAFormat, THREE.UnsignedByteType)
   texture.image = pixels
@@ -39,27 +41,7 @@ export function lazyDataTexture(width: number, height: number, build: () => Uint
   texture.premultiplyAlpha = false
   texture.unpackAlignment = 4
   texture.onUpdate = () => pixels.release()
-  texture.needsUpdate = true
+  if (ready) ready.then(() => void (texture.needsUpdate = true))
+  else texture.needsUpdate = true
   return texture
-}
-
-/** Pinta um canvas 2D temporário e devolve os pixels (RGBA, de cima para baixo); o canvas vai embora com o GC. */
-export function paintPixels(width: number, height: number, paint: (ctx: CanvasRenderingContext2D) => void): Uint8ClampedArray {
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return new Uint8ClampedArray(width * height * 4)
-  paint(ctx)
-  return ctx.getImageData(0, 0, width, height).data
-}
-
-/** Linhas de cima para baixo (getImageData) → de baixo para cima (DataTexture sem flipY). */
-export function flipRows(pixels: ArrayLike<number>, width: number, height: number): Uint8Array {
-  const out = new Uint8Array(width * height * 4)
-  const row = width * 4
-  for (let y = 0; y < height; y++) {
-    for (let i = 0; i < row; i++) out[(height - 1 - y) * row + i] = pixels[y * row + i]
-  }
-  return out
 }

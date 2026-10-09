@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { fakeCanvas } from './fakeCanvas'
 import { handleRequest, runJob } from './jobs'
 import { createJobRunner, tracked, type WorkerLike } from './jobRunner'
 import { isJobResponse, type JobRequest, type JobResponse, type SceneJob } from './protocol'
@@ -29,7 +30,7 @@ class FakeWorker implements WorkerLike {
   }
   /** Responde ao pedido `i` rodando a tarefa de verdade (como o worker faria). */
   answer(i: number): void {
-    this.emit('message', structuredClone(handleRequest(this.requests[i]).response))
+    this.emit('message', structuredClone(handleRequest(this.requests[i], fakeCanvas().make).response))
   }
 }
 
@@ -41,7 +42,7 @@ function setup(worker: FakeWorker | null) {
     createWorker: () => worker,
     loadLocal: async () => (job) => {
       local.push(job)
-      return runJob(job).output
+      return runJob(job, fakeCanvas().make).output
     },
   })
   return { runner, local }
@@ -49,14 +50,14 @@ function setup(worker: FakeWorker | null) {
 
 describe('protocolo', () => {
   it('handleRequest devolve uma resposta válida, com o mesmo id', () => {
-    const { response } = handleRequest({ id: 7, job: layoutJob })
+    const { response } = handleRequest({ id: 7, job: layoutJob }, fakeCanvas().make)
     expect(isJobResponse(response)).toBe(true)
     expect(response).toMatchObject({ id: 7, ok: true })
   })
 
   it('erro na tarefa vira ok: false (não derruba o worker)', () => {
     const bad = { kind: 'layout', repos: null } as unknown as SceneJob
-    const { response } = handleRequest({ id: 3, job: bad })
+    const { response } = handleRequest({ id: 3, job: bad }, fakeCanvas().make)
     expect(response.ok).toBe(false)
     expect(isJobResponse(response)).toBe(true)
   })
@@ -76,7 +77,7 @@ describe('createJobRunner', () => {
     const p = runner.run({ kind: 'layout', repos })
     expect(worker.requests).toHaveLength(1)
     worker.answer(0)
-    expect(await p).toEqual(runJob(layoutJob).output)
+    expect(await p).toEqual(runJob(layoutJob, fakeCanvas().make).output)
     expect(local).toHaveLength(0)
     expect(runner.mode()).toBe('worker')
   })
@@ -105,7 +106,7 @@ describe('createJobRunner', () => {
 
   it('sem worker (navegador antigo, testes): roda na thread principal', async () => {
     const { runner, local } = setup(null)
-    expect(await runner.run({ kind: 'layout', repos })).toEqual(runJob(layoutJob).output)
+    expect(await runner.run({ kind: 'layout', repos })).toEqual(runJob(layoutJob, fakeCanvas().make).output)
     expect(local).toHaveLength(1)
     expect(runner.mode()).toBe('main')
   })

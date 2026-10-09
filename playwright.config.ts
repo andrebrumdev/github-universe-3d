@@ -11,11 +11,17 @@ export default defineConfig({
     launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] },
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /crash\.spec\.ts/ },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /(crash\.spec|\.dev\.spec)\.ts/ },
     {
       name: 'crash-dev',
       use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${CRASH_DEV_PORT}` },
       testMatch: /crash\.spec\.ts/,
+    },
+    {
+      // módulos de src/ servidos pelo servidor de desenvolvimento (pixels do worker × thread principal)
+      name: 'dev',
+      use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${CRASH_DEV_PORT}` },
+      testMatch: /\.dev\.spec\.ts/,
     },
   ],
   webServer: [

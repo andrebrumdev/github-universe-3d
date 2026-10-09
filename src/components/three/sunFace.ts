@@ -17,6 +17,12 @@ const LID_WIDTH = 2.4
 const SPIRAL_WIDTH = 1.5
 /** Bochechas do admirando: âmbar claro de LED (não rosa), translúcido sobre o amarelo. */
 export const BLUSH = 'rgba(255, 166, 40, 0.5)'
+/**
+ * Retângulo do rosto no canvas (px, de cima para baixo): todo traço de qualquer expressão cai dentro dele, com pelo
+ * menos 7 unidades de desenho de folga para o antisserrilhado (os traços vão de x 96 a 165 e de y 107 a 157); fora
+ * dele o canvas é só SUN_BODY. Trocar de expressão é subir só este pedaço (ver sunFaceTexture).
+ */
+export const SUN_FACE_REGION = { x: 176, y: 200, w: 176, h: 128 } as const
 
 /**
  * Rosto no estilo do Sphere de Las Vegas (referências em `.superpowers/…/sun-reference-sphere*.png`): corpo liso,

@@ -1,4 +1,5 @@
 import { GRID_DAYS, GRID_WEEKS, maxCount } from '@/lib/universe/activity'
+import { domCanvas, paintPixels, type MakeCanvas } from './texturePixels'
 
 /**
  * Dois hemisférios, cada um meio ano do gráfico de contribuições do GitHub:
@@ -146,4 +147,14 @@ export function packGlowIntoAlpha(color: ArrayLike<number>, glow: ArrayLike<numb
     }
   }
   return out
+}
+
+/**
+ * Pixels do planeta: a grade de cor no rgb e o brilho no alfa, pintados em canvas temporários (ver
+ * `packGlowIntoAlpha`). Roda no worker da cena (OffscreenCanvas) e, sem ele, na thread principal.
+ */
+export function planetPixels(weeks: number[][], makeCanvas: MakeCanvas = domCanvas): Uint8Array {
+  const color = paintPixels(TEX_W, TEX_H, (ctx) => drawActivityGrid(ctx, weeks), makeCanvas)
+  const glow = paintPixels(TEX_W, TEX_H, (ctx) => drawGlowGrid(ctx, weeks), makeCanvas)
+  return packGlowIntoAlpha(color, glow, TEX_W, TEX_H)
 }
