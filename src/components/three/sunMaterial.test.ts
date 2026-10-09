@@ -154,6 +154,19 @@ describe('sol de LED: shader injetado no MeshStandardMaterial', () => {
     expect(other.uniforms.uSunSparkle).toBe(own.uSunSparkle)
   })
 
+  it('tonto: estrelinhas girando no shader (posições por uniform, sem repintar), só sobre o corpo', () => {
+    const shader = standardShader()
+    patchSunShader(shader)
+    const frag = shader.fragmentShader
+    expect(shader.uniforms.uSunDizzy).toBe(SUN_UNIFORMS.uSunDizzy)
+    expect(shader.uniforms.uSunStars).toBe(SUN_UNIFORMS.uSunStars)
+    expect(frag).toContain('uniform vec4 uSunStars[ 3 ];')
+    expect(frag).toContain('float sunStarGlyph( vec2 p, vec4 s )')
+    expect(frag).toContain('sunPupil = max( sunPupil, sunStarInk * uSunDizzy * sunBody );')
+    expect(createSunUniforms().uSunStars).not.toBe(SUN_UNIFORMS.uSunStars)
+    expect(SUN_UNIFORMS.uSunDizzy.value).toBe(0)
+  })
+
   it('falha alto se o three mudar os trechos, em vez de perder a superfície em silêncio', () => {
     expect(() => patchSunShader({ uniforms: {}, vertexShader: 'void main() {}', fragmentShader: 'void main() {}' })).toThrow()
     const s = standardShader()

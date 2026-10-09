@@ -6,11 +6,24 @@ import * as THREE from 'three'
 import { aberrationLimbPx, fringeRho, sunScreenRadius } from '@/lib/sun/aberration'
 import { showcasePlanet } from '@/lib/cameraPoses'
 import { selectedPlanet } from '@/lib/interaction'
-import { hasEyes, hasSparkle, PUPIL, PUPIL_REACH, pupilLook, zzzState } from '@/lib/sun/face'
+import { dizzyStars, hasEyes, hasSparkle, PUPIL, PUPIL_REACH, pupilLook, zzzState } from '@/lib/sun/face'
 import { FACE_AT_REST, faceTarget, stepFaceSpring, wrapAngle, type FaceSpring } from '@/lib/sun/faceSpring'
 import { headOffset, limitTurn, MOTION_AT_REST, quantizePupil, stepGazeMotion, type GazeMotion } from '@/lib/sun/gaze'
 import { CALM, MOOD_AT_START, moodFor, stepMood, type MoodContext, type MoodState } from '@/lib/sun/mood'
 import { deriveSunEvents, isClosePass, newSunEvents, newSunEventState, newSunSnapshot } from '@/lib/sun/sunEvents'
+import {
+  dragReducer,
+  dragSpin,
+  DRAG_IDLE,
+  newDizziness,
+  newSpin,
+  releaseSpin,
+  spinFlatten,
+  stepDizziness,
+  stepSpin,
+  type DragEvent,
+  type DragState,
+} from '@/lib/sun/spin'
 import { kickSquash, SQUASH_AT_REST, SQUASH_TARGET, squashScale, stepSquash, type Squash } from '@/lib/sun/squash'
 import {
   CLICK_DURATION,
@@ -27,6 +40,8 @@ import { buildComets, cometPosition } from '@/lib/universe/comets'
 import { planetPosition, SUN_RADIUS, type OrbitSystem, type Vec3 } from '@/lib/universe/orbits'
 import { crashApology, crashTimeline } from '@/store/crash'
 import { bloomLook, useBloom } from '@/store/bloom'
+import { useCameraLock } from '@/store/cameraLock'
+import { flightClock } from '@/store/frameClock'
 import { usePresentation } from '@/store/presentation'
 import { shipPose } from '@/store/shipPose'
 import { simClock } from '@/store/simClock'
@@ -58,6 +73,9 @@ const MOUSE_LOOK_AHEAD = 3
 const FAR_SIDE = (60 * Math.PI) / 180
 /** Cometa "perto do periélio": a menos disto × o periélio do sol. */
 const COMET_NEAR = 1.4
+/** Sol tonto: balanço da cabeça (rad) e do corpo, e a fala do Octocat (pelo balão de falas livres). */
+const DIZZY_WOBBLE = { yaw: 0.25, pitch: 0.12, roll: 0.08 }
+const DIZZY_LINE = 'Coitado do sol…'
 /** Piscada de transição entre humores (ms). */
 const TRANSITION_BLINK_MS = 130
 
@@ -108,6 +126,13 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   const motion = useRef<GazeMotion>(MOTION_AT_REST)
   const moodCtx = useRef<MoodContext>({ ...CALM })
   const events = useRef<SunInputs>({ started: false, clickAt: -Infinity, clickPending: false, tabHiddenMs: 0, lastActivity: 0 })
+  // Girar o sol arrastando (lib/sun/spin): o gesto, o giro com inércia e a tontura.
+  const drag = useRef<DragState>(DRAG_IDLE)
+  const spin = useRef(newSpin())
+  const dizzy = useRef(newDizziness())
+  const dragInput = useRef({ lastX: 0, dx: 0, spinAngle: 0 })
+  const squashGoal = useRef({ puff: 0, stretch: 0 })
+  const stars = useRef(dizzyStars(0))
   // Retrato da cena, estado e saída das transições (lib/sun/sunEvents): reaproveitados a cada quadro, sem alocar.
   const eventState = useRef(newSunEventState())
   const snapshotRef = useRef(newSunSnapshot())
@@ -129,6 +154,10 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   useCursor(hovered)
   const select = useUniverse((s) => s.select)
   const reduced = useReducedMotion() ?? false
+  const reducedRef = useRef(reduced)
+  useEffect(() => {
+    reducedRef.current = reduced
+  }, [reduced])
   const bloomActive = useBloom((s) => s.active)
   const bloom = bloomLook(bloomActive)
   useEffect(() => {
@@ -156,6 +185,32 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     return () => {
       for (const name of inputs) window.removeEventListener(name, onInput)
       document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
+
+  // Gesto de girar: começa no aperto sobre o sol (onSunPointerDown); o resto do gesto vem da janela.
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const d = drag.current
+      if (d.kind !== 'pending' && d.kind !== 'spin') return
+      drag.current = dragReducer(d, { type: 'move', x: e.clientX, y: e.clientY })
+      if (drag.current.kind === 'spin') dragInput.current.dx += e.clientX - dragInput.current.lastX
+      dragInput.current.lastX = e.clientX
+    }
+    const onUp = () => {
+      if (drag.current.kind === 'idle') return
+      drag.current = dragReducer(drag.current, { type: 'up' })
+      if (drag.current.released === 'spin') spin.current = releaseSpin(spin.current, reducedRef.current)
+      useCameraLock.setState({ sunDrag: false })
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      useCameraLock.setState({ sunDrag: false })
     }
   }, [])
 
@@ -269,13 +324,34 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     // Um relógio só para o balanço, as manchas, a textura e a névoa; parado sob movimento reduzido.
     if (!reduced) SUN_UNIFORMS.uSunTime.value = t
 
-    // Squash & stretch: "puff" no hover, achata-estica-assenta no clique, murcha no away.
-    squash.current = reduced ? SQUASH_AT_REST : stepSquash(squash.current, SQUASH_TARGET[next.mode], dt)
+    // Girar o sol: arrastando segue o mouse; solto, inércia e freio (passo suavizado da cena, igual em qualquer fps).
+    const sdt = flightClock.step(t, dt)
+    if (drag.current.kind === 'spin') {
+      spin.current = dragSpin(spin.current, dragInput.current.dx, sdt, reduced)
+      dragInput.current.dx = 0
+    } else spin.current = stepSpin(spin.current, sdt, reduced)
+    // movimento reduzido: o arrasto gira direto e, solto, o rosto volta na hora (sem inércia nem mola)
+    if (reduced && drag.current.kind !== 'spin') spin.current = newSpin()
+    const spinStep = spin.current.angle - dragInput.current.spinAngle
+    dragInput.current.spinAngle = spin.current.angle
+    const wasDizzy = dizzy.current.dizzyLeft > 0
+    dizzy.current = stepDizziness(dizzy.current, spin.current.velocity, sdt, reduced)
+    const dizzyNow = dizzy.current.dizzyLeft > 0
+    // ficou tonto: o Octocat comenta (pelo balão de falas livres que já existe)
+    if (dizzyNow && !wasDizzy) useUniverse.getState().say(DIZZY_LINE, 'surprised')
+    const wobbleW = dizzyNow ? Math.min(1, dizzy.current.dizzyLeft / 0.5) : 0
+
+    // Squash & stretch: "puff" no hover, achata-estica-assenta no clique, murcha no away; girando rápido, achata.
+    const baseGoal = SQUASH_TARGET[next.mode]
+    squashGoal.current.puff = baseGoal.puff
+    squashGoal.current.stretch = baseGoal.stretch + spinFlatten(spin.current.velocity)
+    squash.current = reduced ? SQUASH_AT_REST : stepSquash(squash.current, squashGoal.current, dt)
     squashGroup.current?.scale.fromArray(squashScale(squash.current, scaleOut))
 
     // Corpo segue o mouse com atraso quando ele está perto; senão volta ao centro.
     goal.set(0, 0, 0)
-    if (next.mode === 'hover' && !reduced) goal.copy(hit).setY(0).clampLength(0, FOLLOW_MAX)
+    // girando o sol, o corpo fica no lugar (não corre atrás do mouse)
+    if (next.mode === 'hover' && !reduced && drag.current.kind === 'idle') goal.copy(hit).setY(0).clampLength(0, FOLLOW_MAX)
     body.current?.position.lerp(goal, 1 - Math.exp(-3 * dt))
 
     if (bounce.current) {
@@ -283,6 +359,8 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
       bounce.current.position.y = reduced ? 0 : Math.sin(progress * Math.PI) * 0.8
       bounce.current.position.x = !reduced && next.mode === 'click' ? Math.sin(t * 60) * 0.05 : 0
       bounce.current.scale.setScalar(!reduced && next.mode === 'idle' ? 1 + Math.sin(t * 1.6) * 0.03 : 1)
+      // tonto: o corpo balança
+      bounce.current.rotation.z = DIZZY_WOBBLE.roll * wobbleW * Math.sin(t * 5)
     }
 
     // Humor coerente com o que acontece: retrato da cena (stores, nave, trombada, cometas, aba) → eventos → tabela.
@@ -325,6 +403,7 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     const happened = deriveSunEvents(eventState.current, snapshot, sunEvents.current)
     const ctx = moodCtx.current
     ctx.hover = next.mode === 'hover'
+    ctx.dizzy = dizzyNow
     ctx.sinceClick = t - ev.clickAt
     ctx.crash = happened.crash
     ctx.shipTraveling = traveling
@@ -364,6 +443,11 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     sleepy.value += ((nowExpression === 'viajando' ? 1 : 0) - sleepy.value) * (1 - Math.exp(-8 * dt))
     zzzState(SUN_UNIFORMS.uSunTime.value, reduced, zzz)
     for (let i = 0; i < 3; i++) SUN_UNIFORMS.uSunZ.value[i].set(zzz[i].x, zzz[i].y, zzz[i].size, zzz[i].alpha)
+    // tonto: estrelinhas girando acima das sobrancelhas (no shader, sem repintar)
+    const dizzyGlow = SUN_UNIFORMS.uSunDizzy
+    dizzyGlow.value += ((nowExpression === 'tonto' ? 1 : 0) - dizzyGlow.value) * (1 - Math.exp(-8 * dt))
+    dizzyStars(t, stars.current)
+    for (let i = 0; i < 3; i++) SUN_UNIFORMS.uSunStars.value[i].set(stars.current[i].x, stars.current[i].y, stars.current[i].size, stars.current[i].alpha)
 
     if (face.current) {
       face.current.getWorldPosition(facePos)
@@ -381,12 +465,18 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
       const from = facePos.toArray() as Vec3
       const target = faceTarget(from, lookAt.toArray() as Vec3)
       const [offsetYaw, offsetPitch] = headOffset(motion.current, m.target === 'drift')
-      target.yaw += offsetYaw
-      target.pitch += offsetPitch
+      // tonto: a cabeça balança
+      target.yaw += offsetYaw + DIZZY_WOBBLE.yaw * wobbleW * Math.sin(t * 6)
+      target.pitch += offsetPitch + DIZZY_WOBBLE.pitch * wobbleW * Math.sin(t * 4.3)
       // Olhando longe, o rosto desliza pela esfera até 55° de quem vê (pitch limitado); os olhos vão até o alvo.
       const toViewer = faceTarget(from, camera.position.toArray() as Vec3)
       const head = limitTurn(target, toViewer)
-      spring.current = reduced ? { ...FACE_AT_REST, ...head } : stepFaceSpring(spring.current, head, dt)
+      // girando, o rosto vai junto com o corpo (a mola segura o atraso e o traz de volta quando o giro freia)
+      if (reduced) spring.current = { ...FACE_AT_REST, ...head, yaw: head.yaw + spin.current.angle }
+      else {
+        if (spinStep !== 0) spring.current = { ...spring.current, yaw: wrapAngle(spring.current.yaw + spinStep) }
+        spring.current = stepFaceSpring(spring.current, head, dt)
+      }
       const wobble = next.mode === 'hover' && !reduced ? Math.sin(t * 3) * 0.08 : 0
       face.current.rotation.set(-spring.current.pitch, spring.current.yaw, wobble, 'YXZ')
       // As pupilas vão na frente: andam para o alvo enquanto a mola ainda vira o rosto, em degraus (sem tremer).
@@ -420,8 +510,21 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     if (light.current) light.current.intensity += (2.2 * look.glow - light.current.intensity) * k
   })
 
+  // Aperto sobre o sol: começa um gesto (pode virar giro ou clique) e trava a rotação da câmera até soltar.
+  function onSunPointerDown(e: ThreeEvent<PointerEvent>) {
+    e.stopPropagation()
+    const event: DragEvent = { type: 'down', onSun: true, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY }
+    drag.current = dragReducer(drag.current, event)
+    dragInput.current.lastX = e.nativeEvent.clientX
+    dragInput.current.dx = 0
+    events.current.lastActivity = performance.now()
+    useCameraLock.setState({ sunDrag: true })
+  }
+
   function handleClick(e: ThreeEvent<MouseEvent>) {
     e.stopPropagation()
+    // o gesto foi um giro, não um clique: não seleciona
+    if (drag.current.released === 'spin') return
     machine.current = sunReducer(machine.current, { type: 'click' })
     events.current.clickPending = true
     events.current.lastActivity = performance.now()
@@ -440,6 +543,7 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
           setProxyHovered(true)
         }}
         onPointerOut={() => setProxyHovered(false)}
+        onPointerDown={onSunPointerDown}
       />
       <group ref={body}>
         <pointLight ref={light} decay={0} intensity={2.2} color="#FFF1C9" />
@@ -450,6 +554,7 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
               geometry={sunGeometry}
               material={sunMaterial}
               onClick={handleClick}
+              onPointerDown={onSunPointerDown}
               onPointerOver={(e) => {
                 e.stopPropagation()
                 setFaceHovered(true)

@@ -89,6 +89,23 @@ describe('moodFor: cada linha da tabela de humores', () => {
   })
 })
 
+describe('girou demais: tonto', () => {
+  it('tonto, olhando para quem vê (sem foco), enquanto durar a tontura', () => {
+    expect(mood({ dizzy: true })).toMatchObject({ expression: 'tonto', target: 'viewer' })
+    expect(moodAllowed(mood({ dizzy: true }))).toBe(true)
+  })
+
+  it('prioridade: abaixo do clique e da trombada, acima do hover e de tudo o mais', () => {
+    expect(mood({ dizzy: true, sinceClick: 0.1, crash: 'laugh' })).toMatchObject({ expression: 'surprised' })
+    expect(mood({ dizzy: true, crash: 'laugh' })).toMatchObject({ expression: 'happy', target: 'viewer' })
+    expect(mood({ dizzy: true, hover: true, shipTraveling: true, focusPlanet: 'api' })).toMatchObject({ expression: 'tonto' })
+  })
+
+  it('a tontura acorda o sol (é evento: nunca dorme tonto)', () => {
+    expect(mood({ dizzy: true, idleFor: 99 })).toMatchObject({ expression: 'tonto' })
+  })
+})
+
 describe('prioridade: clique > trombada > hover > estilingue/raspão > nave viajando > foco/seleção > cometa > saída > idle', () => {
   it('cada evento ganha dos de baixo', () => {
     const all: Partial<MoodContext> = {
@@ -125,6 +142,7 @@ function randomContext(rng: () => number): MoodContext {
   const pick = <T>(xs: T[]) => xs[Math.floor(rng() * xs.length)]
   return {
     hover: rng() < 0.2,
+    dizzy: rng() < 0.05,
     sinceClick: pick([0.1, 0.8, Infinity]),
     crash: pick(['none', 'none', 'impact', 'laugh'] as const),
     closePass: rng() < 0.15,

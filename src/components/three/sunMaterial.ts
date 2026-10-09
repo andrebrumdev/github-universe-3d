@@ -18,6 +18,8 @@ const linear = (hex: string) => {
  * Uniforms do sol (um sol só), objetos estáveis: nada é alocado por quadro.
  * - `uSunTime`: anda no useFrame do Sun (parado sob movimento reduzido); move o balanço, as manchas, a textura e a névoa.
  * - `uSunPupil`: (x, y, raio) da pupila em unidades de desenho, relativa ao centro de cada olho (ver `pupilLook`).
+ * - `uSunDizzy`: 0–1, as estrelinhas do sol tonto girando em volta; `uSunStars`: as três (x, y, tamanho, alfa) de
+ *   `dizzyStars`.
  * - `uSunSparkle`: 0–1, o brilho branco nas pupilas do admirando.
  * - `uSunBubble`: 0–1, o "Z z z" do sol dormindo (viajando), aparecendo e sumindo suave; `uSunZ`: os três Z
  *   (x, y, tamanho, alfa) em unidades do mapa, de `zzzState`.
@@ -32,6 +34,8 @@ export const SUN_UNIFORMS = {
   uSunMask: { value: 0 },
   uSunBubble: { value: 0 },
   uSunZ: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+  uSunDizzy: { value: 0 },
+  uSunStars: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
   uSunSparkle: { value: 0 },
   uSunAberration: { value: 0 },
   uSunFringe: { value: 0 },
@@ -46,6 +50,8 @@ export function createSunUniforms(): SunUniforms {
     uSunPupil: { value: new THREE.Vector3(0, 0, 9) },
     uSunBubble: { value: 0 },
     uSunZ: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+    uSunDizzy: { value: 0 },
+    uSunStars: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
     uSunSparkle: { value: 0 },
   }
 }
@@ -58,7 +64,7 @@ export function sunMask(bloomActive: boolean): number {
   return bloomActive ? 1 : 0
 }
 
-export const SUN_PROGRAM_KEY = 'sun-led-v8'
+export const SUN_PROGRAM_KEY = 'sun-led-v9'
 /** Malha densa o bastante para o balanço ficar liso (6 mil vértices; o deslocamento é por vértice). */
 export const SUN_SEGMENTS: readonly [number, number] = [96, 64]
 /** Emissivo do painel de LED (a cor vem da textura; sem tone mapping). */
@@ -110,6 +116,13 @@ uniform vec3 uSunPupil;
 uniform float uSunMask;
 uniform float uSunBubble;
 uniform vec4 uSunZ[ 3 ];
+uniform float uSunDizzy;
+uniform vec4 uSunStars[ 3 ];
+// estrelinha de 4 pontas (astroide): < 0 dentro
+float sunStarGlyph( vec2 p, vec4 s ) {
+	vec2 q = abs( p - s.xy ) / max( s.z, 1e-3 );
+	return ( sqrt( q.x ) + sqrt( q.y ) - 1.0 ) * s.z;
+}
 float sunSeg( vec2 p, vec2 a, vec2 b ) {
 	vec2 pa = p - a;
 	vec2 ba = b - a;
@@ -204,6 +217,14 @@ const FRAGMENT_DETAIL = /* glsl */ `#ifdef USE_MAP
 		float sunSAA = max( fwidth( sunSD ), 1e-4 );
 		sunSparkle = ( 1.0 - smoothstep( -sunSAA, sunSAA, sunSD ) ) * sunPupil * uSunSparkle;
 		sunPupil = max( sunPupil, sunZzz * uSunBubble * sunBody );
+		// estrelinhas do sol tonto girando acima das sobrancelhas (posições de dizzyStars)
+		float sunStarInk = 0.0;
+		for ( int i = 0; i < 3; i ++ ) {
+			float sd = sunStarGlyph( sunAt, uSunStars[ i ] );
+			float saa = max( fwidth( sd ), 1e-4 );
+			sunStarInk = max( sunStarInk, ( 1.0 - smoothstep( -saa, saa, sd ) ) * uSunStars[ i ].w );
+		}
+		sunPupil = max( sunPupil, sunStarInk * uSunDizzy * sunBody );
 		vec2 sunLed = vMapUv * vec2( ${f(LED_GRID[0])}, ${f(LED_GRID[1])} );
 		float sunLedW = max( fwidth( sunLed.x ), fwidth( sunLed.y ) );
 		float sunLedVis = 1.0 - smoothstep( 0.12, 0.3, sunLedW );
@@ -255,6 +276,8 @@ export function patchSunShader(shader: ShaderLike, uniforms: SunUniforms = SUN_U
   shader.uniforms.uSunMask = uniforms.uSunMask
   shader.uniforms.uSunBubble = uniforms.uSunBubble
   shader.uniforms.uSunZ = uniforms.uSunZ
+  shader.uniforms.uSunDizzy = uniforms.uSunDizzy
+  shader.uniforms.uSunStars = uniforms.uSunStars
   shader.uniforms.uSunSparkle = uniforms.uSunSparkle
   shader.uniforms.uSunAberration = uniforms.uSunAberration
   shader.vertexShader = shader.vertexShader

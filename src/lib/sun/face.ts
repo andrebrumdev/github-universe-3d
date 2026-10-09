@@ -30,6 +30,8 @@ export const PUPIL: Record<SunExpression, { r: number; x: number; y: number }> =
   sad: { r: 4.4, x: 0, y: 1 },
   // admirando: pupila grande (com brilho, ver `hasSparkle`)
   admiring: { r: 5.2, x: 0, y: 0.3 },
+  // tonto: os olhos são espirais desenhadas no canvas; raio negativo = o shader não desenha pupila
+  tonto: { r: -1, x: 0, y: 0 },
 }
 /** As pupilas adiantam o olhar para a câmera enquanto a mola do rosto ainda está virando: unidades por radiano. */
 export const PUPIL_GAIN = 10
@@ -53,7 +55,7 @@ export function faceKey(expression: SunExpression, blinking: boolean): string {
 
 /** Viajando não tem pupila: os olhos são traços. */
 export function hasPupils(expression: SunExpression): boolean {
-  return expression !== 'viajando'
+  return expression !== 'viajando' && expression !== 'tonto'
 }
 
 /** De olho: pálpebra pesada preenchida cobrindo o topo do branco (o olhar de lado do Sphere); ela é a sobrancelha. */
@@ -90,6 +92,14 @@ const BROW: Partial<Record<SunExpression, { lift: number; tilt: number; arch: nu
   sad: { lift: 3.5, tilt: 1.6, arch: 0.5 },
   // "own": levantadas, macias (curvas) e com a ponta de dentro mais alta
   admiring: { lift: 5.5, tilt: 1.2, arch: 1.6 },
+  // tonto: o lado é que manda (ver BROW_TONTO); aqui só a curva
+  tonto: { lift: 4, tilt: 0, arch: 0.6 },
+}
+
+/** Tonto: sobrancelhas tortas, uma alta e outra baixa, inclinadas para lados diferentes. */
+const BROW_TONTO: Record<-1 | 1, { lift: number; tilt: number }> = {
+  [-1]: { lift: 6, tilt: -1.4 },
+  [1]: { lift: 2.2, tilt: 1.4 },
 }
 
 /** Curva da sobrancelha (unidades que o meio sobe acima da reta); 0 = barra reta. */
@@ -103,8 +113,9 @@ const BROW_HALF = 11
  * `null` nas expressões sem sobrancelha (viajando, de olho).
  */
 export function browBar(expression: SunExpression, side: -1 | 1): [number, number, number, number] | null {
-  const brow = BROW[expression]
-  if (!brow) return null
+  const base = BROW[expression]
+  if (!base) return null
+  const brow = expression === 'tonto' ? BROW_TONTO[side] : base
   const ex = side * EYE.dx
   const y = EYE.y - EYE.ry - brow.lift
   return [ex - side * BROW_HALF, y - brow.tilt, ex + side * BROW_HALF, y + brow.tilt]
@@ -188,5 +199,24 @@ export function pupilLook(
   out[0] = base.x + x
   out[1] = base.y + y
   out[2] = base.r
+  return out
+}
+
+/**
+ * Estrelinhas do sol tonto, no shader (sem repintar): três girando numa elipse acima das sobrancelhas (relativa ao
+ * centro do rosto), maiores quando passam pela frente. `period` s por volta.
+ */
+export const DIZZY_STARS = { y: -22, rx: 24, ry: 5, size: 3.2, period: 1.6 } as const
+
+/** As três estrelinhas no tempo `t` (s), em unidades do mapa (como o canvas). Escreve em `out` se vier. */
+export function dizzyStars(t: number, out: ZGlyph[] = [0, 1, 2].map(() => ({ x: 0, y: 0, size: 0, alpha: 0 }))): ZGlyph[] {
+  for (let i = 0; i < 3; i++) {
+    const a = (2 * Math.PI * t) / DIZZY_STARS.period + (i * 2 * Math.PI) / 3
+    const star = out[i]
+    star.x = FACE_CENTER[0] + DIZZY_STARS.rx * Math.cos(a)
+    star.y = FACE_CENTER[1] + DIZZY_STARS.y + DIZZY_STARS.ry * Math.sin(a)
+    star.size = DIZZY_STARS.size * (1 + 0.25 * Math.sin(a))
+    star.alpha = 1
+  }
   return out
 }

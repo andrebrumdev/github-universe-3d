@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { aberrationLimbPx, fringeRho, sunScreenRadius } from '@/lib/sun/aberration'
-import { hasEyes, hasSparkle, pupilLook, zzzState } from '@/lib/sun/face'
+import { dizzyStars, hasEyes, hasSparkle, pupilLook, zzzState } from '@/lib/sun/face'
 import { MAX_TURN_AWAY } from '@/lib/sun/gaze'
 import { CALM, MOOD_TABLE, moodFor, type MoodTarget } from '@/lib/sun/mood'
+import { newSpin, stepSpin } from '@/lib/sun/spin'
 import { kickSquash, SQUASH_AT_REST, SQUASH_TARGET, squashScale, stepSquash, type Squash } from '@/lib/sun/squash'
 import { SUN_EXPRESSIONS, type SunExpression, type SunMode } from '@/lib/sun/sunMachine'
 import { SUN_RADIUS } from '@/lib/universe/orbits'
@@ -31,6 +32,7 @@ const LABELS: Record<SunExpression, string> = {
   surprised: 'Surpreso',
   sad: 'Triste',
   admiring: 'Admirando',
+  tonto: 'Tonto',
 }
 
 type Gaze = { label: string; yaw: number; pitch: number }
@@ -64,10 +66,10 @@ const TARGET_LABELS: Record<MoodTarget, string> = {
 
 /** Direção do olhar na galeria para cada alvo do humor (só para ilustrar). */
 const TARGET_GAZE: Record<MoodTarget, number> = { viewer: 0, drift: 0, mouse: 2, ship: 5, planet: 1, comet: 3 }
-type TileProps = { expression: SunExpression; blink: boolean; gaze: Gaze; reduced: boolean; kick: Kick | null }
+type TileProps = { expression: SunExpression; blink: boolean; gaze: Gaze; reduced: boolean; kick: Kick | null; spinKick: number }
 
 /** Um sol de verdade (material, shader, brilho e névoa da cena) com a expressão forçada, sem a máquina de estados. */
-function SunTile({ expression, blink, gaze, reduced, kick }: TileProps) {
+function SunTile({ expression, blink, gaze, reduced, kick, spinKick }: TileProps) {
   const face = useRef<THREE.Mesh>(null)
   const squashGroup = useRef<THREE.Group>(null)
   const squash = useRef<Squash>(SQUASH_AT_REST)
@@ -113,6 +115,9 @@ function SunTile({ expression, blink, gaze, reduced, kick }: TileProps) {
   )
   const pupil = useMemo<[number, number, number]>(() => [0, 0, 0], [])
   const zzz = useMemo(() => zzzState(0, false), [])
+  const stars = useMemo(() => dizzyStars(0), [])
+  const spin = useRef(newSpin())
+  const lastSpinKick = useRef(0)
   const scale = useMemo<[number, number, number]>(() => [1, 1, 1], [])
   const lastKick = useRef(0)
 
@@ -127,7 +132,17 @@ function SunTile({ expression, blink, gaze, reduced, kick }: TileProps) {
     const mode = t < held.current.until ? held.current.mode : 'idle'
     squash.current = reduced ? SQUASH_AT_REST : stepSquash(squash.current, SQUASH_TARGET[mode], dt)
     squashGroup.current?.scale.fromArray(squashScale(squash.current, scale))
-    face.current?.rotation.set(-gaze.pitch, gaze.yaw, 0, 'YXZ')
+    // "Girar": um empurrão com a inércia de verdade (lib/sun/spin); devagar, o rosto volta para a frente
+    if (spinKick !== lastSpinKick.current) {
+      lastSpinKick.current = spinKick
+      spin.current = { ...spin.current, velocity: reduced ? 0 : 16 }
+    }
+    spin.current = stepSpin(spin.current, dt, reduced)
+    if (Math.abs(spin.current.velocity) < 0.6) {
+      const home = Math.round(spin.current.angle / (2 * Math.PI)) * 2 * Math.PI
+      spin.current = { ...spin.current, angle: spin.current.angle + (home - spin.current.angle) * (1 - Math.exp(-3 * dt)) }
+    }
+    face.current?.rotation.set(-gaze.pitch, gaze.yaw + spin.current.angle, 0, 'YXZ')
     // as pupilas de olho/admirando correm para a borda do lado para onde a cabeça virou
     pupilLook(expression, 0, 0, pupil, gaze.yaw, gaze.pitch)
     uniforms.uSunPupil.value.fromArray(pupil)
@@ -136,6 +151,9 @@ function SunTile({ expression, blink, gaze, reduced, kick }: TileProps) {
     zzzState(SUN_UNIFORMS.uSunTime.value, reduced, zzz)
     for (let i = 0; i < 3; i++) uniforms.uSunZ.value[i].set(zzz[i].x, zzz[i].y, zzz[i].size, zzz[i].alpha)
     uniforms.uSunSparkle.value = hasSparkle(expression) ? 1 : 0
+    uniforms.uSunDizzy.value = expression === 'tonto' ? 1 : 0
+    dizzyStars(clock.elapsedTime, stars)
+    for (let i = 0; i < 3; i++) uniforms.uSunStars.value[i].set(stars[i].x, stars[i].y, stars[i].size, stars[i].alpha)
     const fov = ((camera as THREE.PerspectiveCamera).fov * Math.PI) / 180
     const radius = sunScreenRadius(SUN_RADIUS, camera.position.length(), fov, size.height * viewport.dpr)
     SUN_UNIFORMS.uSunAberration.value = aberrationLimbPx(radius)
@@ -162,6 +180,7 @@ export function SunPreview() {
   const [gaze, setGaze] = useState<Gaze>(GAZES[0])
   const [reduced, setReduced] = useState(false)
   const [kick, setKick] = useState<Kick | null>(null)
+  const [spinKick, setSpinKick] = useState(0)
   const [situation, setSituation] = useState<number | null>(null)
   const picked = situation === null ? null : moodFor({ ...CALM, ...MOOD_TABLE[situation].context })
 
@@ -206,6 +225,14 @@ export function SunPreview() {
             ))}
           </div>
         </fieldset>
+
+        <button
+          type="button"
+          onClick={() => setSpinKick((n) => n + 1)}
+          className="w-full rounded-lg border border-neon/40 px-3 py-1.5 text-neon hover:bg-neon/10"
+        >
+          Girar
+        </button>
 
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={reduced} onChange={(e) => setReduced(e.target.checked)} />
@@ -254,7 +281,7 @@ export function SunPreview() {
                 <color attach="background" args={['#03050d']} />
                 <ambientLight intensity={0.25} />
                 <hemisphereLight args={['#9bd8ff', '#1a2350', 0.2]} />
-                <SunTile expression={expression} blink={blink} gaze={gaze} reduced={reduced} kick={kick} />
+                <SunTile expression={expression} blink={blink} gaze={gaze} reduced={reduced} kick={kick} spinKick={spinKick} />
               </Canvas>
             </div>
             <figcaption className="px-3 py-2 text-sm">

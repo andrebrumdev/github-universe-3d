@@ -1,8 +1,8 @@
 export type SunMode = 'idle' | 'hover' | 'click' | 'away'
 /** `serious`, `watching` e `admiring` vêm do olhar (ver `gazeExpression` em `gaze.ts`), não de um modo. */
-export type SunExpression = 'viajando' | 'serious' | 'watching' | 'happy' | 'surprised' | 'sad' | 'admiring'
+export type SunExpression = 'viajando' | 'serious' | 'watching' | 'happy' | 'surprised' | 'sad' | 'admiring' | 'tonto'
 /** Todas as expressões, na ordem da galeria (`?preview=sun`). */
-export const SUN_EXPRESSIONS: readonly SunExpression[] = ['viajando', 'serious', 'watching', 'happy', 'surprised', 'sad', 'admiring']
+export const SUN_EXPRESSIONS: readonly SunExpression[] = ['viajando', 'serious', 'watching', 'happy', 'surprised', 'sad', 'admiring', 'tonto']
 
 export interface SunState {
   mode: SunMode

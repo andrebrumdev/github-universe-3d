@@ -9,6 +9,7 @@ import type { SunExpression } from './sunMachine'
  * |--------------------------------------------------|-----------|---------------------------------------------|
  * | nada acontecendo por mais de ~8 s                | deriva    | viajando (dormindo, Z z z)                  |
  * | primeira carga / boas-vindas do tutorial         | quem vê   | feliz (cumprimentando); nunca começa dormindo|
+ * | girou demais (tontura, ~3 s)                     | quem vê   | tonto                                       |
  * | mouse em cima do sol                             | mouse     | feliz                                       |
  * | clique no sol / painel do perfil aberto          | quem vê   | surpreso (≥1,2 s), depois feliz (orgulhoso) |
  * | nave saindo ou viajando                          | nave      | sério; de olho se ela está bem de lado      |
@@ -34,6 +35,8 @@ export interface Mood {
 export interface MoodContext {
   /** Mouse em cima do sol. */
   hover: boolean
+  /** Girou demais e está tonto (lib/sun/spin). */
+  dizzy: boolean
   /** s desde o último clique no sol (Infinity: nenhum). */
   sinceClick: number
   /** Trombada na tela: no impacto, ou rindo na fala de desculpa. */
@@ -68,6 +71,7 @@ export interface MoodContext {
 /** Situação calma (nenhum evento); os testes e o Sun partem daqui. */
 export const CALM: MoodContext = {
   hover: false,
+  dizzy: false,
   sinceClick: Infinity,
   crash: 'none',
   closePass: false,
@@ -103,8 +107,8 @@ export const TAB_SURPRISE = 0.8
 export const TAB_HAPPY = 2.5
 export const GREETING = 4
 
-/** Prioridade: clique > trombada > hover > estilingue/raspão > nave > foco/seleção > cometa > aba > saída > saudação > idle. */
-export const RANK = { click: 10, crash: 9, hover: 8, closePass: 7, ship: 6, focus: 5, comet: 4, tab: 3.5, leave: 3, greeting: 2, idle: 0 } as const
+/** Prioridade: clique > trombada > tontura > hover > estilingue/raspão > nave > foco/seleção > cometa > aba > saída > saudação > idle. */
+export const RANK = { click: 10, crash: 9, dizzy: 8.5, hover: 8, closePass: 7, ship: 6, focus: 5, comet: 4, tab: 3.5, leave: 3, greeting: 2, idle: 0 } as const
 
 const at = (expression: SunExpression, target: MoodTarget, rank: number, planet: string | null = null): Mood => ({ expression, target, planet, rank })
 
@@ -113,6 +117,7 @@ export function moodFor(c: MoodContext): Mood {
   if (c.sinceClick < CLICK_SURPRISE) return at('surprised', 'viewer', RANK.click)
   if (c.crash === 'impact') return at('surprised', 'viewer', RANK.crash)
   if (c.crash === 'laugh') return at('happy', 'viewer', RANK.crash)
+  if (c.dizzy) return at('tonto', 'viewer', RANK.dizzy)
   if (c.hover) return at('happy', 'mouse', RANK.hover)
   if (c.closePass) return at('surprised', 'ship', RANK.closePass)
   if (c.shipTraveling) return at(c.shipFarSide ? 'watching' : 'serious', 'ship', RANK.ship)
@@ -138,6 +143,7 @@ const ALLOWED: Record<SunExpression, readonly MoodTarget[]> = {
   watching: ['ship', 'comet'],
   admiring: ['planet'],
   sad: ['viewer'],
+  tonto: ['viewer'],
 }
 
 export function moodAllowed(m: Mood): boolean {
@@ -175,6 +181,7 @@ const AWAKE: Partial<MoodContext> = { sinceStart: 60, idleFor: 1 }
 export const MOOD_TABLE: readonly MoodRow[] = [
   { label: 'Nada acontecendo (>8 s)', context: { sinceStart: 60, idleFor: 20 }, expression: 'viajando', target: 'drift' },
   { label: 'Primeira carga / boas-vindas', context: { sinceStart: 0.5, idleFor: 0 }, expression: 'happy', target: 'viewer' },
+  { label: 'Girou demais (tonto)', context: { ...AWAKE, dizzy: true }, expression: 'tonto', target: 'viewer' },
   { label: 'Mouse em cima do sol', context: { ...AWAKE, hover: true }, expression: 'happy', target: 'mouse' },
   { label: 'Clique no sol', context: { ...AWAKE, sinceClick: 0.2, profileOpen: true }, expression: 'surprised', target: 'viewer' },
   { label: 'Painel do perfil aberto', context: { ...AWAKE, sinceClick: 2, profileOpen: true }, expression: 'happy', target: 'viewer' },

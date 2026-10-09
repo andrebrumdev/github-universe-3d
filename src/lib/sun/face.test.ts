@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { browArch, browBar, EYE, FACE_CENTER, faceKey, hasEyes, hasLidCap, hasPupils, hasSparkle, LID, MOUTH_Y, PUPIL, PUPIL_REACH, pupilLook, sideEyes, VIAJANDO, ZZZ, zzzState } from './face'
+import { browArch, browBar, EYE, FACE_CENTER, faceKey, hasEyes, hasLidCap, hasPupils, hasSparkle, LID, MOUTH_Y, PUPIL, PUPIL_REACH, pupilLook, sideEyes, VIAJANDO, ZZZ, zzzState, DIZZY_STARS, dizzyStars } from './face'
 import { SUN_EXPRESSIONS } from './sunMachine'
 import { SUN_LOOK } from './sunMachine'
 import type { SunExpression } from './sunMachine'
@@ -268,5 +268,43 @@ describe('dormindo (viajando): Z z z subindo', () => {
   it('escreve no vetor de saída (nada alocado por quadro)', () => {
     const out = zzzState(1, false)
     expect(zzzState(2, false, out)).toBe(out)
+  })
+})
+
+describe('tonto: olhos em espiral, sobrancelhas tortas e estrelinhas girando', () => {
+  const [cx, cy] = FACE_CENTER
+  const RAD = (2 * Math.PI) / 512
+
+  it('sem pupila (os olhos são espirais) e sem pálpebra pesada', () => {
+    expect(hasPupils('tonto')).toBe(false)
+    expect(hasLidCap('tonto')).toBe(false)
+  })
+
+  it('sobrancelhas tortas: uma alta, outra baixa, inclinadas para lados diferentes', () => {
+    const [, ly1, , ly2] = browBar('tonto', -1)!
+    const [, ry1, , ry2] = browBar('tonto', 1)!
+    expect(Math.abs((ly1 + ly2) / 2 - (ry1 + ry2) / 2)).toBeGreaterThan(1.5)
+    expect(Math.sign(ly1 - ly2)).not.toBe(Math.sign(ry1 - ry2))
+  })
+
+  it('três estrelinhas girando em volta, acima dos olhos e bem na frente do sol (sem repintar: shader)', () => {
+    const a = dizzyStars(0)
+    const b = dizzyStars(0.4)
+    expect(a).toHaveLength(3)
+    expect(a.map((s) => s.x)).not.toEqual(b.map((s) => s.x))
+    for (const t of [0, 0.3, 0.9, 1.7, 2.5]) {
+      for (const s of dizzyStars(t)) {
+        expect(s.y - cy).toBeLessThan(EYE.y - EYE.ry)
+        expect(Math.hypot(s.x - cx, s.y - cy) * RAD).toBeLessThan((50 * Math.PI) / 180)
+        expect(s.size).toBeGreaterThan(0)
+      }
+    }
+    // dão a volta: depois de uma volta voltam ao mesmo lugar
+    expect(dizzyStars(DIZZY_STARS.period)[0].x).toBeCloseTo(a[0].x, 6)
+  })
+
+  it('escreve no vetor de saída (nada alocado por quadro)', () => {
+    const out = dizzyStars(1)
+    expect(dizzyStars(2, out)).toBe(out)
   })
 })

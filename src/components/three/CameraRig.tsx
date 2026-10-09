@@ -23,6 +23,7 @@ import { length, sub } from '@/lib/ship/vec'
 import type { Repo } from '@/lib/types'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
+import { useCameraLock } from '@/store/cameraLock'
 import { usePresentation } from '@/store/presentation'
 import { flightClock } from '@/store/frameClock'
 import { shipPose } from '@/store/shipPose'
@@ -50,6 +51,8 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
   const guided = step !== null && step !== 'free'
   const layout: PanelLayout = useMediaQuery(MOBILE_QUERY) ? 'bottom' : 'side'
   const reduced = useReducedMotion() ?? false
+  // girando o sol: a câmera não gira junto (só leitura; o Sun liga e desliga a trava)
+  const sunDrag = useCameraLock((st) => st.sunDrag)
   const aspect = useThree((s) => s.size.width / s.size.height)
   const fov = useThree((s) => (s.camera as PerspectiveCamera).fov)
   const viewport = useMemo<Viewport>(() => ({ aspect, fov }), [aspect, fov])
@@ -213,7 +216,7 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
     <CameraControls
       ref={controls}
       makeDefault
-      enabled={!guided && !driving}
+      enabled={!guided && !driving && !sunDrag}
       minDistance={2}
       maxDistance={maxCameraDistance(system, viewport)}
       smoothTime={0.6}

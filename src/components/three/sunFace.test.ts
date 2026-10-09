@@ -32,10 +32,10 @@ function recorder() {
 }
 
 /** Olhos abertos (com branco e pupila). */
-const EXPRESSIONS: SunExpression[] = ['serious', 'watching', 'happy', 'surprised', 'sad', 'admiring']
-const BROWED: SunExpression[] = ['serious', 'happy', 'surprised', 'sad', 'admiring']
+const EXPRESSIONS: SunExpression[] = ['serious', 'watching', 'happy', 'surprised', 'sad', 'admiring', 'tonto']
+const BROWED: SunExpression[] = ['serious', 'happy', 'surprised', 'sad', 'admiring', 'tonto']
 /** Traços de cor escura: sobrancelhas OU pálpebras pesadas, e a boca (viajando: traços dos olhos e boca). */
-const FEATURES: Record<SunExpression, number> = { viajando: 3, serious: 3, watching: 3, happy: 3, surprised: 3, sad: 3, admiring: 3 }
+const FEATURES: Record<SunExpression, number> = { viajando: 3, serious: 3, watching: 3, happy: 3, surprised: 3, sad: 3, admiring: 3, tonto: 5 }
 const draw = (e: SunExpression, closed = false) => {
   const { ctx, ops } = recorder()
   drawSunFace(ctx, e, closed)
@@ -165,5 +165,24 @@ describe('rosto do sol no estilo do Sphere (emoji em LED)', () => {
 
   it('viajando: piscar não muda nada (os olhos já são traços)', () => {
     expect(draw('viajando', true)).toEqual(draw('viajando', false))
+  })
+})
+
+describe('tonto', () => {
+  it('olhos: branco redondo com uma espiral escura por cima (sem pupila do shader); boca ondulada', () => {
+    const ops = draw('tonto')
+    expect(ops.filter((o) => o.op === 'fill' && o.style === '#ffffff')).toHaveLength(2)
+    const spirals = ops.filter((o) => o.op === 'stroke' && o.style === SUN_FEATURE && o.path.filter((c) => c[0] === 'lineTo').length > 12)
+    expect(spirals).toHaveLength(2)
+    for (const sp of spirals) {
+      // espiral: a distância ao centro do olho cresce ao longo do traço
+      const pts = sp.path.filter((c) => c[0] === 'moveTo' || c[0] === 'lineTo').map((c) => [c[1], c[2]])
+      const [x0, y0] = pts[0]
+      const d = pts.map(([x, y]) => Math.hypot(x - x0, y - y0))
+      expect(d.at(-1)!).toBeGreaterThan(d[3])
+      expect(Math.max(...d)).toBeLessThan(EYE.rx)
+    }
+    const mouth = ops.find((o) => o.op === 'stroke' && o.lineWidth === MOUTH_WIDTH)!
+    expect(mouth.path.filter((c) => c[0] === 'quadraticCurveTo').length).toBeGreaterThanOrEqual(2)
   })
 })

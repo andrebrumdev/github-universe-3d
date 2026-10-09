@@ -13,6 +13,8 @@ const EYE_WHITE = '#ffffff'
 export const BROW_WIDTH = 4
 export const MOUTH_WIDTH = 1.8
 const LID_WIDTH = 2.4
+/** Traço da espiral do olho tonto. */
+const SPIRAL_WIDTH = 1.5
 /** Bochechas do admirando: âmbar claro de LED (não rosa), translúcido sobre o amarelo. */
 export const BLUSH = 'rgba(255, 166, 40, 0.5)'
 
@@ -78,6 +80,20 @@ export function drawSunFace(ctx: CanvasRenderingContext2D, expression: SunExpres
       ctx.beginPath()
       ctx.ellipse(ex, ey, EYE.rx, EYE.ry, 0, 0, Math.PI * 2)
       ctx.fill()
+      if (expression === 'tonto') {
+        // olho em espiral: duas voltas e meia do centro até perto da borda do branco
+        ctx.strokeStyle = SUN_FEATURE
+        ctx.lineWidth = SPIRAL_WIDTH
+        ctx.beginPath()
+        ctx.moveTo(ex, ey)
+        const steps = 28
+        for (let k = 1; k <= steps; k++) {
+          const a = (k / steps) * 2.5 * 2 * Math.PI
+          const r = (k / steps) * EYE.rx * 0.72
+          ctx.lineTo(ex + r * Math.cos(a), ey + r * Math.sin(a))
+        }
+        ctx.stroke()
+      }
       if (hasLidCap(expression)) {
         // pálpebra pesada: o topo do olho (um pouco maior que o branco) até uma borda de baixo quase reta
         const r = EYE.rx + LID.overhang
@@ -138,6 +154,13 @@ export function drawSunFace(ctx: CanvasRenderingContext2D, expression: SunExpres
       break
     case 'admiring':
       ctx.arc(cx, my - 3, 5.5, 0.2 * Math.PI, 0.8 * Math.PI)
+      ctx.stroke()
+      break
+    case 'tonto':
+      // boca ondulada
+      ctx.moveTo(cx - 6, my)
+      ctx.quadraticCurveTo(cx - 3, my - 2.5, cx, my)
+      ctx.quadraticCurveTo(cx + 3, my + 2.5, cx + 6, my)
       ctx.stroke()
       break
   }

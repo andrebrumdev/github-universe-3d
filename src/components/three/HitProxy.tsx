@@ -10,13 +10,15 @@ interface HitProxyProps {
   onClick: (e: ThreeEvent<MouseEvent>) => void
   onPointerOver: (e: ThreeEvent<PointerEvent>) => void
   onPointerOut: () => void
+  /** Opcional: aperto sobre o corpo (o sol usa para começar a girar). */
+  onPointerDown?: (e: ThreeEvent<PointerEvent>) => void
 }
 
 /**
  * Área de toque invisível em volta de um corpo pequeno na tela (ver `lib/hitArea`): monte no grupo que fica no centro
  * do corpo. Não desenha nada; só responde ao raycast, sempre depois dos acertos reais.
  */
-export function HitProxy({ radius, onClick, onPointerOver, onPointerOut }: HitProxyProps) {
+export function HitProxy({ radius, onClick, onPointerOver, onPointerOut, onPointerDown }: HitProxyProps) {
   const mesh = useRef<THREE.Mesh>(null)
   const coarse = useMediaQuery(COARSE_POINTER_QUERY)
   const height = useThree((s) => s.size.height)
@@ -35,5 +37,15 @@ export function HitProxy({ radius, onClick, onPointerOver, onPointerOut }: HitPr
       intersects.push({ distance: hit.distance, point: raycaster.ray.at(hit.along, point).clone(), object: self })
     }
   }, [coarse, height, radius])
-  return <mesh ref={mesh} visible={false} raycast={raycast} onClick={onClick} onPointerOver={onPointerOver} onPointerOut={onPointerOut} />
+  return (
+    <mesh
+      ref={mesh}
+      visible={false}
+      raycast={raycast}
+      onClick={onClick}
+      onPointerOver={onPointerOver}
+      onPointerOut={onPointerOut}
+      onPointerDown={onPointerDown}
+    />
+  )
 }
