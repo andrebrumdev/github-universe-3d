@@ -180,7 +180,8 @@ function Controls({ index, count, reduced }: { index: number; count: number; red
         <p className="text-xs uppercase tracking-wider text-slate-400">
           Apresentação <span className="ml-1 tabular-nums normal-case tracking-normal text-slate-400">{index + 1}/{count}</span>
         </p>
-        <div className="ml-auto flex items-center gap-1">
+        {/* No toque, 44 px e mais espaço; o ✕ fica separado da navegação, para o polegar não sair sem querer. */}
+        <div className="ml-auto flex items-center gap-1 pointer-coarse:gap-2">
           <ControlButton label="Parada anterior" onClick={prev} disabled={index === 0}>
             ◀
           </ControlButton>
@@ -192,6 +193,7 @@ function Controls({ index, count, reduced }: { index: number; count: number; red
           <ControlButton label="Próxima parada" onClick={next} disabled={outro}>
             ▶
           </ControlButton>
+          <span aria-hidden="true" className="mx-1 h-5 w-px bg-white/15 pointer-coarse:mx-2 pointer-coarse:h-7" />
           <ControlButton label="Sair da apresentação" onClick={exit}>
             ✕
           </ControlButton>
@@ -232,7 +234,7 @@ function ControlButton({
       disabled={disabled}
       aria-label={label}
       title={label}
-      className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-xs focus-visible:outline-2 focus-visible:outline-neon disabled:opacity-30 ${
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-xs pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:text-sm focus-visible:outline-2 focus-visible:outline-neon disabled:opacity-30 ${
         primary ? 'bg-neon/90 text-space hover:bg-neon' : 'text-slate-300 hover:bg-white/10 hover:text-neon disabled:hover:bg-transparent'
       }`}
     >
@@ -380,7 +382,7 @@ function RepoStop({ repo }: { repo: Repo }) {
         href={repo.url}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex rounded-full border border-neon/50 px-4 py-2 text-neon hover:bg-neon/10"
+        className="inline-flex items-center rounded-full border border-neon/50 px-4 py-2 text-neon hover:bg-neon/10 pointer-coarse:min-h-11"
       >
         Ver no GitHub ↗
       </a>
@@ -423,14 +425,14 @@ function OutroStop({ universe }: { universe: Universe }) {
           : `Esse foi o universo de ${name}. Agora é com você!`}
       </p>
       <div className="flex justify-end gap-2 pt-1">
-        <button type="button" onClick={restart} className="rounded-full px-3 py-1.5 text-slate-300 hover:text-neon">
+        <button type="button" onClick={restart} className="rounded-full px-3 py-1.5 text-slate-300 hover:text-neon pointer-coarse:min-h-11 pointer-coarse:px-4">
           Ver de novo
         </button>
         <button
           ref={explore}
           type="button"
           onClick={exit}
-          className="rounded-full bg-neon/90 px-4 py-1.5 font-medium text-space hover:bg-neon"
+          className="rounded-full bg-neon/90 px-4 py-1.5 font-medium text-space hover:bg-neon pointer-coarse:min-h-11 pointer-coarse:px-5"
         >
           Explorar
         </button>
