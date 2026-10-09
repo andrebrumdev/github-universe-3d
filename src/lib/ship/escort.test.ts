@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { barycenterOffset } from '../universe/barycenter'
 import { buildOrbits, planetPosition, SUN_RADIUS, type Vec3 } from '../universe/orbits'
 import {
   bankAngle,
@@ -34,8 +35,10 @@ import { cross, dot, length, sub } from './vec'
 const system = buildOrbits(Array.from({ length: 12 }, (_, i) => ({ name: `p${i}`, radius: 2.2 })))
 
 describe('targetAnchor', () => {
-  it('sol na origem com o raio do sol; planeta na posição do instante', () => {
-    expect(targetAnchor({ kind: 'sun' }, system, 0)).toEqual({ position: [0, 0, 0], radius: SUN_RADIUS })
+  it('sol onde ele bamboleia (baricentro) com o raio do sol; planeta na posição do instante', () => {
+    expect(targetAnchor({ kind: 'sun' }, system, 0)).toEqual({ position: barycenterOffset(system, 0), radius: SUN_RADIUS })
+    expect(targetAnchor({ kind: 'sun' }, system, 21)).toEqual({ position: barycenterOffset(system, 21), radius: SUN_RADIUS })
+    expect(targetAnchor({ kind: 'sun' }, { rings: [], orbits: [] }, 0)).toEqual({ position: [0, 0, 0], radius: SUN_RADIUS })
     const orbit = system.orbits[5]
     expect(targetAnchor({ kind: 'planet', name: 'p5' }, system, 12)).toEqual({
       position: planetPosition(system.rings[orbit.ring], orbit, 12),

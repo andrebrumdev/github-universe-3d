@@ -14,8 +14,10 @@ import {
   type SunMode,
   type SunState,
 } from '@/lib/sun/sunMachine'
-import { SUN_RADIUS, type Vec3 } from '@/lib/universe/orbits'
+import { barycenterOffset } from '@/lib/universe/barycenter'
+import { SUN_RADIUS, type OrbitSystem, type Vec3 } from '@/lib/universe/orbits'
 import { bloomLook, useBloom } from '@/store/bloom'
+import { simClock } from '@/store/simClock'
 import { useUniverse } from '@/store/universe'
 import { drawSunFace, SUN_TEX_H, SUN_TEX_W } from './sunFace'
 
@@ -24,7 +26,9 @@ const FOLLOW_MAX = 1.5
 const HALO_SIZE = SUN_RADIUS * 3.2
 const HALO_OPACITY = 0.55
 
-export function Sun() {
+/** `system`: o sol bamboleia em torno do baricentro (a origem), do lado oposto aos planetas pesados. */
+export function Sun({ system }: { system?: OrbitSystem } = {}) {
+  const center = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
   const bounce = useRef<THREE.Group>(null)
   const face = useRef<THREE.Mesh>(null)
@@ -103,10 +107,18 @@ export function Sun() {
   const hit = useMemo(() => new THREE.Vector3(), [])
   const goal = useMemo(() => new THREE.Vector3(), [])
   const facePos = useMemo(() => new THREE.Vector3(), [])
+  const offset = useMemo<Vec3>(() => [0, 0, 0], [])
+  const sunAt = useMemo(() => new THREE.Vector3(), [])
 
   useFrame(({ pointer, camera, clock }, dt) => {
+    // Bamboleio em torno do baricentro: segue o relógio da simulação, como os planetas.
+    if (system) barycenterOffset(system, simClock.time, offset)
+    sunAt.fromArray(offset)
+    center.current?.position.copy(sunAt)
+    // "Perto" e o ponto que o corpo segue são medidos a partir do sol, no plano horizontal que passa por ele.
+    plane.constant = -sunAt.y
     raycaster.setFromCamera(pointer, camera)
-    const near = pointerPresent.current && raycaster.ray.intersectPlane(plane, hit) !== null && hit.length() < NEAR_DISTANCE
+    const near = pointerPresent.current && raycaster.ray.intersectPlane(plane, hit) !== null && hit.sub(sunAt).length() < NEAR_DISTANCE
     let next = sunReducer(machine.current, { type: near ? 'near' : 'far' })
     next = sunReducer(next, { type: 'tick', dt })
     if (next.mode !== machine.current.mode) setMode(next.mode)
@@ -148,22 +160,24 @@ export function Sun() {
   }
 
   return (
-    <group ref={body}>
-      <pointLight ref={light} decay={0} intensity={2.2} color="#FFF1C9" />
-      <group ref={bounce}>
-        <mesh
-          ref={face}
-          onClick={handleClick}
-          onPointerOver={(e) => {
-            e.stopPropagation()
-            setHovered(true)
-          }}
-          onPointerOut={() => setHovered(false)}
-        >
-          <sphereGeometry args={[SUN_RADIUS, 64, 32]} />
-          <meshStandardMaterial map={texture} emissiveMap={texture} emissive="#ffffff" emissiveIntensity={0.7} roughness={0.7} toneMapped={false} />
-        </mesh>
-        <primitive object={halo} />
+    <group ref={center}>
+      <group ref={body}>
+        <pointLight ref={light} decay={0} intensity={2.2} color="#FFF1C9" />
+        <group ref={bounce}>
+          <mesh
+            ref={face}
+            onClick={handleClick}
+            onPointerOver={(e) => {
+              e.stopPropagation()
+              setHovered(true)
+            }}
+            onPointerOut={() => setHovered(false)}
+          >
+            <sphereGeometry args={[SUN_RADIUS, 64, 32]} />
+            <meshStandardMaterial map={texture} emissiveMap={texture} emissive="#ffffff" emissiveIntensity={0.7} roughness={0.7} toneMapped={false} />
+          </mesh>
+          <primitive object={halo} />
+        </group>
       </group>
     </group>
   )

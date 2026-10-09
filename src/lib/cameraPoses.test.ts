@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildOrbits, orbitPath, planetPosition, type OrbitSystem, type Vec3 } from './universe/orbits'
+import { barycenterOffset } from './universe/barycenter'
 import { bodyExtent, MAX_MOONS, MAX_PLANET_RADIUS, MIN_PLANET_RADIUS } from './universe/planets'
 import {
   CAMERA_FAR,
@@ -172,9 +173,28 @@ describe('planetPose', () => {
   })
 })
 
+describe('sunPose', () => {
+  it('acompanha o sol que bamboleia em torno do baricentro (posição e alvo deslocados juntos)', () => {
+    const center: Vec3 = [0.3, -0.1, 0.2]
+    for (const layout of ['side', 'bottom'] as const) {
+      const base = sunPose(layout)
+      const moved = sunPose(layout, center)
+      for (let k = 0; k < 3; k++) {
+        expect(moved.position[k]).toBeCloseTo(base.position[k] + center[k], 12)
+        expect(moved.target[k]).toBeCloseTo(base.target[k] + center[k], 12)
+      }
+    }
+    // o perfil mira o sol onde ele vai estar no instante pedido
+    const t = 37
+    const off = barycenterOffset(system, t)
+    expect(len(off)).toBeGreaterThan(0)
+    expect(selectionPose({ kind: 'profile' }, system, t, 'side')).toEqual(sunPose('side', off))
+  })
+})
+
 describe('selectionPose', () => {
   it('perfil → pose do sol; nada ou planeta desconhecido → visão geral', () => {
-    expect(selectionPose({ kind: 'profile' }, system, 0, 'side')).toEqual(sunPose('side'))
+    expect(selectionPose({ kind: 'profile' }, system, 0, 'side')).toEqual(sunPose('side', barycenterOffset(system, 0)))
     expect(selectionPose({ kind: 'none' }, system, 0, 'side')).toEqual(overviewPose(system))
     expect(selectionPose({ kind: 'planet', name: 'nao-existe' }, system, 0, 'side')).toEqual(overviewPose(system))
   })
@@ -201,7 +221,7 @@ describe('tutorial', () => {
   })
 
   it('cada passo tem a pose certa', () => {
-    expect(tutorialPose('welcome', system, repos, 0, 'side')).toEqual(sunPose('side'))
+    expect(tutorialPose('welcome', system, repos, 0, 'side')).toEqual(sunPose('side', barycenterOffset(system, 0)))
     expect(tutorialPose('repos', system, repos, 0, 'side')).toEqual(overviewPose(system))
     expect(tutorialPose('free', system, repos, 0, 'side')).toEqual(overviewPose(system))
     expect(tutorialPose('tech', system, repos, 7, 'side')).toEqual(selectionPose({ kind: 'planet', name: 'p1' }, system, 7, 'side'))

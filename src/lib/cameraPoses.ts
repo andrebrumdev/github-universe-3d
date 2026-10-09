@@ -1,6 +1,7 @@
 import { selectedPlanet, type UniverseSelection } from './interaction'
 import type { TutorialStep } from './tutorial'
 import type { RepoBase } from './types'
+import { barycenterOffset } from './universe/barycenter'
 import { planetPosition, type OrbitSystem, type Vec3 } from './universe/orbits'
 
 export type PanelLayout = 'side' | 'bottom'
@@ -61,8 +62,11 @@ export function starfieldRadius(system: OrbitSystem): number {
   return Math.max(STARFIELD_MIN_RADIUS, 1.6 * far)
 }
 
-export function sunPose(layout: PanelLayout): Pose {
-  return layout === 'side' ? { position: [0, 3, 13], target: [2.5, 0, 0] } : { position: [0, 3, 13], target: [0, -2, 0] }
+/** Pose do perfil, em volta do sol; `center` é onde o sol está (ele bamboleia em torno do baricentro). */
+export function sunPose(layout: PanelLayout, center: Vec3 = [0, 0, 0]): Pose {
+  const [cx, cy, cz] = center
+  const target: Vec3 = layout === 'side' ? [2.5, 0, 0] : [0, -2, 0]
+  return { position: [cx, 3 + cy, 13 + cz], target: [target[0] + cx, target[1] + cy, target[2] + cz] }
 }
 
 export function planetPose(position: Vec3, radius: number, layout: PanelLayout): Pose {
@@ -98,7 +102,7 @@ export function selectionPose(
   layout: PanelLayout,
   viewport: Viewport = DEFAULT_VIEWPORT,
 ): Pose {
-  if (sel.kind === 'profile') return sunPose(layout)
+  if (sel.kind === 'profile') return sunPose(layout, barycenterOffset(system, time))
   const name = selectedPlanet(sel)
   return (name && planetFocusPose(system, name, time, layout)) || overviewPose(system, viewport)
 }
@@ -115,7 +119,7 @@ export function tutorialPose(
   layout: PanelLayout,
   viewport: Viewport = DEFAULT_VIEWPORT,
 ): Pose {
-  if (step === 'welcome') return sunPose(layout)
+  if (step === 'welcome') return sunPose(layout, barycenterOffset(system, time))
   if (step === 'tech') {
     const name = showcasePlanet(repos)
     return (name && planetFocusPose(system, name, time, layout)) || overviewPose(system, viewport)

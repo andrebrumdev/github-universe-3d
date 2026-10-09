@@ -1,5 +1,6 @@
 import type { Pose } from '../cameraPoses'
 import { UI_GAP, type Rect } from '../uiLayout'
+import { barycenterOffset } from '../universe/barycenter'
 import { planetPosition, SUN_RADIUS, type OrbitSystem, type Vec3 } from '../universe/orbits'
 import { SUN_SAFE_DISTANCE } from './travel'
 import { add, cross, length, normalize, scale, sub } from './vec'
@@ -7,7 +8,8 @@ import { add, cross, length, normalize, scale, sub } from './vec'
 export type ShipTarget = { kind: 'sun' } | { kind: 'planet'; name: string }
 
 export function targetAnchor(target: ShipTarget, system: OrbitSystem, time: number): { position: Vec3; radius: number } | null {
-  if (target.kind === 'sun') return { position: [0, 0, 0], radius: SUN_RADIUS }
+  // o sol bamboleia em torno do baricentro (a origem)
+  if (target.kind === 'sun') return { position: barycenterOffset(system, time), radius: SUN_RADIUS }
   const orbit = system.orbits.find((o) => o.name === target.name)
   if (!orbit) return null
   return { position: planetPosition(system.rings[orbit.ring], orbit, time), radius: orbit.radius }
