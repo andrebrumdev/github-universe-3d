@@ -34,6 +34,13 @@ function PlanetDetails({ repo, focusLanguage }: { repo: Repo; focusLanguage: str
         {repo.description && <p className="mt-1 text-sm text-slate-300">{repo.description}</p>}
       </header>
 
+      {repo.readme && (
+        <section>
+          <h3 className="text-xs uppercase tracking-wider text-slate-400">Sobre</h3>
+          <p className="mt-2 text-sm leading-relaxed text-slate-300">{repo.readme}</p>
+        </section>
+      )}
+
       <dl className="grid grid-cols-3 gap-3 text-center">
         {stats.map(([label, value]) => (
           <div key={label} className="rounded-lg bg-white/5 p-2">

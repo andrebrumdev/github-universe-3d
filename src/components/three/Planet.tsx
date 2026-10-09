@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useCursor } from '@react-three/drei'
 import type * as THREE from 'three'
+import { selectedPlanet } from '@/lib/interaction'
 import type { Repo } from '@/lib/types'
 import { cellDate } from '@/lib/universe/activity'
 import { planetPosition, type PlanetOrbit, type Ring } from '@/lib/universe/orbits'
@@ -19,6 +20,7 @@ import {
 } from './geometries'
 import { cellFromUv } from './grid'
 import { Moon } from './Moon'
+import { PlanetHoverCard } from './PlanetHoverCard'
 import { usePlanetTexture } from './usePlanetTexture'
 
 export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: PlanetOrbit }) {
@@ -33,6 +35,8 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
   const moons = useMemo(() => moonOrbits(orbit.radius, repo.languages), [orbit.radius, repo.languages])
   const select = useUniverse((s) => s.select)
   const setHoveredCell = useUniverse((s) => s.setHoveredCell)
+  const isSelected = useUniverse((s) => selectedPlanet(s.selection) === repo.name)
+  const canHover = useMemo(() => typeof window !== 'undefined' && !window.matchMedia('(hover: none)').matches, [])
   const isReal = repo.activity.source === 'real'
 
   useFrame(() => {
@@ -65,6 +69,7 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
 
   return (
     <group ref={root}>
+      {hovered && !isSelected && canHover && <PlanetHoverCard repo={repo} radius={orbit.radius} />}
       <group ref={precession}>
         <group ref={tilt} rotation={[0, 0, spin.obliquity]}>
           <mesh
