@@ -15,10 +15,9 @@ describe('visual com bloom: um só interruptor', () => {
     expect(ATMOSPHERE_MATERIAL.opacity).toBe(BLOOM_LOOK.plain.atmosphere)
   })
 
-  it('com bloom tudo que é transparente fica mais fraco; o objeto é constante (nada alocado por frame)', () => {
+  it('com bloom o que é transparente fica mais fraco (menos o brilho e a névoa do sol: ver sunMaterial.test); o objeto é constante (nada alocado por frame)', () => {
     expect(BLOOM_LOOK.bloom.orbit).toBeLessThan(BLOOM_LOOK.plain.orbit)
     expect(BLOOM_LOOK.bloom.atmosphere).toBeLessThan(BLOOM_LOOK.plain.atmosphere)
-    expect(BLOOM_LOOK.bloom.halo).toBeLessThan(BLOOM_LOOK.plain.halo)
     expect(BLOOM_LOOK.bloom.ionTail).toBeLessThan(BLOOM_LOOK.plain.ionTail)
     expect(BLOOM_LOOK.bloom.dustTail).toBeLessThan(BLOOM_LOOK.plain.dustTail)
     expect(BLOOM_LOOK.bloom.coma).toBeLessThan(BLOOM_LOOK.plain.coma)

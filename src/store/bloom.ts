@@ -2,7 +2,7 @@ import { create } from 'zustand'
 
 /**
  * Com o bloom (desktop), o EffectComposer mistura o que é transparente/aditivo no buffer linear HDR, não na saída sRGB:
- * linhas de órbita, atmosferas, o halo do sol e as caudas e a coma dos cometas ficam bem mais claros e mais ciano.
+ * linhas de órbita, atmosferas e as caudas e a coma dos cometas ficam bem mais claros e mais ciano.
  * Estas opacidades devolvem o visual sem bloom (celular, `?nobloom`). Só o GlowBloom liga e desliga (ver `applyBloomLook`).
  * Cometas (medidos contra o `?nobloom`, luminância média da cauda e da coma perto do periélio, ±2%): caudas ×0,43
  * e coma ×0,3.
@@ -10,10 +10,14 @@ import { create } from 'zustand'
  * fica quase todo abaixo do limiar do bloom e, aditivo sobre o preto, já bate com o `?nobloom` em voo normal (×1: +0,1%;
  * visão larga −1,3%); só o núcleo quente do estilingue passa do limiar (×1: +14%). ×0,9 divide o erro: −5% no voo
  * normal, +6% no estilingue.
+ * Sol (brilho `halo` e névoa `haze`): o próprio sol não passa do limiar com bloom (teto de luminância), então nada
+ * dele vaza e o ACES do ToneMapping só escurece o aditivo — aqui as chaves passam de 1. Medidos contra o `?nobloom`
+ * (luminância radial média em 64 ângulos, close-up do perfil): brilho ×1,6 (anel de 1,04 a 1,45 R: −1,4%; o ACES
+ * deixa o miolo ~6% mais claro e a borda ~12% mais escura) e névoa ×1,8 (anel de 1,5 a 1,7 R: −1%).
  */
 export const BLOOM_LOOK = {
-  plain: { thrusterHalo: 1, orbit: 0.14, atmosphere: 0.24, halo: 1, ionTail: 0.9, dustTail: 0.55, coma: 0.6, trail: 1 },
-  bloom: { thrusterHalo: 0.35, orbit: 0.04, atmosphere: 0.08, halo: 0.2, ionTail: 0.39, dustTail: 0.24, coma: 0.18, trail: 0.9 },
+  plain: { thrusterHalo: 1, orbit: 0.14, atmosphere: 0.24, halo: 1, ionTail: 0.9, dustTail: 0.55, coma: 0.6, trail: 1, haze: 1 },
+  bloom: { thrusterHalo: 0.35, orbit: 0.04, atmosphere: 0.08, halo: 1.6, ionTail: 0.39, dustTail: 0.24, coma: 0.18, trail: 0.9, haze: 1.8 },
 } as const
 
 export type BloomLook = (typeof BLOOM_LOOK)[keyof typeof BLOOM_LOOK]
