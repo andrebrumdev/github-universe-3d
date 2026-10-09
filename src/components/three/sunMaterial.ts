@@ -5,6 +5,8 @@ import { SURFACE_AMPLITUDE } from '@/lib/sun/surface'
 import { SUN_RADIUS } from '@/lib/universe/orbits'
 import type { BloomLook } from '@/store/bloom'
 import { SUN_FEATURE } from './sunFace'
+import type { Rgb } from './acesBackground'
+import { ACES_INVERSE_GLSL, acesFilmicInverse } from './sunAces'
 import { SUN_NOISE_GLSL } from './sunGlsl'
 
 const f = (n: number) => n.toFixed(5)
@@ -18,30 +20,49 @@ const linear = (hex: string) => {
  * Uniforms do sol (um sol só), objetos estáveis: nada é alocado por quadro.
  * - `uSunTime`: anda no useFrame do Sun (parado sob movimento reduzido); move o balanço, as manchas, a textura e a névoa.
  * - `uSunPupil`: (x, y, raio) da pupila em unidades de desenho, relativa ao centro de cada olho (ver `pupilLook`).
- * - `uSunLumaCap`: teto de luminância com bloom (ver `sunLumaCap`).
+ * - `uSunBloom`: 1 com o bloom ligado — a cor final é pré-compensada pelo inverso do ACES do ToneMapping
+ *   (ver `sunBloomCompensation`).
  * - `uSunAberration`: deslocamento RGB no limbo, em px (ver `aberrationLimbPx`); `uSunFringe`: o mesmo em raios do sol,
  *   para o brilho e a névoa (ver `fringeRho`).
  */
 export const SUN_UNIFORMS = {
   uSunTime: { value: 0 },
   uSunPupil: { value: new THREE.Vector3(0, 0, 9) },
-  uSunLumaCap: { value: 1e3 },
+  uSunBloom: { value: 0 },
   uSunAberration: { value: 0 },
   uSunFringe: { value: 0 },
 }
 
 /**
- * Teto de luminância do sol com bloom: logo abaixo do limiar do GlowBloom (0,8), para o branco dos olhos não vazar
- * por cima das pupilas (o rosto ficava borrado). A luz que vaza do LED vem do brilho e da névoa. Sem bloom, sem teto.
+ * Com bloom, o sol passa pelo ACES do ToneMapping (sem bloom ele é `toneMapped: false`). Para sair igual ao `?nobloom`,
+ * a cor final entra pré-compensada pelo inverso do ACES (`sunAces.ts`), com dois tetos para nada do sol passar do
+ * limiar do GlowBloom (0,8) — se o branco dos olhos vazar, o bloom borra as pupilas (medido: ficam cinza):
+ * - na SAÍDA, antes do inverso, luminância até `SUN_BLOOM_OUTPUT_CAP` (mantém o tom: o branco fica cinza-claro neutro);
+ * - na ENTRADA, depois do inverso, até `BLOOM_SAFE_INPUT` (segurança).
+ * O corpo amarelo e as pupilas cabem e saem iguais em vermelho e verde; o azul do amarelo fica no mínimo que o ACES
+ * alcança (ele mistura os canais). O branco precisaria de luminância ~4 na entrada e fica no máximo que não vaza.
  */
-export const SUN_BLOOM_LUMA_CAP = 0.76
-const NO_CAP = 1e3
+export const SUN_BLOOM_OUTPUT_CAP = 0.7
+/** Entrada máxima (luminância) que não passa do limiar do bloom (0,8, suavização a partir dele). */
+export const BLOOM_SAFE_INPUT = 0.79
 
-export function sunLumaCap(bloomActive: boolean): number {
-  return bloomActive ? SUN_BLOOM_LUMA_CAP : NO_CAP
+const lumaOf = (c: Rgb) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+const capLuma = (c: Rgb, cap: number): Rgb => {
+  const k = Math.min(1, cap / Math.max(lumaOf(c), 1e-4))
+  return [c[0] * k, c[1] * k, c[2] * k]
 }
 
-export const SUN_PROGRAM_KEY = 'sun-led-v2'
+/** O mesmo que o shader faz com bloom (FRAGMENT_CAP), em TS: cor de saída desejada → cor que entra no composer. */
+export function bloomCompensated(c: Rgb): Rgb {
+  return capLuma(acesFilmicInverse(capLuma(c, SUN_BLOOM_OUTPUT_CAP)), BLOOM_SAFE_INPUT)
+}
+
+/** Valor de `uSunBloom`: liga a compensação junto com o GlowBloom (store do bloom). */
+export function sunBloomCompensation(bloomActive: boolean): number {
+  return bloomActive ? 1 : 0
+}
+
+export const SUN_PROGRAM_KEY = 'sun-led-v3'
 /** Malha densa o bastante para o balanço ficar liso (6 mil vértices; o deslocamento é por vértice). */
 export const SUN_SEGMENTS: readonly [number, number] = [96, 64]
 /** Emissivo do painel de LED (a cor vem da textura; sem tone mapping). */
@@ -87,7 +108,8 @@ transformed = sunP0;`
 const FRAGMENT_PARS = /* glsl */ `#include <common>
 ${SUN_NOISE_GLSL}
 uniform vec3 uSunPupil;
-uniform float uSunLumaCap;
+uniform float uSunBloom;
+${ACES_INVERSE_GLSL}
 uniform float uSunAberration;
 varying vec3 vSunObj;`
 
@@ -178,8 +200,12 @@ const FRAGMENT_DETAIL = /* glsl */ `#ifdef USE_MAP
 	totalEmissiveRadiance = mix( totalEmissiveRadiance, emissive * sunFeature, sunPupil ) * sunLedF;
 }`
 
-/** Escala a cor final (mantendo o tom) para a luminância não passar de `uSunLumaCap`. */
-const FRAGMENT_CAP = /* glsl */ `outgoingLight *= min( 1.0, uSunLumaCap / max( dot( outgoingLight, ${LUMA} ), 1e-4 ) );
+/** Com bloom: teto na saída (mantém o tom), inverso do ACES e teto de segurança na entrada (ver `SUN_BLOOM_OUTPUT_CAP`). */
+const FRAGMENT_CAP = /* glsl */ `if ( uSunBloom > 0.5 ) {
+	outgoingLight *= min( 1.0, ${f(SUN_BLOOM_OUTPUT_CAP)} / max( dot( outgoingLight, ${LUMA} ), 1e-4 ) );
+	outgoingLight = sunAcesInverse( outgoingLight );
+	outgoingLight *= min( 1.0, ${f(BLOOM_SAFE_INPUT)} / max( dot( outgoingLight, ${LUMA} ), 1e-4 ) );
+}
 #include <opaque_fragment>`
 
 type ShaderLike = { uniforms: Record<string, { value: unknown }>; vertexShader: string; fragmentShader: string }
@@ -199,7 +225,7 @@ export function patchSunShader(shader: ShaderLike): void {
   }
   shader.uniforms.uSunTime = SUN_UNIFORMS.uSunTime
   shader.uniforms.uSunPupil = SUN_UNIFORMS.uSunPupil
-  shader.uniforms.uSunLumaCap = SUN_UNIFORMS.uSunLumaCap
+  shader.uniforms.uSunBloom = SUN_UNIFORMS.uSunBloom
   shader.uniforms.uSunAberration = SUN_UNIFORMS.uSunAberration
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', VERTEX_PARS)

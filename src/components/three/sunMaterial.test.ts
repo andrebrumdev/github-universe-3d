@@ -4,6 +4,7 @@ import { EYE, FACE_CENTER } from '@/lib/sun/face'
 import { FACE_CALM_INNER, FACE_CALM_OUTER } from '@/lib/sun/surface'
 import { SUN_RADIUS } from '@/lib/universe/orbits'
 import { BLOOM_LOOK } from '@/store/bloom'
+import { acesFilmic, hexToLinear, type Rgb } from './acesBackground'
 import { SUN_NOISE_GLSL } from './sunGlsl'
 import {
   createGlowMaterial,
@@ -21,7 +22,10 @@ import {
   SUN_UNIFORMS,
   sunGlowOpacity,
   sunHazeOpacity,
-  sunLumaCap,
+  BLOOM_SAFE_INPUT,
+  bloomCompensated,
+  sunBloomCompensation,
+  SUN_BLOOM_OUTPUT_CAP,
 } from './sunMaterial'
 
 function standardShader() {
@@ -72,7 +76,7 @@ describe('sol de LED: shader injetado no MeshStandardMaterial', () => {
     patchSunShader(shader)
     expect(shader.uniforms.uSunTime).toBe(SUN_UNIFORMS.uSunTime)
     expect(shader.uniforms.uSunPupil).toBe(SUN_UNIFORMS.uSunPupil)
-    expect(shader.uniforms.uSunLumaCap).toBe(SUN_UNIFORMS.uSunLumaCap)
+    expect(shader.uniforms.uSunBloom).toBe(SUN_UNIFORMS.uSunBloom)
     expect(shader.uniforms.uSunAberration).toBe(SUN_UNIFORMS.uSunAberration)
   })
 
@@ -101,15 +105,40 @@ describe('sol de LED: shader injetado no MeshStandardMaterial', () => {
     expect(frag).toContain('float sunSeam = step( 0.25,')
   })
 
-  it('com bloom, a cor final para logo abaixo do limiar (o branco dos olhos não vaza); sem bloom, sem teto', () => {
+  it('com bloom: teto na saída, inverso do ACES e teto de segurança na entrada, nessa ordem; sem bloom, nada muda', () => {
     const shader = standardShader()
     patchSunShader(shader)
     const frag = shader.fragmentShader
-    expect(frag).toContain('outgoingLight *= min( 1.0, uSunLumaCap / max( dot( outgoingLight')
-    expect(frag.indexOf('uSunLumaCap / max')).toBeLessThan(frag.indexOf('#include <opaque_fragment>'))
-    expect(sunLumaCap(true)).toBeLessThan(0.8) // luminanceThreshold do GlowBloom
-    expect(sunLumaCap(true)).toBeGreaterThan(0.7) // o amarelo (luminância ~0,7) passa intacto
-    expect(sunLumaCap(false)).toBeGreaterThan(100)
+    const at = (needle: string) => frag.indexOf(needle)
+    expect(frag).toContain('vec3 sunAcesInverse( vec3 c )')
+    expect(frag).toContain('if ( uSunBloom > 0.5 ) {')
+    expect(at(`${SUN_BLOOM_OUTPUT_CAP.toFixed(5)} / max( dot( outgoingLight`)).toBeGreaterThan(at('if ( uSunBloom > 0.5 )'))
+    expect(at('outgoingLight = sunAcesInverse( outgoingLight );')).toBeGreaterThan(at(`${SUN_BLOOM_OUTPUT_CAP.toFixed(5)} / max`))
+    expect(at(`${BLOOM_SAFE_INPUT.toFixed(5)} / max( dot( outgoingLight`)).toBeGreaterThan(at('outgoingLight = sunAcesInverse'))
+    expect(at('#include <opaque_fragment>')).toBeGreaterThan(at(`${BLOOM_SAFE_INPUT.toFixed(5)} / max`))
+    expect(sunBloomCompensation(true)).toBe(1)
+    expect(sunBloomCompensation(false)).toBe(0)
+  })
+
+  it('a compensação inteira (o mesmo que o shader): nada passa do limiar; corpo e pupila voltam iguais em R e G (±3%)', () => {
+    const luma = (c: Rgb) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    expect(BLOOM_SAFE_INPUT).toBeLessThan(0.8)
+    const srgb = (v: number) => 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055)
+    // as cores como saem no ?nobloom (medidas na GPU): corpo (243, 215, 0), pupila (25, 17, 6), branco (248, 250, 252)
+    for (const hex of ['#F3D700', '#191106', '#F8FAFC']) {
+      const target = hexToLinear(hex)
+      const input = bloomCompensated(target)
+      expect(luma(input)).toBeLessThanOrEqual(BLOOM_SAFE_INPUT + 1e-9)
+      const out = acesFilmic(input)
+      if (hex === '#F8FAFC') {
+        // o branco precisaria de luminância ~4 na entrada: fica cinza-claro neutro, o máximo que não vaza
+        const rgb = out.map(srgb)
+        expect(Math.max(...rgb) - Math.min(...rgb)).toBeLessThanOrEqual(5) // na GPU: (217, 218, 219)
+        expect(srgb(out[1])).toBeGreaterThan(210)
+        continue
+      }
+      for (const k of [0, 1]) expect(Math.abs(srgb(out[k]) - srgb(target[k]))).toBeLessThanOrEqual(0.03 * 255)
+    }
   })
 
   it('falha alto se o three mudar os trechos, em vez de perder a superfície em silêncio', () => {

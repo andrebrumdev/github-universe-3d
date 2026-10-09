@@ -3,7 +3,9 @@ import type { SunMode } from './sunMachine'
 /**
  * Olhar do sol com personalidade: de tempos em tempos ele escolhe sozinho para onde olhar — a câmera (de frente para
  * quem vê), o mouse, a nave ou um planeta para admirar —, com pequenas sacadas enquanto olha. Interrupções passam na
- * frente da escolha aleatória. O diretor só dá o alvo; a mola do rosto (`faceSpring`) continua suavizando a virada.
+ * frente da escolha aleatória, nesta ordem: clique (câmera) > hover (mouse) > nave viajando (a viagem inteira, com
+ * olhadelas curtas para outro lado) > foco da apresentação/tutorial (planeta) > planeta recém-selecionado (uma olhada).
+ * O diretor só dá o alvo; a mola do rosto (`faceSpring`) continua suavizando a virada.
  */
 export type GazeKind = 'camera' | 'mouse' | 'ship' | 'planet'
 
@@ -25,6 +27,10 @@ export interface GazeState {
   saccadeLeft: number
   /** Planeta selecionado que já ganhou a olhada (só uma por seleção). */
   glanced: string | null
+  /** Com a nave viajando: tempo que falta da olhadela para outro lado (> 0 durante ela). */
+  glanceLeft: number
+  /** Com a nave viajando: tempo até a próxima olhadela; −1 fora de viagem. */
+  glanceIn: number
 }
 
 export interface GazeInput {
@@ -43,8 +49,8 @@ export const DWELL: readonly [number, number] = [2, 6]
 export const ADMIRE_DWELL: readonly [number, number] = [4, 8]
 /** Peso de cada tipo de alvo na escolha aleatória. */
 export const GAZE_WEIGHT: Record<GazeKind, number> = { camera: 3, mouse: 2, ship: 1.5, planet: 2 }
-/** Com a nave viajando, ela fica bem mais interessante. */
-export const TRAVEL_SHIP_BOOST = 5
+/** Viagem da nave: olhadelas de 0,3–0,6 s para outro lado a cada 2,5–5 s, e de volta para a nave. */
+export const TRAVEL_GLANCE = { min: 0.3, max: 0.6, everyMin: 2.5, everyMax: 5 } as const
 /** Sacadas: desvio máximo (rad) e intervalo entre elas (s). */
 export const SACCADE = { yaw: 0.05, pitch: 0.035, min: 0.25, max: 0.9 } as const
 
@@ -56,8 +62,11 @@ export const GAZE_AT_START: GazeState = {
   saccadePitch: 0,
   saccadeLeft: 0.5,
   glanced: null,
+  glanceLeft: 0,
+  glanceIn: -1,
 }
 
+const SHIP: Gaze = { kind: 'ship', planet: null }
 const CAMERA: Gaze = { kind: 'camera', planet: null }
 const MOUSE: Gaze = { kind: 'mouse', planet: null }
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t
@@ -83,17 +92,16 @@ export function pickGaze(prev: GazeKind | null, input: GazeInput, rng: () => num
   const kinds = (['camera', 'mouse', 'ship', 'planet'] as const).filter(
     (k) => k !== prev && (k !== 'mouse' || input.pointer) && (k !== 'planet' || input.planets.length > 0),
   )
-  const kind = weighted(kinds, (k) => GAZE_WEIGHT[k] * (k === 'ship' && input.shipTraveling ? TRAVEL_SHIP_BOOST : 1), rng) ?? 'camera'
+  const kind = weighted(kinds, (k) => GAZE_WEIGHT[k], rng) ?? 'camera'
   if (kind !== 'planet') return { kind, planet: null }
   const planet = weighted(input.planets, (p) => p.weight, rng)
   return planet ? { kind, planet: planet.name } : CAMERA
 }
 
-/** Interrupção contínua, na ordem de prioridade: clique (câmera) > hover (mouse) > foco (planeta). */
-function interruption(input: GazeInput): Gaze | null {
+/** Interrupções acima da viagem da nave: clique (câmera) > hover (mouse). */
+function urgent(input: GazeInput): Gaze | null {
   if (input.mode === 'click') return CAMERA
   if (input.mode === 'hover' && input.pointer) return MOUSE
-  if (input.focusPlanet) return { kind: 'planet', planet: input.focusPlanet }
   return null
 }
 
@@ -113,20 +121,40 @@ export function stepGaze(s: GazeState, input: GazeInput, dt: number, rng: () => 
   }
   const micro = { saccadeYaw, saccadePitch, saccadeLeft }
 
-  const forced = interruption(input)
-  if (forced) return { ...s, ...micro, gaze: forced, left: 0, forced: true, glanced }
+  const now = urgent(input)
+  if (now) return { ...s, ...micro, gaze: now, left: 0, forced: true, glanced, glanceLeft: 0, glanceIn: -1 }
+
+  // Nave viajando: olha para ela a viagem inteira (sem a regra de não repetir), com olhadelas curtas para outro lado.
+  if (input.shipTraveling) {
+    const travel = { ...s, ...micro, left: 0, forced: true, glanced }
+    const glanceLeft = s.glanceLeft - dt
+    if (s.glanceIn >= 0 && glanceLeft > 0) return { ...travel, glanceLeft }
+    const glanceIn = s.glanceIn < 0 ? lerp(TRAVEL_GLANCE.everyMin, TRAVEL_GLANCE.everyMax, rng()) : s.glanceIn - dt
+    if (glanceIn <= 0) {
+      return {
+        ...travel,
+        gaze: pickGaze('ship', input, rng),
+        glanceLeft: lerp(TRAVEL_GLANCE.min, TRAVEL_GLANCE.max, rng()),
+        glanceIn: lerp(TRAVEL_GLANCE.everyMin, TRAVEL_GLANCE.everyMax, rng()),
+      }
+    }
+    return { ...travel, gaze: SHIP, glanceLeft: 0, glanceIn }
+  }
+  const idle = { glanceLeft: 0, glanceIn: -1 }
+
+  if (input.focusPlanet) return { ...s, ...micro, ...idle, gaze: { kind: 'planet', planet: input.focusPlanet }, left: 0, forced: true, glanced }
 
   // Planeta recém-selecionado: uma olhada (o tempo de admirar) antes de seguir a vida.
   if (input.selectedPlanet && input.selectedPlanet !== glanced) {
-    return { ...s, ...micro, gaze: { kind: 'planet', planet: input.selectedPlanet }, left: dwellFor('planet', rng), forced: false, glanced: input.selectedPlanet }
+    return { ...s, ...micro, ...idle, gaze: { kind: 'planet', planet: input.selectedPlanet }, left: dwellFor('planet', rng), forced: false, glanced: input.selectedPlanet }
   }
 
   const left = s.left - dt
   if (s.forced || left <= 0) {
     const gaze = pickGaze(s.gaze.kind, input, rng)
-    return { ...s, ...micro, gaze, left: dwellFor(gaze.kind, rng), forced: false, glanced }
+    return { ...s, ...micro, ...idle, gaze, left: dwellFor(gaze.kind, rng), forced: false, glanced }
   }
-  return { ...s, ...micro, left, glanced }
+  return { ...s, ...micro, ...idle, left, glanced }
 }
 
 /** Admirando: olhando um planeta sem outra emoção na frente (só no idle). */

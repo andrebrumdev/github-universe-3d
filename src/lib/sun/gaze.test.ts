@@ -12,6 +12,7 @@ import {
   planetGazeWeight,
   quantizePupil,
   SACCADE,
+  TRAVEL_GLANCE,
   stepGaze,
   type GazeInput,
   type GazeState,
@@ -106,15 +107,6 @@ describe('escolha do alvo', () => {
     }
     expect(counts.big).toBeGreaterThan(counts.mid)
     expect(counts.mid).toBeGreaterThan(counts.tiny ?? 0)
-  })
-
-  it('nave viajando: olha bem mais para a nave', () => {
-    const share = (traveling: boolean) => {
-      let n = 0
-      for (let seed = 0; seed < 600; seed++) if (pickGaze('camera', { ...calm, shipTraveling: traveling }, mulberry32(seed)).kind === 'ship') n++
-      return n / 600
-    }
-    expect(share(true)).toBeGreaterThan(share(false) * 2)
   })
 
   it('a mesma semente dá a mesma sequência', () => {
@@ -259,5 +251,58 @@ describe('o rosto nunca some: vira no máximo MAX_TURN_AWAY para longe de quem v
     expect(limitTurnAway(deg(-170), deg(170))).toBeCloseTo(deg(190))
     const y = limitTurnAway(deg(10), deg(170))
     expect(Math.abs(Math.atan2(Math.sin(y - deg(170)), Math.cos(y - deg(170))))).toBeCloseTo(MAX_TURN_AWAY)
+  })
+})
+
+describe('nave viajando é interrupção: o sol acompanha a viagem inteira', () => {
+  const traveling: GazeInput = { ...calm, shipTraveling: true }
+
+  it('a nave parte → olha para ela no mesmo passo, de qualquer olhar (até admirando um planeta no meio da espera)', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const s0 = run(calm, 1 + seed, seed).at(-1)!
+      expect(stepGaze(s0, traveling, 1 / 30, mulberry32(seed)).gaze).toEqual({ kind: 'ship', planet: null })
+    }
+    // mesmo vindo de olhar a nave (a regra de não repetir não vale para interrupções)
+    const watching: GazeState = { ...GAZE_AT_START, gaze: { kind: 'ship', planet: null }, left: 0.1 }
+    expect(stepGaze(watching, traveling, 1 / 30, mulberry32(1)).gaze.kind).toBe('ship')
+  })
+
+  it('viagem longa: fica na nave; só olhadelas curtas (≤ 0,6 s) para outro lado, sempre voltando para ela', () => {
+    const dt = 1 / 30
+    const s0 = stepGaze(run(calm, 3).at(-1)!, traveling, dt, mulberry32(9))
+    const trace = run(traveling, 90, 9, dt, s0)
+    const segs = segments(trace, dt)
+    const ship = trace.filter((s) => s.gaze.kind === 'ship').length / trace.length
+    expect(ship).toBeGreaterThan(0.85)
+    const away = segs.filter((g) => !g.key.startsWith('ship'))
+    expect(away.length).toBeGreaterThan(3) // olha de relance de vez em quando
+    for (const g of away) expect(g.seconds).toBeLessThanOrEqual(TRAVEL_GLANCE.max + dt + 1e-9)
+    for (let i = 0; i < segs.length - 1; i++) if (!segs[i].key.startsWith('ship')) expect(segs[i + 1].key.startsWith('ship')).toBe(true)
+    expect(segs.at(-1)!.key.startsWith('ship') || segs.at(-1)!.seconds <= TRAVEL_GLANCE.max + dt).toBe(true)
+  })
+
+  it('a nave chega → solta: volta a escolher sozinho (outro alvo, espera normal)', () => {
+    const dt = 1 / 30
+    let s = run(traveling, 10, 4).at(-1)!
+    s = stepGaze({ ...s, gaze: { kind: 'ship', planet: null } }, traveling, dt, mulberry32(4))
+    s = stepGaze(s, calm, dt, mulberry32(5))
+    expect(s.gaze.kind).not.toBe('ship')
+    expect(s.left).toBeGreaterThanOrEqual(s.gaze.kind === 'planet' ? ADMIRE_DWELL[0] : DWELL[0])
+    // e a vida segue: na próxima espera pode até voltar para a nave, sem prender
+    const later = run(calm, 120, 6, dt, s)
+    expect(later.some((x) => x.gaze.kind !== 'ship')).toBe(true)
+  })
+
+  it('prioridade: clique e hover passam na frente da viagem; a viagem passa na frente do foco e da seleção', () => {
+    const rng = mulberry32(2)
+    const s0 = run(calm, 3).at(-1)!
+    expect(stepGaze(s0, { ...traveling, mode: 'click' }, 0.1, rng).gaze.kind).toBe('camera')
+    expect(stepGaze(s0, { ...traveling, mode: 'hover' }, 0.1, rng).gaze.kind).toBe('mouse')
+    expect(stepGaze(s0, { ...traveling, focusPlanet: 'big' }, 0.1, rng).gaze.kind).toBe('ship')
+    expect(stepGaze(s0, { ...traveling, selectedPlanet: 'tiny' }, 0.1, rng).gaze.kind).toBe('ship')
+  })
+
+  it('movimento reduzido: sem olhadelas — câmera (a regra do movimento reduzido vale)', () => {
+    expect(run({ ...traveling, reduced: true }, 20).every((s) => s.gaze.kind === 'camera')).toBe(true)
   })
 })
