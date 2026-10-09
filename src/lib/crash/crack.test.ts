@@ -91,6 +91,23 @@ describe('vidro trincado procedural', () => {
     expect(outer).toBeLessThan(inner)
   })
 
+  it('um galho some antes do pedaço da radial em que ele nasce (sem tracinho solto na cura)', () => {
+    for (const { w, h, cx, cy, seed } of every()) {
+      const { rays } = crackPattern(seed, cx, cy, w, h)
+      for (const branch of rays.filter((r) => r.kind === 'branch')) {
+        const parent = rays[branch.parent!]
+        expect(parent.kind).toBe('ray')
+        // a raiz fica na radial, a `root` px do impacto ao longo dela
+        expect(branch.root!).toBeGreaterThan(0)
+        expect(branch.root!).toBeLessThan(parent.length)
+        for (let heal = 0; heal <= 1; heal += 0.005) {
+          const reach = parent.length * (1 - crackRetraction(heal, parent.delay, parent.span))
+          if (reach < branch.root! - 1e-6) expect(crackRetraction(heal, branch.delay, branch.span)).toBe(1)
+        }
+      }
+    }
+  })
+
   it('comprimento guardado é o da polilinha (o tracejado da cura usa ele)', () => {
     const { rays, rings } = crackPattern(9, 640, 360, 1280, 720)
     for (const c of [...rays, ...rings] as Crack[]) {
@@ -98,6 +115,9 @@ describe('vidro trincado procedural', () => {
       expect(c.length).toBeGreaterThan(0)
       expect(c.delay).toBeGreaterThanOrEqual(0)
       expect(c.delay).toBeLessThan(1)
+      // termina dentro da cura (delay + span ≤ 1)
+      expect(c.delay + c.span).toBeLessThanOrEqual(1 + 1e-9)
+      expect(c.span).toBeGreaterThan(0)
     }
     expect(polylineLength([[0, 0], [3, 4], [3, 10]])).toBe(11)
   })
@@ -108,7 +128,7 @@ describe('vidro trincado procedural', () => {
     const rayDelay = Math.min(...rays.filter((r) => r.kind === 'ray').map((r) => r.delay))
     expect(ringDelay).toBeLessThanOrEqual(rayDelay)
     // toda rachadura, longa ou curta, está recolhida quando a cura chega a 1
-    for (const c of [...rays, ...rings]) expect(crackRetraction(1, c.delay)).toBe(1)
+    for (const c of [...rays, ...rings]) expect(crackRetraction(1, c.delay, c.span)).toBe(1)
     expect(crackRetraction(0, 0.3)).toBe(0)
     expect(crackRetraction(0.5, 0)).toBeGreaterThan(crackRetraction(0.5, 0.4))
     for (let h = 0; h <= 1; h += 0.1) expect(crackRetraction(h, 0.2)).toBeGreaterThanOrEqual(crackRetraction(h - 0.1, 0.2))

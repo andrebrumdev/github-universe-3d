@@ -2,9 +2,9 @@ import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { StarGeometry } from 'three-low-poly'
-import { dazedStars } from '@/lib/crash/timeline'
+import { crashStarsAt } from '@/lib/crash/timeline'
 import { COLORS } from '@/lib/ship/geometry'
-import { crashClock } from '@/store/crash'
+import { crashTimeline } from '@/store/crash'
 
 /** Estrelinhas (coordenadas do piloto): quantas, altura da roda (entre as orelhas e o Clawd), raio e tamanho. */
 const COUNT = 4
@@ -27,27 +27,31 @@ const STAR_MATERIAL = new THREE.MeshStandardMaterial({
   toneMapped: false,
 })
 
+/** Rascunho do quadro (uma nave só): nada é alocado por quadro. */
+const view = { opacity: 0, angle: 0 }
+
 /**
  * Octocat tonto depois da trombada: estrelinhas amarelas girando em volta da cabeça (no referencial do piloto). Giram
- * DAZED_SPIN s e somem, no relógio da trombada (`crashClock`).
+ * DAZED_SPIN s e somem (ou depressa, se a trombada é interrompida), na linha do tempo da nave (`crashTimeline`).
  */
 export function DazedStars() {
   const ring = useRef<THREE.Group>(null)
   const stars = useRef<(THREE.Mesh | null)[]>([])
 
   useFrame(() => {
-    const { opacity, angle } = dazedStars(crashClock.since)
+    const { opacity, angle } = crashStarsAt(crashTimeline, view)
     STAR_MATERIAL.opacity = opacity
     if (ring.current) {
       ring.current.visible = opacity > 0
       ring.current.rotation.y = angle
     }
     // de frente para quem vê (desfaz o giro da roda), girando em torno de si, e pulsando de leve
-    stars.current.forEach((star, i) => {
-      if (!star) return
+    for (let i = 0; i < stars.current.length; i++) {
+      const star = stars.current[i]
+      if (!star) continue
       star.rotation.set(-RING_TILT, -angle, angle * 1.7 + i, 'YXZ')
       star.scale.setScalar(STAR_SIZE * (0.85 + 0.15 * Math.sin(angle * 2 + i * 1.3)))
-    })
+    }
   })
 
   return (

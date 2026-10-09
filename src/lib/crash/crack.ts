@@ -13,10 +13,15 @@ export interface Crack {
   points: Point[]
   /** Comprimento da polilinha (px): o tracejado da cura usa ele. */
   length: number
-  /** Atraso relativo da cura (0..1): anéis e o que fica longe se consertam primeiro. */
+  /** Atraso relativo da cura (0..1): anéis e galhos se consertam primeiro. */
   delay: number
+  /** Fração da cura que ela leva para se recolher (delay + span ≤ 1). */
+  span: number
   /** Só nos anéis: qual anel (0 = o de dentro). */
   level?: number
+  /** Só nos galhos: índice da radial em que nasce e a que distância (px, ao longo dela) do impacto. */
+  parent?: number
+  root?: number
 }
 
 export interface CrackPattern {
@@ -106,13 +111,17 @@ function zigzag(rnd: () => number, start: Point, angle: number, length: number, 
   return points
 }
 
-const crack = (kind: Crack['kind'], points: Point[], delay: number, level?: number): Crack => ({
+const crack = (kind: Crack['kind'], points: Point[], delay: number, extra: Partial<Crack> = {}): Crack => ({
   kind,
   points,
   length: polylineLength(points),
   delay: Math.min(MAX_DELAY, Math.max(0, delay)),
-  ...(level === undefined ? {} : { level }),
+  span: RETRACT_SHARE,
+  ...extra,
 })
+
+/** Inversa do smoothstep em [0, 1]. */
+const unsmooth = (r: number) => 0.5 - Math.sin(Math.asin(1 - 2 * Math.min(1, Math.max(0, r))) / 3)
 
 /**
  * Trinca da tela `w` × `h` (px) com o impacto em (cx, cy): de ponta a ponta. 11–14 rachaduras radiais em ângulos
@@ -150,7 +159,12 @@ export function crackPattern(seed: number, cx: number, cy: number, w: number, h:
     const side = rnd() < 0.5 ? -1 : 1
     const branch = zigzag(rnd, points[at], angles[i] + side * (0.45 + 0.4 * rnd()), diag * (0.08 + 0.08 * rnd()), step * 0.7, w, h)
     if (branch.length < 2) continue
-    rays.push(crack('branch', branch, MAX_DELAY * 0.3))
+    // A radial se recolhe para o impacto: a ponta visível dela passa pela raiz do galho quando a cura chega a `passes`.
+    // O galho começa junto com a cura e termina antes disso (com folga): nunca fica um tracinho solto.
+    const parent = rays[i]
+    const root = polylineLength(points.slice(0, at + 1))
+    const passes = parent.delay + parent.span * unsmooth(1 - root / parent.length)
+    rays.push(crack('branch', branch, 0, { span: Math.max(0.02, 0.9 * passes), parent: i, root }))
     made++
   }
   // anéis: pedaços ligando radiais vizinhas na mesma distância, com o meio um pouco para dentro (o vidro afunda)
@@ -167,14 +181,14 @@ export function crackPattern(seed: number, cx: number, cy: number, w: number, h:
       const k = 0.94 - 0.06 * rnd()
       const mid: Point = [center[0] + ((a[0] + b[0]) / 2 - center[0]) * k, center[1] + ((a[1] + b[1]) / 2 - center[1]) * k]
       // o de fora conserta primeiro
-      rings.push(crack('ring', [a, mid, b], MAX_DELAY * 0.25 * (1 - li / RINGS.length), li))
+      rings.push(crack('ring', [a, mid, b], MAX_DELAY * 0.25 * (1 - li / RINGS.length), { level: li }))
     }
   }
   return { rays, rings }
 }
 
-/** Quanto uma rachadura com atraso `delay` já se recolheu (0..1) quando a cura total está em `heal`. */
-export function crackRetraction(heal: number, delay: number): number {
-  const u = Math.min(1, Math.max(0, (heal - delay) / RETRACT_SHARE))
+/** Quanto uma rachadura (atraso `delay`, duração `span`) já se recolheu (0..1) quando a cura total está em `heal`. */
+export function crackRetraction(heal: number, delay: number, span: number = RETRACT_SHARE): number {
+  const u = Math.min(1, Math.max(0, (heal - delay) / span))
   return u * u * (3 - 2 * u)
 }

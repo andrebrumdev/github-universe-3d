@@ -20,7 +20,16 @@ import {
   type CrashPlan,
 } from '@/lib/crash/crashApproach'
 import { recordReturn, shouldCrash } from '@/lib/crash/rarity'
-import { CRASH_LINE_AT, crashShake } from '@/lib/crash/timeline'
+import {
+  crashCancel,
+  crashDizzy,
+  crashImpact,
+  crashInterrupted,
+  crashShakeAt,
+  crashStarsAt,
+  crashTick,
+  type CrashSituation,
+} from '@/lib/crash/timeline'
 import type { OctocatExpression } from '@/lib/octocat/expression'
 import {
   arrivalBlendWeight,
@@ -55,7 +64,7 @@ import { reservedRects } from '@/lib/uiLayout'
 import { barycenterOffset } from '@/lib/universe/barycenter'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
-import { CRASH_OVERRIDE, crashClock, crashSession, useCrash } from '@/store/crash'
+import { CRASH_OVERRIDE, crashSession, crashTimeline, endCrash, useCrash } from '@/store/crash'
 import { resetShipPose, shipPose } from '@/store/shipPose'
 import { usePresentation } from '@/store/presentation'
 import { simClock } from '@/store/simClock'
@@ -184,21 +193,26 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   const lastCamPos = useMemo(() => new THREE.Vector3(), [])
   const lastCamQuat = useMemo(() => new THREE.Quaternion(), [])
 
-  // Trombada na tela (easter egg, ver lib/crash): a volta com trombada em curso (no lugar da `returnPlan`), a que já
-  // bateu, o tempo desde o impacto e, até a fala, o Octocat tonto (estrelinhas e rosto em espiral).
+  // Trombada na tela (easter egg, ver lib/crash): a volta com trombada em curso (no lugar da `returnPlan`) e a que já
+  // bateu. A linha do tempo depois do impacto é `crashTimeline` (store/crash); daqui saem o rosto em espiral e as
+  // estrelinhas (só mudam de estado quando ela muda).
   const crashPlan = useRef<CrashPlan | null>(null)
   const crashedPlan = useRef<CrashPlan | null>(null)
-  /** Segundos de cena desde o impacto (passo da simulação), também em `crashClock`; −1 sem trombada. */
-  const sinceImpact = useRef(-1)
-  const [dazed, setDazed] = useState(false)
-  const dazedRef = useRef(false)
+  const [dizzy, setDizzy] = useState(false)
+  const dizzyRef = useRef(false)
+  const [starry, setStarry] = useState(false)
+  const starryRef = useRef(false)
   const shakeOut = useMemo(() => ({ x: 0, y: 0 }), [])
+  const starsOut = useMemo(() => ({ opacity: 0, angle: 0 }), [])
   const wobble = useMemo(() => ({ roll: 0, pitch: 0 }), [])
-  /** Canvas que treme (o do quadro): a remontagem no meio do tremor não pode deixá-lo deslocado. */
+  const situation = useRef<CrashSituation>({ mode: 'escort', selection: false, tutorial: false, presentation: false })
+  // Canvas deslocado pelo tremor (null: parado). Desmontar no meio da trombada não o deixa deslocado nem deixa a
+  // trinca congelada na tela.
   const shaken = useRef<HTMLCanvasElement | null>(null)
   useEffect(
     () => () => {
       if (shaken.current) shaken.current.style.transform = ''
+      endCrash()
     },
     [],
   )
@@ -553,29 +567,41 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     // treme, a nave dá um tranco para trás (tentáculos e antena levam o empurrão) e o Octocat fica tonto.
     if (crashFlight && s.elapsed >= crashFlight.duration && crashedPlan.current !== crashFlight) {
       crashedPlan.current = crashFlight
-      sinceImpact.current = 0
+      crashImpact(crashTimeline)
       scratch.copy(g.position).project(camera)
       useCrash.getState().hit(((scratch.x + 1) / 2) * size.width, ((1 - scratch.y) / 2) * size.height, Math.floor(Math.random() * 2 ** 31))
       joltStart.current = clock.elapsedTime
       joltScale.current = -CRASH_JOLT
       setBurnShake((n) => n + 1)
-      dazedRef.current = true
-      setDazed(true)
-    } else if (sinceImpact.current >= 0) sinceImpact.current += dt
-    crashClock.since = sinceImpact.current
-    crashShake(sinceImpact.current, shakeOut)
-    const shift = shakeOut.x || shakeOut.y ? `translate(${shakeOut.x.toFixed(2)}px, ${shakeOut.y.toFixed(2)}px)` : ''
-    if (gl.domElement.style.transform !== shift) {
-      gl.domElement.style.transform = shift
-      shaken.current = gl.domElement
+    } else {
+      // Interrompida (outra viagem, seleção, tutorial, apresentação): rosto normal na hora, estrelas e trinca somem
+      // depressa, sem fala.
+      if (crashTimeline.since >= 0) {
+        const now = situation.current
+        now.mode = s.mode
+        now.selection = useUniverse.getState().selection.kind !== 'none'
+        now.tutorial = useTutorial.getState().step !== null
+        now.presentation = usePresentation.getState().state !== null
+        if (crashInterrupted(now)) crashCancel(crashTimeline)
+      }
+      // as estrelas sumiram: volta a si e pede desculpas (uma vez por trombada)
+      if (crashTick(crashTimeline, dt)) useUniverse.getState().emitGuide('crash')
     }
-    if (dazedRef.current && sinceImpact.current >= CRASH_LINE_AT) {
-      // as estrelas sumiram: volta a si e pede desculpas (uma vez por trombada; nunca por cima do tutorial ou da
-      // narração da apresentação)
-      dazedRef.current = false
-      setDazed(false)
-      sinceImpact.current = -1
-      if (!usePresentation.getState().state && useTutorial.getState().step === null) useUniverse.getState().emitGuide('crash')
+    crashShakeAt(crashTimeline, shakeOut)
+    const shift = shakeOut.x || shakeOut.y ? `translate(${shakeOut.x.toFixed(2)}px, ${shakeOut.y.toFixed(2)}px)` : ''
+    if (shift || shaken.current) {
+      gl.domElement.style.transform = shift
+      shaken.current = shift ? gl.domElement : null
+    }
+    const dizzyNow = crashDizzy(crashTimeline)
+    if (dizzyNow !== dizzyRef.current) {
+      dizzyRef.current = dizzyNow
+      setDizzy(dizzyNow)
+    }
+    const starryNow = crashStarsAt(crashTimeline, starsOut).opacity > 0
+    if (starryNow !== starryRef.current) {
+      starryRef.current = starryNow
+      setStarry(starryNow)
     }
     lastCamPos.copy(camera.position)
     lastCamQuat.copy(camera.quaternion)
@@ -696,7 +722,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
 
   const expression: OctocatExpression = hovered
     ? 'wink'
-    : dazed
+    : dizzy
       ? 'dizzy'
       : (bubble?.line.expression ?? (mode === 'traveling' || knocking ? 'happy' : 'neutral'))
   const armMode: ArmMode = hovered || knocking || greeting || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
@@ -729,7 +755,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
         onPointerOut={() => setHovered(false)}
       >
         <group ref={jolt}>
-          <OctocatShip expression={expression} armMode={armMode} thrusterLevel={thrusterLevel} floating={mode !== 'traveling'} shake={burnShake} dazed={dazed} />
+          <OctocatShip expression={expression} armMode={armMode} thrusterLevel={thrusterLevel} floating={mode !== 'traveling'} shake={burnShake} dazed={starry} />
         </group>
       </group>
     </>

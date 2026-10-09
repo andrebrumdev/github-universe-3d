@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { crashOverride, INITIAL_CRASH_HISTORY, type CrashHistory, type CrashOverride } from '@/lib/crash/rarity'
+import { crashOverlayOn, crashReset, newCrashTimeline, type CrashTimeline } from '@/lib/crash/timeline'
 
 /** Impacto na tela: ponto (px, tela cheia como o canvas) e semente da trinca; `seq` sobe a cada trombada. */
 export interface CrashImpact {
@@ -25,11 +26,21 @@ export const useCrash = create<CrashStore>((set, get) => ({
 }))
 
 /**
- * Relógio da trombada: segundos de cena desde o impacto (−1: nenhuma em curso), escrito pela nave a cada quadro com o
- * mesmo passo da simulação. A camada do vidro e as estrelinhas leem daqui: num quadro lento (passo travado) tudo
- * desacelera junto com a nave, sem a trinca sumir antes da hora.
+ * Linha do tempo da trombada em curso (lib/crash/timeline), escrita pela nave a cada quadro com o passo da simulação.
+ * A camada do vidro e as estrelinhas leem daqui: num quadro lento (passo travado) tudo desacelera junto com a nave.
  */
-export const crashClock = { since: -1 }
+export const crashTimeline: CrashTimeline = newCrashTimeline()
+
+/** A camada do vidro já pode sair (curou, foi cancelada e curou, ou a trombada acabou). */
+export function overlayExpired(tl: CrashTimeline): boolean {
+  return !crashOverlayOn(tl)
+}
+
+/** Encerra a trombada na hora (a nave desmontou no meio): sem camada, sem estrelas, sem fala. */
+export function endCrash(): void {
+  crashReset(crashTimeline)
+  useCrash.setState({ impact: null })
+}
 
 /** Voltas desta sessão (vale enquanto a página fica aberta; uma remontagem da cena não zera). */
 export const crashSession: { history: CrashHistory; rng: () => number } = {
@@ -38,4 +49,4 @@ export const crashSession: { history: CrashHistory; rng: () => number } = {
 }
 
 /** `?crash` (só em dev) força a trombada em toda volta elegível; `?nocrash` desliga (e2e). */
-export const CRASH_OVERRIDE: CrashOverride = crashOverride(window.location.search, import.meta.env.DEV)
+export const CRASH_OVERRIDE: CrashOverride = crashOverride(typeof window === 'undefined' ? '' : window.location.search, import.meta.env.DEV)
