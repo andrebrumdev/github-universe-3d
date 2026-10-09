@@ -40,4 +40,17 @@ describe('pulso dos quadrados verdes no shader do planeta', () => {
     expect(m.customProgramCacheKey()).toBe(GLOW_PROGRAM_KEY)
     expect(m.onBeforeCompile).toBe(patchGlowShader)
   })
+
+  it('dois planetas: mesma chave de programa, e o onBeforeCompile do material injeta o pulso', () => {
+    const a = createPlanetMaterial(new THREE.Texture(), new THREE.Texture())
+    const b = createPlanetMaterial(new THREE.Texture(), new THREE.Texture())
+    expect(a.customProgramCacheKey()).toBe(b.customProgramCacheKey())
+    const shader = standardShader()
+    // assinatura do three: (shader, renderer); o patch só usa o shader
+    a.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, undefined as unknown as THREE.WebGLRenderer)
+    expect(shader.uniforms.uGlowTime).toBe(GLOW_UNIFORMS.uGlowTime)
+    expect(shader.fragmentShader).toContain('uniform float uGlowTime;')
+    expect(shader.fragmentShader).toContain('float glowHash')
+    expect(shader.fragmentShader).toContain('totalEmissiveRadiance *= 1.0 + glowAmp')
+  })
 })

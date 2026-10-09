@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { BLOOM_LOOK } from '@/store/bloom'
 
 /** Esferas unitárias compartilhadas; cada mesh usa `scale` para o raio. */
 export const PLANET_GEOMETRY_HI = new THREE.SphereGeometry(1, 64, 32)
@@ -10,7 +11,7 @@ export const ATMOSPHERE_SCALE = 1.08
 export const ATMOSPHERE_MATERIAL = new THREE.MeshBasicMaterial({
   color: '#7dd3fc',
   transparent: true,
-  opacity: 0.24,
+  opacity: BLOOM_LOOK.plain.atmosphere,
   side: THREE.BackSide,
   blending: THREE.AdditiveBlending,
   depthWrite: false,

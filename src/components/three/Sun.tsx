@@ -15,6 +15,7 @@ import {
   type SunState,
 } from '@/lib/sun/sunMachine'
 import { SUN_RADIUS, type Vec3 } from '@/lib/universe/orbits'
+import { bloomLook, useBloom } from '@/store/bloom'
 import { useUniverse } from '@/store/universe'
 import { drawSunFace, SUN_TEX_H, SUN_TEX_W } from './sunFace'
 
@@ -36,6 +37,7 @@ export function Sun() {
   useCursor(hovered)
   const select = useUniverse((s) => s.select)
   const reduced = useReducedMotion() ?? false
+  const haloOpacity = HALO_OPACITY * bloomLook(useBloom((s) => s.active)).halo
 
   // O `pointer` do R3F começa em (0,0) e nunca zera: só há "perto" com um ponteiro real no canvas.
   const gl = useThree((s) => s.gl)
@@ -134,7 +136,7 @@ export function Sun() {
     }
 
     const k = 1 - Math.exp(-6 * dt)
-    halo.setOpacity(halo.opacity + (Math.min(1, HALO_OPACITY * look.glow) - halo.opacity) * k)
+    halo.setOpacity(halo.opacity + (Math.min(1, haloOpacity * look.glow) - halo.opacity) * k)
     if (light.current) light.current.intensity += (2.2 * look.glow - light.current.intensity) * k
   })
 
