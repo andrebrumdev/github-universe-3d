@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useReducedMotion } from 'framer-motion'
 import { newPanelWatch, panelTargetKey, stepPanelReady } from '@/lib/panelReady'
+import { MAX_FRAME_DT } from '@/lib/ship/motion'
 import { usePanelReadyKey } from '@/store/panelReady'
 import { shipPose } from '@/store/shipPose'
 import { useUniverse } from '@/store/universe'
@@ -30,8 +31,8 @@ export function usePanelReadyDriver(): void {
     let raf = 0
     let last = performance.now()
     const tick = (now: number) => {
-      // tempo real, sem teto: em GL por software os quadros demoram e a rede de segurança é em segundos de verdade
-      const dt = (now - last) / 1000
+      // mesmo teto do relógio da nave: aba escondida ou quadros lentos não abrem o painel com a nave ainda voando
+      const dt = Math.min((now - last) / 1000, MAX_FRAME_DT)
       last = now
       if (stepPanelReady(watch, key, { mode: shipPose.mode, targetKey: shipKey() }, false, dt)) {
         set(key)

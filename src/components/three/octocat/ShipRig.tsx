@@ -191,6 +191,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   const step = useTutorial((s) => s.step)
   const tutorialOpen = step !== null
   const presentationOpen = usePresentation((s) => s.state !== null)
+  /** A viagem atual começou com a apresentação aberta: a volta dela nunca vira trombada, mesmo depois do exit(). */
+  const tripFromPresentation = useRef(false)
   // O painel do planeta/perfil abre com a seleção (fora da apresentação, que tem o cartão dela).
   const panelOpen = panelSelection(selection) && !presentationOpen
   /** Modo de foco pedido (a seleção é a nave): estaciona e a câmera orbita em volta (lib/ship/focus). */
@@ -384,7 +386,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
         const crash = shouldCrash(crashSession.rng, crashSession.history, {
           from: machine.current.target,
           tutorial: step !== null,
-          presentation: usePresentation.getState().state !== null,
+          presentation: usePresentation.getState().state !== null || tripFromPresentation.current,
           reducedMotion: reduced,
           fromFocus,
           momentum: returnMomentum(input),
@@ -434,6 +436,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     const goalFrame = frameFromPose(pose)
     visit.current = { goal: goalFrame, local, targetLocal: [local[0], local[1], local[2]], side: placement?.side ?? 1, disc, layoutKey: ui.key, watch: { ...newVisitWatch(), hand: reduced ? 1 : 0 } }
     const destination = frameToWorld(goalFrame, local)
+    // lembrado para a volta: o exit() da apresentação limpa o estado antes de a nave planejar o retorno
+    tripFromPresentation.current = usePresentation.getState().state !== null
     if (reduced) {
       machine.current = shipReducer(machine.current, { type: 'arrive', target })
       group.current?.position.set(...destination)

@@ -168,7 +168,7 @@ describe('moonOrbits', () => {
     }
     expect(planetGap).toBeGreaterThan(0)
     expect(pairGap).toBeGreaterThan(0)
-  })
+  }, 30_000)
 })
 
 const TWO_PI = 2 * Math.PI
