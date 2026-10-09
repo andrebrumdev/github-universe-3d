@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import { aberrationLimbPx, fringeRho, sunScreenRadius } from '@/lib/sun/aberration'
 import { showcasePlanet } from '@/lib/cameraPoses'
 import { selectedPlanet } from '@/lib/interaction'
-import { hasEyes, hasSparkle, PUPIL, PUPIL_REACH, pupilLook } from '@/lib/sun/face'
+import { hasEyes, hasSparkle, PUPIL, PUPIL_REACH, pupilLook, zzzState } from '@/lib/sun/face'
 import { FACE_AT_REST, faceTarget, stepFaceSpring, wrapAngle, type FaceSpring } from '@/lib/sun/faceSpring'
 import {
   GAZE_AT_START,
@@ -208,6 +208,7 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   const sunAt = useMemo(() => new THREE.Vector3(), [])
   const scaleOut = useMemo<[number, number, number]>(() => [1, 1, 1], [])
   const pupilOut = useMemo<[number, number, number]>(() => [0, 0, 0], [])
+  const zzz = useMemo(() => zzzState(0, false), [])
   const lookAt = useMemo(() => new THREE.Vector3(), [])
   const planetAt = useMemo<Vec3>(() => [0, 0, 0], [])
   const gazeInput = useRef<GazeInput>({
@@ -277,8 +278,11 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     }
     // Bolinha de pensamento: aparece só viajando (o shader a desenha e balança pelo relógio, parado no movimento reduzido).
     SUN_UNIFORMS.uSunSparkle.value = hasSparkle(nowExpression) ? 1 : 0
-    const bubble = SUN_UNIFORMS.uSunBubble
-    bubble.value += ((nowExpression === 'viajando' ? 1 : 0) - bubble.value) * (1 - Math.exp(-8 * dt))
+    // "Z z z" do sol dormindo: aparece e some suave; parado ("Z z z") sob movimento reduzido.
+    const sleepy = SUN_UNIFORMS.uSunBubble
+    sleepy.value += ((nowExpression === 'viajando' ? 1 : 0) - sleepy.value) * (1 - Math.exp(-8 * dt))
+    zzzState(SUN_UNIFORMS.uSunTime.value, reduced, zzz)
+    for (let i = 0; i < 3; i++) SUN_UNIFORMS.uSunZ.value[i].set(zzz[i].x, zzz[i].y, zzz[i].size, zzz[i].alpha)
 
     if (face.current) {
       face.current.getWorldPosition(facePos)

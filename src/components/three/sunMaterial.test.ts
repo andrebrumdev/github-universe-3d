@@ -126,15 +126,18 @@ describe('sol de LED: shader injetado no MeshStandardMaterial', () => {
     expect([SHADE_RIM, SHADE_DEEP]).toEqual(['#F2A50C', '#E8870A'])
   })
 
-  it('bolinha de pensamento do viajando: anel no shader (balança pelo relógio do sol, sem repintar), só sobre o corpo', () => {
+  it('dormindo: "Z z z" no shader (três Z de traço arredondado, posições/alfa por uniform, sem repintar), só sobre o corpo', () => {
     const shader = standardShader()
     patchSunShader(shader)
     const frag = shader.fragmentShader
     expect(shader.uniforms.uSunBubble).toBe(SUN_UNIFORMS.uSunBubble)
-    expect(frag).toContain('uniform float uSunBubble;')
-    expect(frag).toContain('sin( uSunTime * 0.6 )')
-    expect(frag).toContain('* uSunBubble * sunBody );')
-    expect(SUN_UNIFORMS.uSunBubble.value).toBe(0)
+    expect(shader.uniforms.uSunZ).toBe(SUN_UNIFORMS.uSunZ)
+    expect(frag).toContain('uniform vec4 uSunZ[ 3 ];')
+    expect(frag).toContain('float sunZGlyph( vec2 p, vec4 z )')
+    expect(frag).toContain('sunPupil = max( sunPupil, sunZzz * uSunBubble * sunBody );')
+    expect(frag).not.toContain('sunRing')
+    expect(SUN_UNIFORMS.uSunZ.value).toHaveLength(3)
+    expect(createSunUniforms().uSunZ).not.toBe(SUN_UNIFORMS.uSunZ)
   })
 
   it('admirando: brilho branco em cada pupila (uniform por material: a galeria tem um por sol)', () => {

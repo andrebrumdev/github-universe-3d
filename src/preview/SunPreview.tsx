@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { aberrationLimbPx, fringeRho, sunScreenRadius } from '@/lib/sun/aberration'
-import { hasEyes, hasSparkle, pupilLook } from '@/lib/sun/face'
+import { hasEyes, hasSparkle, pupilLook, zzzState } from '@/lib/sun/face'
 import { MAX_TURN_AWAY } from '@/lib/sun/gaze'
 import { kickSquash, SQUASH_AT_REST, SQUASH_TARGET, squashScale, stepSquash, type Squash } from '@/lib/sun/squash'
 import { SUN_EXPRESSIONS, type SunExpression, type SunMode } from '@/lib/sun/sunMachine'
@@ -99,6 +99,7 @@ function SunTile({ expression, blink, gaze, reduced, kick }: TileProps) {
     [texture, parts],
   )
   const pupil = useMemo<[number, number, number]>(() => [0, 0, 0], [])
+  const zzz = useMemo(() => zzzState(0, false), [])
   const scale = useMemo<[number, number, number]>(() => [1, 1, 1], [])
   const lastKick = useRef(0)
 
@@ -119,6 +120,8 @@ function SunTile({ expression, blink, gaze, reduced, kick }: TileProps) {
     uniforms.uSunPupil.value.fromArray(pupil)
     // oxlint-disable-next-line react/immutability -- uniforms do Three.js são mutáveis por design
     uniforms.uSunBubble.value = expression === 'viajando' ? 1 : 0
+    zzzState(SUN_UNIFORMS.uSunTime.value, reduced, zzz)
+    for (let i = 0; i < 3; i++) uniforms.uSunZ.value[i].set(zzz[i].x, zzz[i].y, zzz[i].size, zzz[i].alpha)
     uniforms.uSunSparkle.value = hasSparkle(expression) ? 1 : 0
     const fov = ((camera as THREE.PerspectiveCamera).fov * Math.PI) / 180
     const radius = sunScreenRadius(SUN_RADIUS, camera.position.length(), fov, size.height * viewport.dpr)
@@ -137,7 +140,7 @@ function SunTile({ expression, blink, gaze, reduced, kick }: TileProps) {
 
 /**
  * Galeria das expressões do sol (só no dev: `?preview=sun`): um sol de verdade por expressão — LED, borda âmbar,
- * pupilas do shader, bolinha de pensamento, aberração e brilho —, com piscar, direções do olhar, squash & stretch e
+ * pupilas do shader, "Z z z" do sol dormindo, aberração e brilho —, com piscar, direções do olhar, squash & stretch e
  * movimento reduzido. As fotos de referência do Sphere não entram (pesadas e de terceiros): ver o relatório.
  */
 export function SunPreview() {

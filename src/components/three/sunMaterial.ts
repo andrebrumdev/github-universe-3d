@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { ABERRATION_FALLOFF } from '@/lib/sun/aberration'
-import { BUBBLE, EYE, FACE_CENTER, FACE_H, FACE_W, VIAJANDO } from '@/lib/sun/face'
+import { EYE, FACE_CENTER, FACE_H, FACE_W, ZZZ } from '@/lib/sun/face'
 import { SHADE_CORE_Y, SHADE_END, SHADE_LOW, SHADE_START, SURFACE_AMPLITUDE } from '@/lib/sun/surface'
 import { SUN_RADIUS } from '@/lib/universe/orbits'
 import type { BloomLook } from '@/store/bloom'
@@ -19,7 +19,8 @@ const linear = (hex: string) => {
  * - `uSunTime`: anda no useFrame do Sun (parado sob movimento reduzido); move o balanço, as manchas, a textura e a névoa.
  * - `uSunPupil`: (x, y, raio) da pupila em unidades de desenho, relativa ao centro de cada olho (ver `pupilLook`).
  * - `uSunSparkle`: 0–1, o brilho branco nas pupilas do admirando.
- * - `uSunBubble`: 0–1, a bolinha de pensamento do "viajando" (aparece e some suave; balança pelo `uSunTime`).
+ * - `uSunBubble`: 0–1, o "Z z z" do sol dormindo (viajando), aparecendo e sumindo suave; `uSunZ`: os três Z
+ *   (x, y, tamanho, alfa) em unidades do mapa, de `zzzState`.
  * - `uSunMask`: 1 com o bloom ligado — o sol escreve alfa 0 para o composer deixá-lo fora do ACES e do bloom
  *   (ver `sunComposer.ts`).
  * - `uSunAberration`: deslocamento RGB no limbo, em px (ver `aberrationLimbPx`); `uSunFringe`: o mesmo em raios do sol,
@@ -30,6 +31,7 @@ export const SUN_UNIFORMS = {
   uSunPupil: { value: new THREE.Vector3(0, 0, 9) },
   uSunMask: { value: 0 },
   uSunBubble: { value: 0 },
+  uSunZ: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
   uSunSparkle: { value: 0 },
   uSunAberration: { value: 0 },
   uSunFringe: { value: 0 },
@@ -37,9 +39,15 @@ export const SUN_UNIFORMS = {
 
 export type SunUniforms = typeof SUN_UNIFORMS
 
-/** Uniforms próprios para outro sol (a galeria): pupila e bolinha próprias; relógio, máscara e aberração compartilhados. */
+/** Uniforms próprios para outro sol (a galeria): pupila, Z e brilho próprios; relógio, máscara e aberração compartilhados. */
 export function createSunUniforms(): SunUniforms {
-  return { ...SUN_UNIFORMS, uSunPupil: { value: new THREE.Vector3(0, 0, 9) }, uSunBubble: { value: 0 }, uSunSparkle: { value: 0 } }
+  return {
+    ...SUN_UNIFORMS,
+    uSunPupil: { value: new THREE.Vector3(0, 0, 9) },
+    uSunBubble: { value: 0 },
+    uSunZ: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+    uSunSparkle: { value: 0 },
+  }
 }
 
 /**
@@ -50,7 +58,7 @@ export function sunMask(bloomActive: boolean): number {
   return bloomActive ? 1 : 0
 }
 
-export const SUN_PROGRAM_KEY = 'sun-led-v7'
+export const SUN_PROGRAM_KEY = 'sun-led-v8'
 /** Malha densa o bastante para o balanço ficar liso (6 mil vértices; o deslocamento é por vértice). */
 export const SUN_SEGMENTS: readonly [number, number] = [96, 64]
 /** Emissivo do painel de LED (a cor vem da textura; sem tone mapping). */
@@ -101,6 +109,19 @@ ${SUN_NOISE_GLSL}
 uniform vec3 uSunPupil;
 uniform float uSunMask;
 uniform float uSunBubble;
+uniform vec4 uSunZ[ 3 ];
+float sunSeg( vec2 p, vec2 a, vec2 b ) {
+	vec2 pa = p - a;
+	vec2 ba = b - a;
+	return length( pa - ba * clamp( dot( pa, ba ) / dot( ba, ba ), 0.0, 1.0 ) );
+}
+// Z de traço grosso com pontas arredondadas: barra de cima, diagonal, barra de baixo (z = centro, lado, alfa)
+float sunZGlyph( vec2 p, vec4 z ) {
+	vec2 q = p - z.xy;
+	float h = 0.5 * z.z;
+	float d = min( min( sunSeg( q, vec2( -h, -h ), vec2( h, -h ) ), sunSeg( q, vec2( h, -h ), vec2( -h, h ) ) ), sunSeg( q, vec2( -h, h ), vec2( h, h ) ) );
+	return d - ${f(ZZZ.stroke / 2)} * z.z;
+}
 uniform float uSunSparkle;
 uniform float uSunAberration;
 varying vec3 vSunObj;`
@@ -170,17 +191,19 @@ const FRAGMENT_DETAIL = /* glsl */ `#ifdef USE_MAP
 		float sunD = min( length( sunAt - sunEyeL ), length( sunAt - sunEyeR ) ) - uSunPupil.z;
 		float sunAA = max( fwidth( sunD ), 1e-4 );
 		sunPupil = ( 1.0 - smoothstep( -sunAA, sunAA, sunD ) ) * sunWhite;
-		// bolinha de pensamento do "viajando": anel contornado no alto à direita, balançando devagar
-		vec2 sunBub = vec2( ${f(FACE_X + VIAJANDO.offsetX + BUBBLE.x)}, ${f(FACE_Y + VIAJANDO.offsetY + BUBBLE.y)} )
-			+ vec2( ${f(BUBBLE.bobX)} * sin( uSunTime * 0.6 ), ${f(BUBBLE.bobY)} * sin( uSunTime * 0.9 + 1.3 ) );
-		float sunRing = abs( length( sunAt - sunBub ) - ${f(BUBBLE.r)} ) - ${f(BUBBLE.width / 2)};
-		float sunRingAA = max( fwidth( sunRing ), 1e-4 );
+		// "Z z z" do sol dormindo: três Z subindo no alto à direita (posições e alfa de zzzState)
+		float sunZzz = 0.0;
+		for ( int i = 0; i < 3; i ++ ) {
+			float zd = sunZGlyph( sunAt, uSunZ[ i ] );
+			float zaa = max( fwidth( zd ), 1e-4 );
+			sunZzz = max( sunZzz, ( 1.0 - smoothstep( -zaa, zaa, zd ) ) * uSunZ[ i ].w );
+		}
 		// brilho do admirando: um pontinho branco no alto, à esquerda, de cada pupila
 		vec2 sunSparkAt = vec2( -0.35, -0.38 ) * uSunPupil.z;
 		float sunSD = min( length( sunAt - sunEyeL - sunSparkAt ), length( sunAt - sunEyeR - sunSparkAt ) ) - 0.28 * uSunPupil.z;
 		float sunSAA = max( fwidth( sunSD ), 1e-4 );
 		sunSparkle = ( 1.0 - smoothstep( -sunSAA, sunSAA, sunSD ) ) * sunPupil * uSunSparkle;
-		sunPupil = max( sunPupil, ( 1.0 - smoothstep( -sunRingAA, sunRingAA, sunRing ) ) * uSunBubble * sunBody );
+		sunPupil = max( sunPupil, sunZzz * uSunBubble * sunBody );
 		vec2 sunLed = vMapUv * vec2( ${f(LED_GRID[0])}, ${f(LED_GRID[1])} );
 		float sunLedW = max( fwidth( sunLed.x ), fwidth( sunLed.y ) );
 		float sunLedVis = 1.0 - smoothstep( 0.12, 0.3, sunLedW );
@@ -231,6 +254,7 @@ export function patchSunShader(shader: ShaderLike, uniforms: SunUniforms = SUN_U
   shader.uniforms.uSunPupil = uniforms.uSunPupil
   shader.uniforms.uSunMask = uniforms.uSunMask
   shader.uniforms.uSunBubble = uniforms.uSunBubble
+  shader.uniforms.uSunZ = uniforms.uSunZ
   shader.uniforms.uSunSparkle = uniforms.uSunSparkle
   shader.uniforms.uSunAberration = uniforms.uSunAberration
   shader.vertexShader = shader.vertexShader
@@ -246,7 +270,7 @@ export function patchSunShader(shader: ShaderLike, uniforms: SunUniforms = SUN_U
 
 /**
  * Painel de LED: a textura do rosto como cor e emissivo, sem tone mapping, com o shader do sol injetado.
- * `uniforms`: o sol da cena usa os compartilhados; a galeria (`?preview=sun`) dá a cada sol os seus (pupila, bolinha).
+ * `uniforms`: o sol da cena usa os compartilhados; a galeria (`?preview=sun`) dá a cada sol os seus (pupila, Z).
  */
 export function createSunMaterial(texture: THREE.Texture, uniforms: SunUniforms = SUN_UNIFORMS): THREE.MeshStandardMaterial {
   const material = new THREE.MeshStandardMaterial({

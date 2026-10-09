@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { browArch, browBar, BUBBLE, EYE, FACE_CENTER, faceKey, hasEyes, hasLidCap, hasPupils, hasSparkle, LID, MOUTH_Y, PUPIL, PUPIL_REACH, pupilLook, sideEyes, VIAJANDO } from './face'
+import { browArch, browBar, EYE, FACE_CENTER, faceKey, hasEyes, hasLidCap, hasPupils, hasSparkle, LID, MOUTH_Y, PUPIL, PUPIL_REACH, pupilLook, sideEyes, VIAJANDO, ZZZ, zzzState } from './face'
 import { SUN_EXPRESSIONS } from './sunMachine'
 import { SUN_LOOK } from './sunMachine'
 import type { SunExpression } from './sunMachine'
@@ -132,19 +132,11 @@ describe('viajando e de olho', () => {
     for (const e of EXPRESSIONS) expect(hasPupils(e)).toBe(true)
   })
 
-  it('viajando: rosto um pouco à direita e abaixo; traços grossos do tamanho de um olho; bolinha no alto à direita', () => {
+  it('viajando: rosto um pouco à direita e abaixo; traços grossos do tamanho de um olho', () => {
     expect(VIAJANDO.offsetX).toBeGreaterThan(0)
     expect(VIAJANDO.offsetY).toBeGreaterThanOrEqual(0)
     expect(2 * VIAJANDO.dashHalf).toBeGreaterThan(1.6 * EYE.rx)
     expect(VIAJANDO.dashWidth).toBeGreaterThan(2.5)
-    expect(BUBBLE.x).toBeGreaterThan(EYE.dx + EYE.rx)
-    expect(BUBBLE.y).toBeLessThan(EYE.y - EYE.ry)
-    expect(BUBBLE.r).toBeLessThan(EYE.rx)
-    // fica dentro da área calma do rosto (40°): a fervura não a entorta
-    const RAD = (2 * Math.PI) / 512
-    const x = VIAJANDO.offsetX + BUBBLE.x + BUBBLE.bobX + BUBBLE.r
-    const y = VIAJANDO.offsetY + BUBBLE.y - BUBBLE.bobY - BUBBLE.r
-    expect(Math.hypot(x, y) * RAD).toBeLessThan((40 * Math.PI) / 180)
   })
 
   it('pálpebra pesada só de olho: cobre o topo ~35–40% do branco', () => {
@@ -208,5 +200,73 @@ describe('repintar o rosto só quando ele muda', () => {
       expect(faceKey(e, true)).not.toBe(faceKey(e, false))
     }
     expect(new Set(SUN_EXPRESSIONS.map((e) => faceKey(e, false))).size).toBe(SUN_EXPRESSIONS.length)
+  })
+})
+
+describe('dormindo (viajando): Z z z subindo', () => {
+  const [cx, cy] = FACE_CENTER
+  const RAD = (2 * Math.PI) / 512
+  const ts = Array.from({ length: 400 }, (_, i) => i * 0.025)
+
+  it('três Z; cada um sobe na diagonal para cima e para a direita, cresce um pouco e some, em ~1,5–2 s', () => {
+    expect(ZZZ.period).toBeGreaterThanOrEqual(1.5)
+    expect(ZZZ.period).toBeLessThanOrEqual(2)
+    const zs = ts.map((t) => zzzState(t, false))
+    for (const z of zs) expect(z).toHaveLength(3)
+    // o Z 0 do começo ao fim de uma volta
+    const start = zzzState(0.001, false)[0]
+    const end = zzzState(ZZZ.period - 0.001, false)[0]
+    expect(end.x).toBeGreaterThan(start.x)
+    expect(end.y).toBeLessThan(start.y) // y do canvas cresce para baixo
+    expect(end.size).toBeGreaterThan(start.size)
+    expect(start.alpha).toBeLessThan(0.05)
+    expect(end.alpha).toBeLessThan(0.05)
+    // e volta ao começo depois de uma volta
+    expect(zzzState(ZZZ.period + 0.001, false)[0].x).toBeCloseTo(start.x, 6)
+  })
+
+  it('um Z não encosta no outro: as caixas (lado + traço) dos visíveis não se cruzam, subindo ou parado', () => {
+    const apart = (zs: ReturnType<typeof zzzState>) => {
+      const box = (z: (typeof zs)[number]) => z.size * (1 + ZZZ.stroke)
+      for (let i = 0; i < zs.length; i++)
+        for (let j = i + 1; j < zs.length; j++) {
+          const half = (box(zs[i]) + box(zs[j])) / 2
+          const dx = Math.abs(zs[i].x - zs[j].x)
+          const dy = Math.abs(zs[i].y - zs[j].y)
+          expect(dx > half || dy > half).toBe(true)
+        }
+    }
+    for (const t of ts) apart(zzzState(t, false).filter((z) => z.alpha > 0.15))
+    apart(zzzState(0, true))
+  })
+
+  it('escalonados: sempre há pelo menos um Z bem visível', () => {
+    for (const t of ts) expect(Math.max(...zzzState(t, false).map((z) => z.alpha))).toBeGreaterThan(0.9)
+  })
+
+  it('perto do alto à direita do rosto (onde ficava a bolinha), bem na frente do sol (até 50° do centro do rosto)', () => {
+    for (const t of ts) {
+      for (const z of zzzState(t, false)) {
+        expect(z.x - cx).toBeGreaterThan(EYE.dx + EYE.rx)
+        expect(z.y - cy).toBeLessThan(EYE.y - EYE.ry)
+        expect(Math.hypot(z.x - cx + z.size, z.y - cy - z.size) * RAD).toBeLessThan((50 * Math.PI) / 180)
+      }
+    }
+  })
+
+  it('movimento reduzido: "Z z z" parado, em tamanhos decrescentes, todos visíveis', () => {
+    const a = zzzState(0, true)
+    expect(zzzState(7.3, true)).toEqual(a)
+    expect(a.every((z) => z.alpha === 1)).toBe(true)
+    expect(a[0].size).toBeGreaterThan(a[1].size)
+    expect(a[1].size).toBeGreaterThan(a[2].size)
+    // subindo na diagonal para cima e para a direita
+    expect(a[1].x).toBeGreaterThan(a[0].x)
+    expect(a[2].y).toBeLessThan(a[1].y)
+  })
+
+  it('escreve no vetor de saída (nada alocado por quadro)', () => {
+    const out = zzzState(1, false)
+    expect(zzzState(2, false, out)).toBe(out)
   })
 })

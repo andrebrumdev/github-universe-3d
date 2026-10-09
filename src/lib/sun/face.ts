@@ -112,11 +112,55 @@ export function browBar(expression: SunExpression, side: -1 | 1): [number, numbe
 
 /**
  * Viajando (a referência `sun-reference-sphere-viajando.png`): olhos em traço grosso, boquinha oval, sem sobrancelha;
- * o rosto um pouco à direita e abaixo; uma bolinha de pensamento contornada no alto à direita, balançando devagar.
+ * o rosto um pouco à direita e abaixo; dormindo, solta "Z z z" no alto à direita (ver `ZZZ`).
  */
 export const VIAJANDO = { offsetX: 6, offsetY: 2, dashHalf: 10, dashWidth: 4.2, mouthRx: 3.4, mouthRy: 2.3 } as const
-/** Bolinha de pensamento (relativa ao centro do rosto viajando): centro, raio, traço e balanço (unidades). */
-export const BUBBLE = { x: 34, y: -24, r: 4.5, width: 1.6, bobX: 0.8, bobY: 1.4 } as const
+/**
+ * "Z z z" do sol dormindo (viajando), no shader: cada Z nasce no alto à direita do rosto (relativo ao centro do rosto
+ * viajando), sobe na diagonal (`riseX`, `riseY`), cresce `grow` e some em `period` s; três escalonados. `stroke` é a
+ * grossura do traço em fração do tamanho.
+ */
+export const ZZZ = { x: 23, y: -12, riseX: 14, riseY: -22, size: 3.8, grow: 0.4, stroke: 0.28, period: 1.8 } as const
+
+export interface ZGlyph {
+  /** Centro em unidades de desenho do mapa (como o canvas: y para baixo). */
+  x: number
+  y: number
+  /** Lado do Z (unidades). */
+  size: number
+  alpha: number
+}
+
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
+const smooth = (a: number, b: number, v: number) => {
+  const t = clamp01((v - a) / (b - a))
+  return t * t * (3 - 2 * t)
+}
+
+/**
+ * Os três Z no tempo `t` (s): fase escalonada de um terço de volta, subindo, crescendo, entrando e sumindo — sempre há
+ * um bem visível. Com movimento reduzido, "Z z z" parado em tamanhos decrescentes. Escreve em `out` se vier.
+ */
+export function zzzState(t: number, reduced: boolean, out: ZGlyph[] = [0, 1, 2].map(() => ({ x: 0, y: 0, size: 0, alpha: 0 }))): ZGlyph[] {
+  const x0 = FACE_CENTER[0] + VIAJANDO.offsetX + ZZZ.x
+  const y0 = FACE_CENTER[1] + VIAJANDO.offsetY + ZZZ.y
+  for (let i = 0; i < 3; i++) {
+    const z = out[i]
+    if (reduced) {
+      z.x = x0 + [0, 7, 13][i]
+      z.y = y0 - [0, 9, 16][i]
+      z.size = ZZZ.size * [1.4, 1, 0.72][i]
+      z.alpha = 1
+      continue
+    }
+    const phase = (((t / ZZZ.period + i / 3) % 1) + 1) % 1
+    z.x = x0 + ZZZ.riseX * phase
+    z.y = y0 + ZZZ.riseY * phase
+    z.size = ZZZ.size * (1 + ZZZ.grow * phase)
+    z.alpha = smooth(0, 0.12, phase) * (1 - smooth(0.62, 1, phase))
+  }
+  return out
+}
 
 /**
  * Posição [x, y] e raio da pupila (unidades de desenho, relativas ao centro do olho) a partir do atraso da mola:

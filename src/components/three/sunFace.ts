@@ -19,8 +19,8 @@ export const BLUSH = 'rgba(255, 166, 40, 0.5)'
 /**
  * Rosto no estilo do Sphere de Las Vegas (referências em `.superpowers/…/sun-reference-sphere*.png`): corpo liso,
  * traços pequenos um pouco abaixo do equador.
- * - viajando (o padrão): olhos em traço grosso, boquinha oval, sem sobrancelha, rosto um pouco à direita; a bolinha de
- *   pensamento é do shader (balança sem repintar). Piscar não muda nada.
+ * - viajando (o padrão): olhos em traço grosso, boquinha oval, sem sobrancelha, rosto um pouco à direita; o "Z z z"
+ *   é do shader (sobe sem repintar). Piscar não muda nada.
  * - olhos abertos: brancos redondos; sobrancelha por humor (`browBar`: barra nivelada no sério, levantada no
  *   feliz/surpreso, inclinada no triste, macia e curva no admirando, com bochechas âmbar); de olho, em vez da
  *   sobrancelha, uma pálpebra pesada preenchida cobrindo o topo do branco (`LID`). Nunca as duas juntas.
