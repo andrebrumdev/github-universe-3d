@@ -30,9 +30,10 @@ jobs:
       - run: pnpm test
       # Falha aqui = nada é publicado e o deploy anterior continua no ar.
       # O token só existe neste passo (sem prefixo VITE_): o build do cliente nunca o recebe.
+      # Sem o secret UNIVERSE_TOKEN, usa o token automático do Actions, que lê os dados públicos do perfil.
       - run: pnpm snapshot
         env:
-          UNIVERSE_TOKEN: ${{ secrets.UNIVERSE_TOKEN }}
+          UNIVERSE_TOKEN: ${{ secrets.UNIVERSE_TOKEN || github.token }}
           UNIVERSE_LOGIN: ${{ github.repository_owner }}
       - run: pnpm build
       - uses: actions/configure-pages@v5

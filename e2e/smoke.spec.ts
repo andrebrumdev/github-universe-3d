@@ -1,7 +1,12 @@
 import { expect, test } from '@playwright/test'
 
-// Avisos conhecidos do WebGL por software (swiftshader) não contam como erro da aplicação.
-const KNOWN_NOISE = [/GPU stall/i, /swiftshader/i, /WebGL/i, /GL Driver Message/i, /Automatic fallback to software/i]
+// Avisos conhecidos do WebGL por software (swiftshader) não contam como erro da aplicação. Só as mensagens exatas de
+// desempenho do driver: erro de shader, perda de contexto ou falha ao criar o WebGL continuam reprovando o teste.
+const KNOWN_NOISE = [
+  /GL Driver Message \(OpenGL, Performance/i,
+  /GPU stall due to ReadPixels/i,
+  /Automatic fallback to software WebGL has been deprecated/i,
+]
 
 test('universo carrega, o sol abre o perfil e o Octocat reabre o tutorial', async ({ page }) => {
   const errors: string[] = []
