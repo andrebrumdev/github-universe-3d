@@ -2,6 +2,7 @@ import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 import { SIDE_PANEL_MAX_FRACTION, SIDE_PANEL_WIDTH, SIDE_SHEET_MAX_HEIGHT } from '@/lib/uiLayout'
+import { cardVariants } from './cardMotion'
 
 /**
  * Largura da coluna (no celular deitado, no máximo metade da tela) e altura máxima da folha no celular, da fonte única
@@ -22,12 +23,13 @@ interface SidePanelProps {
 
 export function SidePanel({ open, onClose, title, children }: SidePanelProps) {
   const mobile = useMediaQuery(MOBILE_QUERY)
-  const reduced = useReducedMotion()
+  const reduced = useReducedMotion() ?? false
   const closeButton = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!open) return
-    closeButton.current?.focus()
+    // O painel monta já no lugar do layout (o deslize é só transform): o foco entra sem rolar nada.
+    closeButton.current?.focus({ preventScroll: true })
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
@@ -35,7 +37,8 @@ export function SidePanel({ open, onClose, title, children }: SidePanelProps) {
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
-  const hidden = reduced ? { opacity: 0 } : mobile ? { y: '100%' } : { x: '100%' }
+  // Entra pela borda de onde vem: da direita na coluna, de baixo na folha do celular (ver cardMotion).
+  const variants = cardVariants(mobile ? 'bottom' : 'right', reduced)
 
   return (
     <AnimatePresence>
@@ -44,10 +47,10 @@ export function SidePanel({ open, onClose, title, children }: SidePanelProps) {
           key="panel"
           role="dialog"
           aria-label={title}
-          initial={hidden}
-          animate={{ x: 0, y: 0, opacity: 1 }}
-          exit={hidden}
-          transition={{ type: 'spring', stiffness: 260, damping: 30 }}
+          variants={variants}
+          initial="hidden"
+          animate="shown"
+          exit="hidden"
           style={PANEL_STYLE}
           className="fixed inset-x-0 bottom-0 z-20 max-h-(--sheet-max-h) overflow-y-auto overscroll-contain rounded-t-2xl border border-neon/20 bg-panel/90 p-5 pb-[max(1.25rem,var(--safe-bottom))] backdrop-blur side:inset-y-0 side:left-auto side:right-0 side:max-h-none side:w-(--panel-width-md) side:rounded-none side:rounded-l-2xl side:pr-[max(1.25rem,var(--safe-right))]"
         >

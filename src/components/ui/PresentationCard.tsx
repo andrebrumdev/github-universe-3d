@@ -1,5 +1,6 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 import { formatCount, timeAgo } from '@/lib/format'
 import { firstName } from '@/lib/octocat/lines'
 import { type ArrivalWatch, isHeld, MAX_PRESENTED_REPOS, shipAtStop, STOP_SECONDS, type Stop, watchArrival } from '@/lib/presentation'
@@ -9,6 +10,8 @@ import { languageShares, MAX_MOONS } from '@/lib/universe/planets'
 import { PRESENTATION_CARD, SIDE_PANEL_MAX_FRACTION, SIDE_PANEL_WIDTH } from '@/lib/uiLayout'
 import { usePresentation } from '@/store/presentation'
 import { shipPose } from '@/store/shipPose'
+import { cardVariants, contentVariants } from './cardMotion'
+import { Reveal } from './Reveal'
 
 // Posição pelas medidas compartilhadas (uiLayout): a nave da escolta e a câmera contam com essa coluna/folha.
 // Na coluna, a largura do painel lateral (metade da tela num celular deitado), fora das áreas seguras.
@@ -94,6 +97,7 @@ export function PresentationCard({ universe }: { universe: Universe }) {
   const count = usePresentation((s) => s.state?.count ?? 0)
   const stop = usePresentation((s) => (s.state ? s.stops[s.state.index] : null))
   const reduced = useReducedMotion() ?? false
+  const mobile = useMediaQuery(MOBILE_QUERY)
   const active = index >= 0
   usePresentationClock(active)
   usePresentationKeys(active)
@@ -139,10 +143,11 @@ export function PresentationCard({ universe }: { universe: Universe }) {
           ref={card}
           tabIndex={-1}
           aria-label="Apresentação"
-          initial={{ opacity: 0, y: reduced ? 0 : 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: reduced ? 0 : 16 }}
-          transition={reduced ? { duration: 0 } : { type: 'spring', stiffness: 260, damping: 30 }}
+          // a mesma entrada do painel lateral: da direita no cartão flutuante, de baixo na folha do celular
+          variants={cardVariants(mobile ? 'bottom' : 'right', reduced)}
+          initial="hidden"
+          animate="shown"
+          exit="hidden"
           style={CARD_STYLE}
           onPointerEnter={(e) => {
             if (e.pointerType !== 'mouse') return
@@ -172,11 +177,12 @@ export function PresentationCard({ universe }: { universe: Universe }) {
           <p aria-live="polite" className="sr-only">
             {`Parada ${index + 1} de ${count}: ${stopTitle(stop, universe.profile)}`}
           </p>
+          {/* a cada parada o conteúdo novo entra em tempos, como no painel */}
           <motion.div
             key={index}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={reduced ? { duration: 0 } : { duration: 0.35 }}
+            variants={contentVariants(reduced)}
+            initial="hidden"
+            animate="shown"
             className="px-4 pb-[max(1rem,var(--safe-bottom))] side:pb-4"
           >
             <StopBody stop={stop} universe={universe} />
@@ -326,45 +332,51 @@ function ProfileStop({ profile }: { profile: Profile }) {
   const languages = languageShares(profile.topLanguages).slice(0, 3)
   return (
     <div className="space-y-4">
-      <header className="flex items-center gap-3">
-        <img src={profile.avatarUrl} alt="" width={56} height={56} className="h-14 w-14 rounded-full ring-2 ring-neon/50" />
-        <div className="min-w-0">
-          <h2 className="truncate text-lg font-semibold text-neon">{profile.name}</h2>
-          <p className="text-sm text-slate-400">@{profile.login}</p>
-        </div>
-      </header>
-      {profile.bio && <p className="text-base text-slate-300 side:text-sm">{profile.bio}</p>}
-      <dl className="grid grid-cols-4 gap-2 text-center">
-        {stats.map(([label, value]) => (
-          <div key={label} className="rounded-lg bg-white/5 px-1 py-2">
-            <dt className="text-xs text-slate-400 side:text-[11px]">{label}</dt>
-            <dd className="text-base font-semibold">{formatCount(value)}</dd>
+      <Reveal className="space-y-4">
+        <header className="flex items-center gap-3">
+          <img src={profile.avatarUrl} alt="" width={56} height={56} className="h-14 w-14 rounded-full ring-2 ring-neon/50" />
+          <div className="min-w-0">
+            <h2 className="truncate text-lg font-semibold text-neon">{profile.name}</h2>
+            <p className="text-sm text-slate-400">@{profile.login}</p>
           </div>
-        ))}
-      </dl>
-      {languages.length > 0 && (
-        <section>
-          <SectionTitle>Top linguagens</SectionTitle>
-          <ul className="mt-2 flex flex-wrap gap-1.5">
-            {languages.map((l) => (
-              <LanguageChip key={l.name} name={l.name} color={l.color}>
-                <span className="tabular-nums text-slate-400">{l.share.toFixed(0)}%</span>
-              </LanguageChip>
-            ))}
-          </ul>
-        </section>
-      )}
-      <section>
-        <SectionTitle>Último commit</SectionTitle>
-        {profile.lastCommit ? (
-          <p className="mt-1.5">
-            <span className="line-clamp-2 text-slate-100">{profile.lastCommit.message}</span>
-            <span className="block text-xs text-slate-400">{timeAgo(profile.lastCommit.date)}</span>
-          </p>
-        ) : (
-          <p className="mt-1.5 text-slate-400">Nenhum commit público.</p>
+        </header>
+        {profile.bio && <p className="text-base text-slate-300 side:text-sm">{profile.bio}</p>}
+      </Reveal>
+      <Reveal>
+        <dl className="grid grid-cols-4 gap-2 text-center">
+          {stats.map(([label, value]) => (
+            <div key={label} className="rounded-lg bg-white/5 px-1 py-2">
+              <dt className="text-xs text-slate-400 side:text-[11px]">{label}</dt>
+              <dd className="text-base font-semibold">{formatCount(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      </Reveal>
+      <Reveal className="space-y-4">
+        {languages.length > 0 && (
+          <section>
+            <SectionTitle>Top linguagens</SectionTitle>
+            <ul className="mt-2 flex flex-wrap gap-1.5">
+              {languages.map((l) => (
+                <LanguageChip key={l.name} name={l.name} color={l.color}>
+                  <span className="tabular-nums text-slate-400">{l.share.toFixed(0)}%</span>
+                </LanguageChip>
+              ))}
+            </ul>
+          </section>
         )}
-      </section>
+        <section>
+          <SectionTitle>Último commit</SectionTitle>
+          {profile.lastCommit ? (
+            <p className="mt-1.5">
+              <span className="line-clamp-2 text-slate-100">{profile.lastCommit.message}</span>
+              <span className="block text-xs text-slate-400">{timeAgo(profile.lastCommit.date)}</span>
+            </p>
+          ) : (
+            <p className="mt-1.5 text-slate-400">Nenhum commit público.</p>
+          )}
+        </section>
+      </Reveal>
     </div>
   )
 }
@@ -375,42 +387,48 @@ function RepoStop({ repo }: { repo: Repo }) {
   const moons = repo.languages.slice(0, MAX_MOONS)
   return (
     <div className="space-y-4">
-      <h2 className="break-words text-lg font-semibold text-neon">{repo.name}</h2>
-      <section>
-        <SectionTitle>O que faz</SectionTitle>
-        {repo.description || repo.readme ? (
-          <div className="mt-1.5 space-y-1.5">
-            {repo.description && <p className="text-base text-slate-100 side:text-sm">{repo.description}</p>}
-            {repo.readme && <p className="line-clamp-4 text-base leading-snug text-slate-400 side:text-[13px]">{repo.readme}</p>}
-          </div>
-        ) : (
-          <p className="mt-1.5 text-slate-400">Sem descrição nem README por aqui, mas o código conta a história. Vale a visita!</p>
-        )}
-      </section>
-      {moons.length > 0 && (
+      <Reveal className="space-y-4">
+        <h2 className="break-words text-lg font-semibold text-neon">{repo.name}</h2>
         <section>
-          <SectionTitle>Linguagens (as luas)</SectionTitle>
-          <ul className="mt-2 flex flex-wrap gap-1.5">
-            {moons.map((l) => (
-              <LanguageChip key={l.name} name={l.name} color={l.color} />
-            ))}
-          </ul>
+          <SectionTitle>O que faz</SectionTitle>
+          {repo.description || repo.readme ? (
+            <div className="mt-1.5 space-y-1.5">
+              {repo.description && <p className="text-base text-slate-100 side:text-sm">{repo.description}</p>}
+              {repo.readme && <p className="line-clamp-4 text-base leading-snug text-slate-400 side:text-[13px]">{repo.readme}</p>}
+            </div>
+          ) : (
+            <p className="mt-1.5 text-slate-400">Sem descrição nem README por aqui, mas o código conta a história. Vale a visita!</p>
+          )}
         </section>
+      </Reveal>
+      {moons.length > 0 && (
+        <Reveal>
+          <section>
+            <SectionTitle>Linguagens (as luas)</SectionTitle>
+            <ul className="mt-2 flex flex-wrap gap-1.5">
+              {moons.map((l) => (
+                <LanguageChip key={l.name} name={l.name} color={l.color} />
+              ))}
+            </ul>
+          </section>
+        </Reveal>
       )}
-      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 side:grid-cols-2">
-        <Stat label="Stars" value={`⭐ ${formatCount(repo.stars)}`} />
-        <Stat label="Forks" value={`⑂ ${formatCount(repo.forks)}`} />
-        <Stat label="Commits no último ano" value={formatCount(yearCommits)} />
-        <Stat label="Último commit" value={repo.lastCommit ? timeAgo(repo.lastCommit.date) : '—'} />
-      </dl>
-      <a
-        href={repo.url}
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex items-center rounded-full border border-neon/50 px-4 py-2 text-neon hover:bg-neon/10 pointer-coarse:min-h-11"
-      >
-        Ver no GitHub ↗
-      </a>
+      <Reveal className="space-y-4">
+        <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 side:grid-cols-2">
+          <Stat label="Stars" value={`⭐ ${formatCount(repo.stars)}`} />
+          <Stat label="Forks" value={`⑂ ${formatCount(repo.forks)}`} />
+          <Stat label="Commits no último ano" value={formatCount(yearCommits)} />
+          <Stat label="Último commit" value={repo.lastCommit ? timeAgo(repo.lastCommit.date) : '—'} />
+        </dl>
+        <a
+          href={repo.url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center rounded-full border border-neon/50 px-4 py-2 text-neon hover:bg-neon/10 pointer-coarse:min-h-11"
+        >
+          Ver no GitHub ↗
+        </a>
+      </Reveal>
     </div>
   )
 }
@@ -442,7 +460,7 @@ function OutroStop({ universe }: { universe: Universe }) {
   // No fim, o foco vai para "Explorar" (a apresentação não anda mais sozinha).
   useEffect(() => explore.current?.focus({ preventScroll: true }), [])
   return (
-    <div className="space-y-3">
+    <Reveal className="space-y-3">
       <h2 className="text-lg font-semibold text-neon">Fim da apresentação</h2>
       <p className="text-slate-300">
         {shown > 0
@@ -462,6 +480,6 @@ function OutroStop({ universe }: { universe: Universe }) {
           Explorar
         </button>
       </div>
-    </div>
+    </Reveal>
   )
 }

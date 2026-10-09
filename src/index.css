@@ -41,10 +41,14 @@ body,
   }
 }
 
+/*
+ * Cartão do planeta sob o cursor: a mesma entrada dos outros cartões (cardMotion), em menor escala — sobe um pouco e
+ * acende, desacelerando no fim. Com movimento reduzido, só a opacidade, curta.
+ */
 @keyframes planet-card-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -52,12 +56,21 @@ body,
   }
 }
 
+@keyframes card-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .planet-card {
-  animation: planet-card-in 140ms ease-out both;
+  animation: planet-card-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .planet-card {
-    animation: none;
+    animation: card-fade-in 100ms linear both;
   }
 }
