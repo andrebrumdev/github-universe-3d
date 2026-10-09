@@ -99,3 +99,24 @@ test('celular: com a folha do perfil aberta, os botões flutuantes saem do camin
   await expect(tutorialButton).toBeVisible()
   await expect(presentationButton).toBeVisible()
 })
+
+test('desktop: se o pedaço do bloom não carrega, a cena segue sem bloom', async ({ page }) => {
+  const warnings: string[] = []
+  const errors: string[] = []
+  page.on('console', (m) => {
+    if (m.type() === 'warning') warnings.push(m.text())
+  })
+  page.on('pageerror', (e) => errors.push(e.message))
+  // Offline ou hash velho depois de um deploy: o import dinâmico do bloom falha.
+  await page.route(/GlowEffects-[\w-]+\.js/, (route) => route.abort())
+  // Sem ?nobloom: com mouse e tela larga, a cena pede o bloom.
+  await page.goto('/github-universe-3d/')
+
+  const canvas = page.locator('#root canvas')
+  await expect(canvas).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByText(/Bem-vindo ao universo GitHub de/)).toBeVisible({ timeout: 30_000 })
+  await expect(canvas).toBeVisible()
+  await expect(page.getByRole('button', { name: /Tentar de novo/ })).toHaveCount(0)
+  expect(warnings.filter((w) => w.startsWith('[bloom]'))).toHaveLength(1)
+  expect(errors).toEqual([])
+})

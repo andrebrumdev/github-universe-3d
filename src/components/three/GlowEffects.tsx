@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useLayoutEffect, useMemo } from 'react'
 import { EffectComposer } from '@react-three/postprocessing'
 import { applyBloomLook } from './bloomLook'
 import { createGlowBloomEffect, SunMaskToneMappingEffect } from './sunComposer'
@@ -26,7 +26,11 @@ export function GlowBloom() {
   useEffect(() => () => bloom?.dispose(), [bloom])
   const toneMapping = useMemo(() => (bloom ? new SunMaskToneMappingEffect() : null), [bloom])
   useEffect(() => () => toneMapping?.dispose(), [toneMapping])
-  useEffect(() => {
+  // No mesmo commit em que o EffectComposer monta, antes de qualquer quadro: ele só cria o compositor no efeito passivo
+  // dele e só desenha no quadro seguinte, então nenhum quadro sai pelo compositor com o visual sem bloom. O fundo
+  // (useBloom.active) também troca aqui: a atualização de um layout effect re-renderiza na hora, antes do próximo quadro.
+  // Na volta, o mesmo: a limpeza roda no commit que desmonta o compositor.
+  useLayoutEffect(() => {
     if (!bloom) return
     applyBloomLook(true)
     return () => applyBloomLook(false)

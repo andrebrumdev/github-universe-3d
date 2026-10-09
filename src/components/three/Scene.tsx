@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Stats } from '@react-three/drei'
 import type { Universe } from '@/lib/types'
@@ -25,8 +25,41 @@ import { Sun } from './Sun'
 import { Starfield } from './Starfield'
 import { Trojans } from './Trojans'
 
-/** O bloom (e a lib de pós-processamento) só baixa quando monta: celular e tablet nunca pagam por ele. */
-const GlowBloom = lazy(() => import('./GlowEffects').then((m) => ({ default: m.GlowBloom })))
+const BLOOM_OFF_WARNING = '[bloom] desligado: o pós-processamento não carregou; a cena segue sem bloom'
+const NoBloom = () => null
+
+/**
+ * O bloom (e a lib de pós-processamento) só baixa quando monta: celular e tablet nunca pagam por ele. Se o pedaço não
+ * baixa (offline, hash velho depois de um deploy), fica sem bloom: o import que falha vira um componente vazio, sem
+ * erro (o R3F reportaria até um erro pego por uma boundary como erro da página).
+ */
+const GlowBloom = lazy(() =>
+  import('./GlowEffects').then(
+    (m) => ({ default: m.GlowBloom }),
+    (error: unknown) => {
+      console.warn(BLOOM_OFF_WARNING, error)
+      return { default: NoBloom }
+    },
+  ),
+)
+
+/**
+ * O bloom é enfeite: se ele lança ao montar ou depois, fica sem ele e a cena segue (sem esta boundary, o erro subiria
+ * até o SceneBoundary e trocaria a cena inteira pelo aviso). O visual com bloom só liga dentro do GlowBloom montado,
+ * então aqui ele fica no sem bloom, ou volta para ele: desmontar o GlowBloom desliga o visual no mesmo commit.
+ */
+class BloomBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true }
+  }
+  componentDidCatch(error: unknown): void {
+    console.warn(BLOOM_OFF_WARNING, error)
+  }
+  render(): ReactNode {
+    return this.state.failed ? null : this.props.children
+  }
+}
 
 const SHOW_STATS = new URLSearchParams(window.location.search).has('perf')
 /** Igual ao fundo da página (index.css). */
@@ -101,9 +134,11 @@ export function Scene({ universe }: { universe: Universe }) {
       <CameraRig system={system} repos={universe.repos} />
       <ShipRig system={system} repos={universe.repos} />
       {bloom && (
-        <Suspense fallback={null}>
-          <GlowBloom />
-        </Suspense>
+        <BloomBoundary>
+          <Suspense fallback={null}>
+            <GlowBloom />
+          </Suspense>
+        </BloomBoundary>
       )}
       {SHOW_STATS && <Stats />}
       {SHOW_STATS && <RenderInfo />}
