@@ -47,8 +47,20 @@ test('universo carrega, o sol abre o perfil e o "? Tutorial" reabre o tutorial',
   await expect(async () => {
     const [dx, dy] = offsets[attempt++ % offsets.length]
     await page.mouse.click(cx + dx, cy + dy)
-    await expect(page.getByRole('dialog', { name: /Perfil de/ })).toBeVisible({ timeout: 2_500 })
+    // acertou o sol quando a dica da viagem (ou, já na chegada, o painel do perfil) aparece; o painel só vem com a nave
+    const sun = page.locator('[data-target="sun"], [role="dialog"][aria-label^="Perfil de"]').first()
+    try {
+      await expect(sun).toBeVisible({ timeout: 2_500 })
+    } catch (e) {
+      // pegou um planeta (ou nada): volta à galáxia antes de tentar de novo
+      if (await page.getByRole('button', { name: '← Galáxia' }).isVisible()) await page.getByRole('button', { name: '← Galáxia' }).click()
+      throw e
+    }
   }).toPass({ timeout: 90_000 })
+
+  // Até a nave chegar, só a dica discreta; o painel entra na chegada (generoso: software GL voa devagar).
+  await expect(page.getByRole('dialog')).toBeHidden()
+  await expect(page.getByRole('dialog', { name: /Perfil de/ })).toBeVisible({ timeout: 60_000 })
 
   // Com o painel aberto, em qualquer largura: o cartão do tutorial e os botões flutuantes saem de cima dele.
   await expect(tutorial).toBeHidden()
@@ -88,11 +100,21 @@ test('celular: com a folha do perfil aberta, os botões flutuantes saem do camin
   await expect(async () => {
     const [dx, dy] = offsets[attempt++ % offsets.length]
     await page.mouse.click(box.x + box.width / 2 + dx, box.y + box.height * 0.42 + dy)
-    await expect(page.getByRole('dialog', { name: /Perfil de/ })).toBeVisible({ timeout: 2_500 })
+    // acertou o sol quando a dica da viagem (ou, já na chegada, o painel do perfil) aparece; o painel só vem com a nave
+    const sun = page.locator('[data-target="sun"], [role="dialog"][aria-label^="Perfil de"]').first()
+    try {
+      await expect(sun).toBeVisible({ timeout: 2_500 })
+    } catch (e) {
+      // pegou um planeta (ou nada): volta à galáxia antes de tentar de novo
+      if (await page.getByRole('button', { name: '← Galáxia' }).isVisible()) await page.getByRole('button', { name: '← Galáxia' }).click()
+      throw e
+    }
   }).toPass({ timeout: 90_000 })
 
+  // os botões já saem com a seleção (nada pula na chegada); o painel vem com a nave
   await expect(tutorialButton).toBeHidden()
   await expect(presentationButton).toBeHidden()
+  await expect(page.getByRole('dialog', { name: /Perfil de/ })).toBeVisible({ timeout: 60_000 })
 
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15_000 })

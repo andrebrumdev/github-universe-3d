@@ -1,8 +1,10 @@
+import { useReducedMotion } from 'framer-motion'
 import { commitsLabel, formatCount, timeAgo } from '@/lib/format'
 import { selectedPlanet } from '@/lib/interaction'
 import type { Repo, Universe } from '@/lib/types'
 import { languageShares } from '@/lib/universe/planets'
 import { usePresentation } from '@/store/presentation'
+import { usePanelReady } from '@/store/panelReady'
 import { useUniverse } from '@/store/universe'
 import { SidePanel } from './SidePanel'
 
@@ -14,9 +16,11 @@ export function PlanetPanel({ universe }: { universe: Universe }) {
   const focusLanguage = selection.kind === 'moon' ? selection.language : null
   // Durante a apresentação, o cartão dela substitui o painel.
   const presenting = usePresentation((s) => s.state !== null)
+  // O painel só aparece quando a nave chega (ver store/panelReady).
+  const ready = usePanelReady(useReducedMotion() ?? false)
 
   return (
-    <SidePanel open={repo !== null && !presenting} onClose={clearSelection} title={repo?.name ?? 'Repositório'}>
+    <SidePanel open={repo !== null && !presenting && ready} onClose={clearSelection} title={repo?.name ?? 'Repositório'}>
       {repo && <PlanetDetails repo={repo} focusLanguage={focusLanguage} />}
     </SidePanel>
   )

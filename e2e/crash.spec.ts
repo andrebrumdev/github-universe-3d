@@ -45,7 +45,15 @@ test('?crash: a volta bate na tela, o vidro trinca e some, e o Octocat pede desc
   await expect(async () => {
     const [dx, dy] = offsets[attempt++ % offsets.length]
     await page.mouse.click(box.x + box.width / 2 + dx, box.y + box.height * 0.42 + dy)
-    await expect(page.getByRole('dialog', { name: /Perfil de/ })).toBeVisible({ timeout: 2_500 })
+    // acertou o sol quando a dica da viagem (ou, já na chegada, o painel do perfil) aparece; o painel só vem com a nave
+    const sun = page.locator('[data-target="sun"], [role="dialog"][aria-label^="Perfil de"]').first()
+    try {
+      await expect(sun).toBeVisible({ timeout: 2_500 })
+    } catch (e) {
+      // pegou um planeta (ou nada): volta à galáxia antes de tentar de novo
+      if (await page.getByRole('button', { name: '← Galáxia' }).isVisible()) await page.getByRole('button', { name: '← Galáxia' }).click()
+      throw e
+    }
   }).toPass({ timeout: 180_000 })
 
   // volta (no meio da viagem mesmo: também é uma volta de um alvo) — e bate na tela

@@ -4,6 +4,7 @@ import { BackButton } from '@/components/ui/BackButton'
 import { CrashOverlay } from '@/components/ui/CrashOverlay'
 import { LoadError } from '@/components/ui/LoadError'
 import { Loader } from '@/components/ui/Loader'
+import { PanelArrivalHint } from '@/components/ui/PanelArrivalHint'
 import { OctocatSpeech } from '@/components/ui/OctocatSpeech'
 import { PlanetPanel } from '@/components/ui/PlanetPanel'
 import { PresentationButton } from '@/components/ui/PresentationButton'
@@ -15,6 +16,7 @@ import { StaticFallback } from '@/components/ui/StaticFallback'
 import { Tutorial } from '@/components/ui/Tutorial'
 import { TutorialButton } from '@/components/ui/TutorialButton'
 import { useSafeAreaSync } from '@/hooks/useSafeAreaSync'
+import { usePanelReadyDriver } from '@/hooks/usePanelReadyDriver'
 import { useUniverseData } from '@/hooks/useUniverseData'
 import { supportsWebGL } from '@/hooks/webgl'
 import { useSceneReady } from '@/store/sceneReady'
@@ -29,6 +31,7 @@ export function App() {
   const retryScene = useCallback(() => setSceneAttempt((n) => n + 1), [])
   const sceneReady = useSceneReady((s) => s.ready)
   useSafeAreaSync()
+  usePanelReadyDriver()
 
   if (state.status === 'error') return <LoadError message={state.message} onRetry={retry} />
   if (state.status === 'loading') return <Loader />
@@ -47,6 +50,7 @@ export function App() {
         {!sceneReady && <Loader />}
         <ActivityTooltip />
         <BackButton />
+        <PanelArrivalHint universe={universe} />
         <PlanetPanel universe={universe} />
         <ProfilePanel profile={universe.profile} />
         <OctocatSpeech profileName={universe.profile.name} />

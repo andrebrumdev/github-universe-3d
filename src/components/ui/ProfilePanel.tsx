@@ -1,6 +1,8 @@
 import { formatCount, timeAgo } from '@/lib/format'
 import type { Profile } from '@/lib/types'
 import { languageShares } from '@/lib/universe/planets'
+import { useReducedMotion } from 'framer-motion'
+import { usePanelReady } from '@/store/panelReady'
 import { usePresentation } from '@/store/presentation'
 import { useUniverse } from '@/store/universe'
 import { SidePanel } from './SidePanel'
@@ -8,7 +10,10 @@ import { SidePanel } from './SidePanel'
 export function ProfilePanel({ profile }: { profile: Profile }) {
   const selected = useUniverse((s) => s.selection.kind === 'profile')
   // Durante a apresentação, o cartão dela substitui o painel.
-  const open = usePresentation((s) => selected && s.state === null)
+  const presenting = usePresentation((s) => s.state !== null)
+  // O painel só aparece quando a nave chega (ver store/panelReady).
+  const ready = usePanelReady(useReducedMotion() ?? false)
+  const open = selected && !presenting && ready
   const clearSelection = useUniverse((s) => s.clearSelection)
   const stats: [string, number][] = [
     ['Stars', profile.totalStars],
