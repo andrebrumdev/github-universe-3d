@@ -33,6 +33,9 @@ export const TRAIL_COLORS = {
  */
 export const TRAIL_SPEED = { min: 2, max: 40 } as const
 
+/** Na queima, o rastro fica pelo menos tão quente quanto a esta velocidade × a força do motor (a partida sai devagar). */
+export const BURN_TRAIL_SPEED = 24
+
 /** Meia largura do rastro no bocal (unidades do mundo), em calor médio: ~ o raio da chama na viagem (0,33 × 0,18). */
 export const TRAIL_HALF_WIDTH = 0.065
 

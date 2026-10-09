@@ -16,8 +16,8 @@ import { create } from 'zustand'
  * o ACES deixa o miolo ~6% mais claro e a borda ~12% mais escura) e névoa ×1,8 (anel de 1,5 a 1,7 R: −1%).
  */
 export const BLOOM_LOOK = {
-  plain: { thrusterHalo: 1, orbit: 0.14, atmosphere: 0.24, halo: 1, ionTail: 0.9, dustTail: 0.55, coma: 0.6, trail: 1, haze: 1 },
-  bloom: { thrusterHalo: 0.35, orbit: 0.04, atmosphere: 0.08, halo: 1.6, ionTail: 0.39, dustTail: 0.24, coma: 0.18, trail: 0.9, haze: 1.8 },
+  plain: { thrusterHalo: 1, orbit: 0.14, atmosphere: 0.24, halo: 1, ionTail: 0.9, dustTail: 0.55, coma: 0.6, trail: 1, haze: 1, contrail: 1 },
+  bloom: { thrusterHalo: 0.35, orbit: 0.04, atmosphere: 0.08, halo: 1.6, ionTail: 0.39, dustTail: 0.24, coma: 0.18, trail: 0.9, haze: 1.8, contrail: 0.95 },
 } as const
 
 export type BloomLook = (typeof BLOOM_LOOK)[keyof typeof BLOOM_LOOK]

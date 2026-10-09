@@ -5,7 +5,7 @@ import * as THREE from 'three'
 import { MAX_FRAME_DT } from '@/lib/ship/motion'
 import { bloomLook, useBloom } from '@/store/bloom'
 import { shipPose } from '@/store/shipPose'
-import { createTrailMaterial, createTrailParams, easeSlingshot, trailParams, updateTrailMaterial } from './trailMaterial'
+import { BURN_TRAIL_SPEED, createTrailMaterial, createTrailParams, easeSlingshot, trailParams, updateTrailMaterial } from './trailMaterial'
 import { TrailRibbon } from './trailRibbon'
 
 /** Taxa (1/s) com que a velocidade medida pelo deslocamento do bocal assenta (só vale fora da viagem: a volta). */
@@ -20,7 +20,8 @@ const MEASURED_SPEED_RATE = 6
  * da nave porque este componente monta depois (o R3F mantém a ordem de inscrição na mesma prioridade).
  *
  * A velocidade vem de `shipPose.velocity` (analítica, na viagem); na volta para a escolta ela é zero, e vale a
- * velocidade medida pelo deslocamento do bocal. O estilingue vem de `shipPose.slingshot`.
+ * velocidade medida pelo deslocamento do bocal. O estilingue vem de `shipPose.slingshot`. A emissão vem do motor
+ * (`shipPose.engine`, ver `burnPhase`): forte nas queimas; na planagem nada novo sai quente e o que saiu esfria e some.
  * Material e geometria são deste rastro e são descartados ao desmontar.
  */
 export function FireTrail({ ship, nozzle }: { ship: RefObject<THREE.Object3D | null>; nozzle: readonly [number, number, number] }) {
@@ -51,9 +52,13 @@ export function FireTrail({ ship, nozzle }: { ship: RefObject<THREE.Object3D | n
 
     const [vx, vy, vz] = shipPose.velocity
     const analytic = Math.hypot(vx, vy, vz)
-    trailParams(analytic > 1e-6 ? analytic : st.measured, 0, params)
-    st.boost = easeSlingshot(st.boost, shipPose.slingshot, dt)
-    ribbon.update(head, clock.elapsedTime, camera.position, params.heat + 0.4 * st.boost)
+    const speed = analytic > 1e-6 ? analytic : st.measured
+    // o fogo segue o motor: quente nas queimas (mesmo saindo devagar da partida), nada novo na planagem
+    const engine = shipPose.engine
+    trailParams(Math.max(speed, engine * BURN_TRAIL_SPEED), 0, params)
+    // o estilingue cai na planagem: sobrevoo de graça, motor desligado, o fogo não esquenta
+    st.boost = easeSlingshot(st.boost, shipPose.slingshot && engine > 0, dt)
+    ribbon.update(head, clock.elapsedTime, camera.position, params.heat + 0.4 * st.boost, engine)
     updateTrailMaterial(material, params, st.boost, bloomLook(useBloom.getState().active).trail, reduced ? 0 : dt)
   })
 

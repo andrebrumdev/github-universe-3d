@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { trailHalfWidth } from './trailMaterial'
-import { TRAIL_CAPACITY, TRAIL_SECONDS, TrailRibbon } from './trailRibbon'
+import { Ribbon, TRAIL_CAPACITY, TRAIL_SECONDS, TrailRibbon } from './trailRibbon'
 
 const EYE = new THREE.Vector3(0, 20, 0)
 const head = new THREE.Vector3()
@@ -113,6 +113,77 @@ describe('faixa do rastro', () => {
     const r = new TrailRibbon()
     for (let i = 0; i < 400; i++) r.update(head.set(i * 0.01, 0, 0), i / 240, EYE, 0.5)
     expect(points(r)).toBeLessThanOrEqual(TRAIL_CAPACITY + 1)
+    r.dispose()
+  })
+})
+
+describe('emissão e faixa genérica', () => {
+  /** Voa em +x, a 60 qps, com a emissão pedida. */
+  function flyEmit(ribbon: Ribbon, from: number, seconds: number, emit: number, speed = 10) {
+    const frames = Math.round(seconds * 60)
+    for (let i = 1; i <= frames; i++) {
+      const t = from + i / 60
+      ribbon.update(head.set(speed * t, 0, 0), t, EYE, 0.5, emit)
+    }
+    return from + frames / 60
+  }
+
+  it('motor desligado: nada novo sai quente (largura 0 da cabeça para trás), o que já saiu envelhece e some', () => {
+    const r = new TrailRibbon()
+    let t = flyEmit(r, 0, 0.5, 1)
+    t = flyEmit(r, t, 0.3, 0)
+    const d = data(r)
+    const n = points(r)
+    expect(d.getW(0)).toBe(0)
+    let hot = 0
+    for (let i = 0; i < n; i++) {
+      const age = d.getX(2 * i) * TRAIL_SECONDS
+      if (age < 0.28) expect(d.getW(2 * i)).toBe(0)
+      if (age > 0.32 && age < 0.75) {
+        expect(d.getW(2 * i)).toBeCloseTo(trailHalfWidth(d.getX(2 * i), 0.5), 6)
+        hot++
+      }
+    }
+    expect(hot).toBeGreaterThan(10)
+    flyEmit(r, t, TRAIL_SECONDS + 0.1, 0)
+    for (let i = 0; i < points(r); i++) expect(data(r).getW(2 * i)).toBe(0)
+    r.dispose()
+  })
+
+  it('emissão parcial afina a faixa na mesma proporção', () => {
+    const r = new TrailRibbon()
+    flyEmit(r, 0, 0.5, 0.25)
+    const d = data(r)
+    for (let i = 0; i < points(r); i++) expect(d.getW(2 * i)).toBeCloseTo(0.25 * trailHalfWidth(d.getX(2 * i), 0.5), 6)
+    r.dispose()
+  })
+
+  it('clear: esvazia entre viagens (o próximo voo não liga no ponto antigo)', () => {
+    const r = new TrailRibbon()
+    flyEmit(r, 0, 1, 1)
+    r.clear()
+    expect(r.geometry.drawRange.count).toBe(0)
+    r.update(head.set(500, 0, 0), 10, EYE, 0.5, 1)
+    expect(r.geometry.drawRange.count).toBe(0)
+    r.update(head.set(500.2, 0, 0), 10 + 1 / 60, EYE, 0.5, 1)
+    expect(points(r)).toBe(2)
+    expect(data(r).getZ(0) - data(r).getZ(2)).toBeCloseTo(0.2, 4)
+    r.dispose()
+  })
+
+  it('duração, capacidade e largura próprias (rastro de vapor: mais longo e alargando com a idade)', () => {
+    const r = new Ribbon({ seconds: 1.8, capacity: 120, sampleInterval: 1 / 60, halfWidth: (age) => 0.01 * (1 + age) })
+    flyEmit(r, 0, 3, 1)
+    const n = points(r)
+    expect(n).toBeLessThanOrEqual(121)
+    const p = pos(r)
+    const tail = 2 * (n - 1)
+    const tailX = (p.getX(tail) + p.getX(tail + 1)) / 2
+    expect(head.x - tailX).toBeGreaterThan(10 * 1.8 - 1e-6)
+    expect(head.x - tailX).toBeLessThan(10 * (1.8 + 2 / 60) + 1e-6)
+    const d = data(r)
+    for (let i = 1; i < n; i++) expect(d.getW(2 * i)).toBeGreaterThanOrEqual(d.getW(2 * (i - 1)))
+    expect(d.getW(tail)).toBeCloseTo(0.02, 6)
     r.dispose()
   })
 })

@@ -45,9 +45,10 @@ import { usePresentation } from '@/store/presentation'
 import { simClock } from '@/store/simClock'
 import { useTutorial } from '@/store/tutorial'
 import { useUniverse } from '@/store/universe'
+import { Contrails, type WingTips } from './Contrails'
 import { FireTrail, TrailWarmup } from './FireTrail'
 import { OctocatShip, type ArmMode } from './OctocatShip'
-import { THRUSTER_ORIGIN } from './shipParts'
+import { THRUSTER_ORIGIN, WINGS } from './shipParts'
 
 /** Taxa (1/s) com que a nave assenta no canto da escolta (vindo da volta ou de um resize). */
 const ESCORT_SETTLE = 8
@@ -85,6 +86,8 @@ const ASSIST_BANK = 1.8
 const GREET_SECONDS = 1.6
 /** O nível do propulsor na volta e nas queimas vai para o React em degraus (cada degrau é uma renderização). */
 const THRUST_STEP = 0.05
+/** Pontas das asas (espaço do modelo): a luzinha de trás de cada asa, a mais perto da ponta. */
+const WING_TIPS: WingTips = WINGS.map(({ lights }) => lights[lights.length - 1].position)
 /** Arfagem (rad) no primeiro pico do tranco de uma queima: o nariz sobe um pouco com o empurrão. */
 const JOLT_PITCH = 0.06
 
@@ -118,6 +121,9 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   const joltStart = useRef(-Infinity)
   const jolt = useRef<THREE.Group>(null)
   const [burnShake, setBurnShake] = useState(0)
+  // O vapor das asas lê a nave do quadro: monta depois do 1º quadro daqui, para o useFrame
+  // dele se inscrever depois deste (filhos montados junto com o pai se inscrevem antes e ficariam um quadro atrás).
+  const [afterShip, setAfterShip] = useState(false)
   const [greeting, setGreeting] = useState(false)
   const [mode, setMode] = useState<ShipMode>('entering')
   // O modo também muda fora do tick (viagem/chegada no efeito): compara com o que foi renderizado.
@@ -313,6 +319,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   useFrame(({ clock }, rawDt) => {
     const g = group.current
     if (!g) return
+    if (!afterShip) setAfterShip(true)
     const dt = Math.min(rawDt, MAX_FRAME_DT)
     // Escolta e visita não mudam de modo com o tempo: avança no lugar, sem alocar um estado novo por frame.
     let s = machine.current
@@ -546,6 +553,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
       {!reduced && (mode === 'traveling' || mode === 'returning') && <FireTrail ship={group} nozzle={THRUSTER_ORIGIN} />}
       {/* o programa do rastro compila já na montagem, não no primeiro voo */}
       {!reduced && <TrailWarmup />}
+      {/* vapor das pontas das asas na planagem (motor desligado) */}
+      {!reduced && afterShip && <Contrails ship={group} tips={WING_TIPS} />}
       <group
         ref={group}
         scale={SHIP_SCALE}
