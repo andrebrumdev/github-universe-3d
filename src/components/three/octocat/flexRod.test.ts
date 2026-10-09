@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { circleProfile, curvePath, sweep, transportFrames } from 'three-low-poly'
 import { describe, expect, it } from 'vitest'
 import { ESCORT_LEAN_DEPTH, knockPose, SHIP_SCALE, THREE_QUARTER_YAW } from '@/lib/ship/escort'
+import { FrameClock } from '@/lib/ship/frameClock'
 import { COCKPIT, FREE_TENTACLE } from '@/lib/ship/geometry'
 import { hoverOffset } from '@/lib/ship/motion'
 import { applyImpulse, setRest } from '@/lib/ship/verlet'
@@ -391,5 +392,41 @@ describe('InertiaProbe na escolta (contra a câmera)', () => {
       peak = Math.max(peak, Math.hypot(...probe.sample(object, dt).linear))
     }
     expect(peak).toBeGreaterThan(0.6 * PILOT_INERTIA.maxLinear)
+  })
+})
+
+describe('amostra de inércia com o passo suavizado da nave', () => {
+  /**
+   * Quadro a quadro como no app: a nave (Ship/Pilot) amostra a matrixWorld do último render; depois o ShipRig a move
+   * pelo passo suavizado deste quadro; depois o render atualiza a matrixWorld. O delta de verdade treme ±2 ms.
+   */
+  function coast(useSmoothed: boolean) {
+    const clock = new FrameClock()
+    const probe = new InertiaProbe(PILOT_INERTIA)
+    const ship = new THREE.Object3D()
+    ship.scale.setScalar(0.18)
+    let a = 99
+    const rnd = () => ((a = (a * 16807) % 2147483647) / 2147483647)
+    let prevJitter = 0
+    let worst = 0
+    for (let i = 0; i < 240; i++) {
+      const jitter = (rnd() - 0.5) * 0.004
+      const raw = 1 / 60 + jitter - prevJitter
+      prevJitter = jitter
+      const step = clock.step(i, raw)
+      const input = probe.sample(ship, useSmoothed ? clock.previousStep || step : raw)
+      if (i > 30) worst = Math.max(worst, Math.hypot(...input.linear))
+      ship.position.x += 25 * step
+      ship.updateMatrixWorld()
+    }
+    return worst
+  }
+
+  it('velocidade constante: com o passo suavizado (o anterior, o do deslocamento medido), nenhum tranco falso', () => {
+    expect(coast(true)).toBeLessThan(0.5)
+  })
+
+  it('com o delta cru tremido seria um tranco perto do teto (a causa do tremido dos tentáculos na planagem)', () => {
+    expect(coast(false)).toBeGreaterThan(5)
   })
 })

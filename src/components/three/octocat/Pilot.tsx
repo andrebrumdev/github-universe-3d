@@ -25,6 +25,7 @@ import {
 } from '@/lib/ship/geometry'
 import { POINT_ANGLE, waveAngle } from '@/lib/ship/motion'
 import { applyImpulse, setRest, type VerletOptions } from '@/lib/ship/verlet'
+import { flightClock } from '@/store/frameClock'
 import { FlexRod, type InertiaFrame, PILOT_INERTIA, useInertiaProbe } from './flexRod'
 import { drawOctocatFace, FACE_TEX_H, FACE_TEX_W } from './octocatFace'
 
@@ -326,7 +327,10 @@ export function Pilot({ expression, blinking, armMode, shake = 0, inertiaFrame =
     tentacles.forEach(({ rod }, i) => applyImpulse(rod.chain, ...SHAKE_IMPULSES[i % SHAKE_IMPULSES.length]))
   }, [shake, reduced, tentacles])
 
-  useFrame(({ clock }, dt) => {
+  useFrame(({ clock }, delta) => {
+    // o mesmo passo suavizado com que a nave anda (store/frameClock); a amostra de inércia mede o deslocamento do
+    // último render, que veio do passo anterior — com o delta cru, o tremido viraria tranco falso nos tentáculos
+    const dt = flightClock.step(clock.elapsedTime, delta)
     // braço livre: o aceno/apontar gira a pose de descanso em torno do ombro (para cima/baixo ou para o lado)
     const goal = armMode === 'point' ? POINT_ANGLE : 0
     if (armMode === 'wave' && !reduced) armAngle.current = waveAngle(clock.elapsedTime)
@@ -335,7 +339,7 @@ export function Pilot({ expression, blinking, armMode, shake = 0, inertiaFrame =
 
     if (reduced) tentacles[0].rod.pose()
     else if (root.current) {
-      const input = probe.sample(root.current, dt)
+      const input = probe.sample(root.current, flightClock.previousStep || dt)
       for (let i = 0; i < tentacles.length; i++) tentacles[i].rod.step(dt, input)
     }
     for (let i = 0; i < tentacles.length; i++) {

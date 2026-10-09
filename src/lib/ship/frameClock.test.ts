@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FrameClock } from './frameClock'
+import { FrameClock, watchVisibility } from './frameClock'
 import { MAX_FRAME_DT } from './motion'
 
 /** Gerador com semente (mulberry32). */
@@ -56,5 +56,51 @@ describe('relógio de quadro suavizado (o mesmo para a nave e a câmera)', () =>
     expect(c.step(100, 5)).toBeLessThanOrEqual(MAX_FRAME_DT)
     const d = new FrameClock()
     expect(d.step(1, 0)).toBe(0)
+  })
+})
+
+describe('passo da amostra de inércia e volta da aba', () => {
+  it('previousStep é o passo do quadro anterior (o deslocamento que a amostra mede veio dele)', () => {
+    const c = new FrameClock()
+    const a = c.step(1, 1 / 60)
+    const b = c.step(2, 1 / 60 + 0.002)
+    expect(c.previousStep).toBe(a)
+    expect(c.step(2, 9)).toBe(b)
+    expect(c.previousStep).toBe(a)
+  })
+
+  it('um quadro longo (aba voltando) não estica a média: os passos seguintes já voltam ao ritmo da tela', () => {
+    const c = new FrameClock()
+    for (let i = 0; i < 120; i++) c.step(i, 1 / 60)
+    c.step(120, 0.1)
+    for (let i = 121; i < 125; i++) expect(Math.abs(c.step(i, 1 / 60) - 1 / 60)).toBeLessThan(0.05 / 60)
+  })
+
+  it('reset (aba visível de novo) recomeça a janela da média', () => {
+    const c = new FrameClock()
+    for (let i = 0; i < 120; i++) c.step(i, 1 / 30)
+    c.reset()
+    expect(c.previousStep).toBe(0)
+    expect(Math.abs(c.step(500, 1 / 60) - 1 / 60)).toBeLessThan(1e-9)
+  })
+})
+
+describe('volta da aba', () => {
+  it('watchVisibility recomeça o relógio quando a página fica visível de novo, e se desliga', () => {
+    const doc = new EventTarget() as EventTarget & { visibilityState: string }
+    doc.visibilityState = 'hidden'
+    const c = new FrameClock()
+    for (let i = 0; i < 60; i++) c.step(i, 1 / 30)
+    const stop = watchVisibility(doc, c)
+    doc.dispatchEvent(new Event('visibilitychange'))
+    expect(c.previousStep).not.toBe(0)
+    doc.visibilityState = 'visible'
+    doc.dispatchEvent(new Event('visibilitychange'))
+    expect(c.previousStep).toBe(0)
+    expect(Math.abs(c.step(999, 1 / 60) - 1 / 60)).toBeLessThan(1e-9)
+    stop()
+    for (let i = 1000; i < 1060; i++) c.step(i, 1 / 30)
+    doc.dispatchEvent(new Event('visibilitychange'))
+    expect(c.previousStep).not.toBe(0)
   })
 })

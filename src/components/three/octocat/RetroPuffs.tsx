@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, type RefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { MAX_FRAME_DT } from '@/lib/ship/motion'
 import { bloomLook, useBloom } from '@/store/bloom'
+import { flightClock } from '@/store/frameClock'
 import { shipPose } from '@/store/shipPose'
 import { createPuffMaterial, PUFF_BRIGHTNESS, PuffPool, setPuffOpacity } from './puffParticles'
 
@@ -75,10 +75,11 @@ export function RetroPuffs({ ship, nozzles }: { ship: RefObject<THREE.Object3D |
   const nozzle = useMemo(() => new THREE.Vector3(), [])
   const forward = useMemo(() => new THREE.Vector3(), [])
 
-  useFrame((_, rawDt) => {
+  useFrame(({ clock }, rawDt) => {
     const g = ship.current
     if (!g) return
-    const dt = Math.min(rawDt, MAX_FRAME_DT)
+    // o passo com que a nave andou neste quadro (monta depois do ShipRig): a velocidade medida não treme
+    const dt = flightClock.step(clock.elapsedTime, rawDt)
     if (state.departed(shipPose.mode === 'traveling' || shipPose.mode === 'returning')) pool.clear()
     const velocity = state.measure(g.position, dt, shipPose.velocity)
     if (state.fresh(shipPose.puff.seq)) {

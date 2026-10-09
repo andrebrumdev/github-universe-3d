@@ -7,6 +7,7 @@ import { COLORS, CONTRIBUTION_COLORS, DASHBOARD } from '@/lib/ship/geometry'
 import { thrusterScale } from '@/lib/ship/motion'
 import { applyImpulse } from '@/lib/ship/verlet'
 import { useBloom } from '@/store/bloom'
+import { flightClock } from '@/store/frameClock'
 import { FlexRod, type InertiaFrame, useInertiaProbe } from './flexRod'
 import { mergeParts, partMatrix } from './mergeParts'
 import {
@@ -208,7 +209,10 @@ export function Ship({
   const thrusterHalo = useMemo(() => new GlowHalo({ color: COLORS.thruster, size: 1.1, opacity: 0 }), [])
   useFrame(({ clock }, delta) => {
     if (!reducedMotion && root.current) {
-      antenna.rod.step(delta, probe.sample(root.current, delta))
+      // o mesmo passo suavizado com que a nave anda (store/frameClock); a amostra lê a matrixWorld do último render,
+      // então o deslocamento que ela mede veio do passo anterior — com o delta cru, o tremido viraria tranco falso
+      const dt = flightClock.step(clock.elapsedTime, delta)
+      antenna.rod.step(dt, probe.sample(root.current, flightClock.previousStep || dt))
       if (antennaTip.current) antenna.rod.tip(antennaTip.current.position)
     }
     if (!reducedMotion) ringPulse.update(delta)

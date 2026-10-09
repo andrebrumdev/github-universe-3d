@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, type RefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useReducedMotion } from 'framer-motion'
 import * as THREE from 'three'
-import { MAX_FRAME_DT } from '@/lib/ship/motion'
 import { bloomLook, useBloom } from '@/store/bloom'
+import { flightClock } from '@/store/frameClock'
 import { shipPose } from '@/store/shipPose'
 import { BURN_TRAIL_SPEED, createTrailMaterial, createTrailParams, easeSlingshot, trailParams, updateTrailMaterial } from './trailMaterial'
 import { TrailRibbon } from './trailRibbon'
@@ -43,7 +43,8 @@ export function FireTrail({ ship, nozzle }: { ship: RefObject<THREE.Object3D | n
   useFrame(({ camera, clock }, rawDt) => {
     const g = ship.current
     if (!g) return
-    const dt = Math.min(rawDt, MAX_FRAME_DT)
+    // o passo com que a nave andou neste quadro (store/frameClock): a velocidade medida do bocal não treme
+    const dt = flightClock.step(clock.elapsedTime, rawDt)
     const st = state.current
     head.set(nozzle[0], nozzle[1], nozzle[2]).multiply(g.scale).applyQuaternion(g.quaternion).add(g.position)
     if (st.started && dt > 0) st.measured += (head.distanceTo(lastHead) / dt - st.measured) * (1 - Math.exp(-MEASURED_SPEED_RATE * dt))
