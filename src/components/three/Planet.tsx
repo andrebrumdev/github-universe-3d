@@ -6,19 +6,17 @@ import type * as THREE from 'three'
 import { selectedPlanet } from '@/lib/interaction'
 import type { Repo } from '@/lib/types'
 import { cellDate } from '@/lib/universe/activity'
+import { heatFactor } from '@/lib/universe/heat'
 import { planetPosition, type PlanetOrbit, type Ring, type Vec3 } from '@/lib/universe/orbits'
 import { axisAngles, focusSpinStep, moonOrbits, planetSpin } from '@/lib/universe/planets'
 import { simClock } from '@/store/simClock'
 import { type HoveredCell, useUniverse } from '@/store/universe'
-import {
-  ATMOSPHERE_MATERIAL,
-  ATMOSPHERE_SCALE,
-  PLANET_GEOMETRY_HI,
-  PLANET_GEOMETRY_LO,
-} from './geometries'
+import { ATMOSPHERE_SCALE, PLANET_GEOMETRY_HI, PLANET_GEOMETRY_LO } from './geometries'
 import { cellFromUv } from './grid'
 import { HitProxy } from './HitProxy'
 import { Moon } from './Moon'
+import { planetHeat } from './planetGlow'
+import { applyAtmosphereHeat, createAtmosphereMaterial } from './planetHeat'
 import { PlanetHoverCard } from './PlanetHoverCard'
 import { usePlanetMaterial } from './usePlanetMaterial'
 
@@ -33,6 +31,9 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
   const hovered = surfaceHovered || proxyHovered
   useCursor(hovered)
   const material = usePlanetMaterial(repo.activity.weeks)
+  // Atmosfera própria: com o calor do periélio ela muda de cor e de opacidade só neste planeta.
+  const atmosphere = useMemo(() => createAtmosphereMaterial(), [])
+  useEffect(() => () => atmosphere.dispose(), [atmosphere])
   const spin = useMemo(() => planetSpin(repo.name), [repo.name])
   const moons = useMemo(() => moonOrbits(orbit.radius, repo.languages, repo.name), [orbit.radius, repo.languages, repo.name])
   const select = useUniverse((s) => s.select)
@@ -52,6 +53,10 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
     // já com a precessão do periélio do anel; sem alocar por frame
     planetPosition(ring, orbit, t, pos)
     root.current?.position.set(pos[0], pos[1], pos[2])
+    // Calor do periélio: o tom quente da superfície (uHeat) e a atmosfera seguem a distância ao sol.
+    const heat = heatFactor(ring, orbit, t)
+    planetHeat(material).value = heat
+    applyAtmosphereHeat(atmosphere, heat)
     // Ângulos de Euler, do grupo de fora para o de dentro:
     // precessão ψ (y do sistema) → obliquidade θ com nutação (z) → rotação própria φ (y local, o eixo).
     const angles = axisAngles(spin, t)
@@ -148,7 +153,7 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
           />
           <mesh
             geometry={PLANET_GEOMETRY_LO}
-            material={ATMOSPHERE_MATERIAL}
+            material={atmosphere}
             scale={orbit.radius * ATMOSPHERE_SCALE}
             raycast={() => null}
           />
