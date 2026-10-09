@@ -96,7 +96,12 @@ function SceneReadySignal() {
     signaled.current = true
     setReady(true)
   })
-  useEffect(() => () => setReady(false), [setReady])
+  // (re)montou: sinaliza de novo no próximo quadro. No StrictMode do dev o efeito roda, limpa e roda de novo; se um
+  // quadro já tinha marcado pronto antes disso (máquina lenta), a limpeza desmarcaria para sempre e o Loader não saía.
+  useEffect(() => {
+    signaled.current = false
+    return () => setReady(false)
+  }, [setReady])
   return null
 }
 

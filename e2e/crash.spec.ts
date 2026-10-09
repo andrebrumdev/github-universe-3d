@@ -57,6 +57,9 @@ test('?crash: a volta bate na tela, o vidro trinca e some, e o Octocat pede desc
   }).toPass({ timeout: 180_000 })
 
   // volta (no meio da viagem mesmo: também é uma volta de um alvo) — e bate na tela
+  // (com ?crash toda volta bate: um "← Galáxia" das tentativas acima pode ter trombado e pedido desculpas antes; a
+  // conta começa aqui)
+  await page.evaluate('window.__apologies = 0')
   await page.mouse.move(5, 5)
   await page.keyboard.press('Escape')
   const overlay = page.locator('[data-crash-overlay]')
