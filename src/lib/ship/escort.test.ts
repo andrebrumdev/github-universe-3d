@@ -27,8 +27,8 @@ import {
   targetAnchor,
   visitPosition,
 } from './escort'
-import { bezierPoint, planTravel, travelProgress, travelVelocity } from './travel'
-import { SUN_SAFE_DISTANCE } from './travel'
+import { planTransfer } from './transfer'
+import { SUN_SAFE_DISTANCE, travelPoint, travelVelocity } from './travel'
 import { type OpenCards, presentationCardZone, reservedRects, type Rect } from '../uiLayout'
 import { cross, dot, length, sub } from './vec'
 
@@ -166,14 +166,15 @@ describe('antecipação da perseguição limitada', () => {
   })
 
   it('troca de destino no meio da viagem ou dt enorme não estouram a antecipação', () => {
-    const first = planTravel([10, 0, 0], [-40, 0, 25])
+    const first = planTransfer([10, 0, 0], [-40, 0, 25])
     const mid = first.duration / 2
-    // a nova viagem parte de onde a nave está (velocidade analítica do caminho, não diferença entre frames)
-    const here = bezierPoint(first.points, travelProgress(mid, first.duration))
-    const second = planTravel(here, [30, 0, -30])
+    // a nova viagem parte de onde a nave está, com a velocidade dela (analítica do caminho, não diferença entre frames)
+    const here = travelPoint(first, mid)
+    const second = planTransfer(here, [30, 0, -30], { velocity: travelVelocity(first, mid) })
     const samples = [travelVelocity(first, mid), travelVelocity(second, 0), travelVelocity(second, 0.1), travelVelocity(second, 1e6), travelVelocity(first, first.duration / 3)]
     for (const v of samples) expect(lead(v)).toBeLessThanOrEqual(MAX_CHASE_LEAD + 1e-9)
-    expect(lead(travelVelocity(second, 0))).toBe(0)
+    // sem quina: a antecipação continua a mesma na troca (antes, a nova viagem partia parada)
+    expect(lead(travelVelocity(second, 0))).toBeCloseTo(lead(travelVelocity(first, mid)))
   })
 
   it('sem limite, mantém a antecipação exata 2v/ω', () => {

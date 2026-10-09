@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipEvent, type ShipState } from './shipMachine'
-import { planTravel } from './travel'
+import { planTransfer } from './transfer'
 
 const apply = (s: ShipState, ...events: ShipEvent[]) => events.reduce(shipReducer, s)
-const path = planTravel([10, 0, 0], [-10, 0, 5])
+const path = planTransfer([10, 0, 0], [-10, 0, 5])
 const sun = { kind: 'sun' } as const
 
 describe('shipReducer', () => {

@@ -1,29 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import type { Vec3 } from '../universe/orbits'
+import { planTransfer } from './transfer'
 import {
-  bezierPoint,
-  bezierTangent,
   LAUNCH_MARGIN,
   MAX_TRAVEL_SECONDS,
   MIN_TRAVEL_SECONDS,
   minSunDistance,
-  planTravel,
   SUN_SAFE_DISTANCE,
   travelDuration,
-  travelProgress,
+  travelPoint,
+  travelTangent,
   travelVelocity,
+  type TravelPath,
 } from './travel'
-import { length, sub } from './vec'
+import { dot, length, sub } from './vec'
 
 const ring = (r: number, angle: number, y = 0): Vec3 => [Math.cos(angle) * r, y, Math.sin(angle) * r]
 
-describe('planTravel', () => {
+describe('planTransfer (o caminho da viagem)', () => {
   it('começa e termina nos pontos dados', () => {
     const from = ring(10, 0)
     const to = ring(20, 2)
-    const path = planTravel(from, to)
-    expect(length(sub(bezierPoint(path.points, 0), from))).toBeLessThan(1e-9)
-    expect(length(sub(bezierPoint(path.points, 1), to))).toBeLessThan(1e-9)
+    const path = planTransfer(from, to)
+    expect(length(sub(travelPoint(path, 0), from))).toBeLessThan(1e-9)
+    expect(length(sub(travelPoint(path, path.duration), to))).toBeLessThan(1e-9)
   })
 
   it('nunca passa perto do sol, nem entre lados opostos da galáxia', () => {
@@ -34,12 +34,12 @@ describe('planTravel', () => {
       [[0, 30, 60], ring(9, 4)],
       [ring(12, 2), ring(12, 2.1)],
     ]
-    for (const [from, to] of cases) expect(minSunDistance(planTravel(from, to).points)).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
+    for (const [from, to] of cases) expect(minSunDistance(planTransfer(from, to))).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
   })
 
   it('o arco sobe acima do plano das órbitas', () => {
-    const path = planTravel(ring(10, 0), ring(10, 1.5))
-    expect(bezierPoint(path.points, 0.5)[1]).toBeGreaterThan(1)
+    const path = planTransfer(ring(10, 0), ring(10, 1.5))
+    expect(travelPoint(path, path.duration / 2)[1]).toBeGreaterThan(1)
   })
 })
 
@@ -50,27 +50,26 @@ describe('tempo de viagem', () => {
     expect(travelDuration(1000)).toBe(MAX_TRAVEL_SECONDS)
   })
 
-  it('progresso suave de 0 a 1, travado nas pontas', () => {
-    expect(travelProgress(0, 2)).toBe(0)
-    expect(travelProgress(1, 2)).toBeCloseTo(0.5)
-    expect(travelProgress(5, 2)).toBe(1)
-    expect(travelProgress(0.2, 2)).toBeLessThan(0.1)
+  it('travelPoint trava nas pontas', () => {
+    const path = planTransfer(ring(10, 0), ring(20, 2))
+    expect(travelPoint(path, -3)).toEqual(travelPoint(path, 0))
+    expect(travelPoint(path, path.duration * 9)).toEqual(travelPoint(path, path.duration))
   })
 })
 
 describe('tangente', () => {
-  it('é unitária e aponta para o destino no fim', () => {
-    const path = planTravel(ring(10, 0), ring(10, 1.5))
-    const t = bezierTangent(path.points, 1)
+  it('é unitária e aponta para o destino no fim (também com a nave parada na chegada)', () => {
+    const path = planTransfer(ring(10, 0), ring(10, 1.5))
+    const t = travelTangent(path, path.duration)
     expect(length(t)).toBeCloseTo(1)
-    const toEnd = sub(path.points[3], path.points[2])
-    expect(t[0] * toEnd[0] + t[1] * toEnd[1] + t[2] * toEnd[2]).toBeGreaterThan(0)
+    const toEnd = sub(travelPoint(path, path.duration), travelPoint(path, path.duration * 0.97))
+    expect(dot(t, toEnd)).toBeGreaterThan(0)
   })
 })
 
-const peakHeight = (points: Parameters<typeof bezierPoint>[0]) => {
+const peakHeight = (path: TravelPath) => {
   let max = -Infinity
-  for (let i = 0; i <= 96; i++) max = Math.max(max, bezierPoint(points, i / 96)[1])
+  for (let i = 0; i <= 96; i++) max = Math.max(max, travelPoint(path, (i / 96) * path.duration)[1])
   return max
 }
 
@@ -83,19 +82,19 @@ describe('saída de dentro do sol', () => {
 
   it('empurra a origem para fora do raio seguro e o arco fica longe do sol', () => {
     for (const [, from, to] of cases) {
-      const path = planTravel(from, to)
-      expect(length(path.points[0])).toBeCloseTo(SUN_SAFE_DISTANCE + LAUNCH_MARGIN)
-      expect(minSunDistance(path.points)).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
-      expect(length(sub(bezierPoint(path.points, 1), to))).toBeLessThan(1e-9)
+      const path = planTransfer(from, to)
+      expect(length(travelPoint(path, 0))).toBeCloseTo(SUN_SAFE_DISTANCE + LAUNCH_MARGIN)
+      expect(minSunDistance(path)).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
+      expect(length(sub(travelPoint(path, path.duration), to))).toBeLessThan(1e-9)
     }
   })
 
   it('o pico do arco fica limitado (sem subir quilômetros)', () => {
-    for (const [, from, to] of cases) expect(peakHeight(planTravel(from, to).points)).toBeLessThan(20)
+    for (const [, from, to] of cases) expect(peakHeight(planTransfer(from, to))).toBeLessThan(20)
   })
 
   it('no centro exato, sai para cima', () => {
-    const start = planTravel([0, 0, 0], ring(10, 1)).points[0]
+    const start = travelPoint(planTransfer([0, 0, 0], ring(10, 1)), 0)
     expect(start[0]).toBe(0)
     expect(start[1]).toBeCloseTo(SUN_SAFE_DISTANCE + LAUNCH_MARGIN)
     expect(start[2]).toBe(0)
@@ -103,13 +102,13 @@ describe('saída de dentro do sol', () => {
 })
 
 describe('travelVelocity', () => {
-  const path = planTravel(ring(10, 0), ring(30, 2))
+  const path = planTransfer(ring(10, 0), ring(30, 2))
 
   it('é a derivada do caminho no tempo (confere com diferença finita)', () => {
     for (const t of [0.2, 0.5, 0.9, 1.3]) {
       const h = 1e-5
-      const a = bezierPoint(path.points, travelProgress(t - h, path.duration))
-      const b = bezierPoint(path.points, travelProgress(t + h, path.duration))
+      const a = travelPoint(path, t - h)
+      const b = travelPoint(path, t + h)
       const numeric = sub(b, a).map((x) => x / (2 * h)) as Vec3
       expect(length(sub(travelVelocity(path, t), numeric))).toBeLessThan(1e-3 * Math.max(1, length(numeric)))
     }

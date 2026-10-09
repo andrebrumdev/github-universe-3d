@@ -28,9 +28,11 @@ import {
   type ShipTarget,
 } from '@/lib/ship/escort'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
-import { bezierPoint, bezierTangent, planTravel, travelProgress, travelVelocity } from '@/lib/ship/travel'
+import { clockTimeAfter, planTransferTo, travelBodies } from '@/lib/ship/transfer'
+import { travelPoint, travelTangent, travelVelocity } from '@/lib/ship/travel'
 import type { Repo } from '@/lib/types'
 import { reservedRects } from '@/lib/uiLayout'
+import { barycenterOffset } from '@/lib/universe/barycenter'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
 import { resetShipPose, shipPose } from '@/store/shipPose'
@@ -157,8 +159,10 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     return () => resetShipPose()
   }, [camera, lagQuat, scratch])
 
-  // Destino mudou: planeja a viagem até onde o alvo vai estar quando o tempo parar.
+  // Destino mudou: planeja a transferência de Hohmann (ver lib/ship/transfer) até onde o alvo vai estar na chegada.
   // O modo vai para o shipPose já aqui: a câmera decide no próximo frame se persegue a nave.
+  // A volta para a escolta não é uma transferência: o canto da escolta é preso à câmera (que também se move) e fica
+  // perto da lente, onde uma órbita em volta do sol não faz sentido; ela segue assentando como antes (modo returning).
   useEffect(() => {
     if (!target) {
       machine.current = shipReducer(machine.current, { type: 'release' })
@@ -175,20 +179,32 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
       current.kind === target.kind &&
       (current.kind === 'sun' || (target.kind === 'planet' && current.name === target.name))
     if (sameTarget && (machine.current.mode === 'traveling' || machine.current.mode === 'visiting')) return
-    const anchor = targetAnchor(target, system, predictStopTime(simClock))
+    const stop = predictStopTime(simClock)
+    const anchor = targetAnchor(target, system, stop)
     if (!anchor) return
-    const destination = visitPosition(anchor.position, anchor.radius, camera.position.toArray() as Vec3, visitSide)
+    const cameraPos = camera.position.toArray() as Vec3
     shipPose.userTravel = step === null || step === 'free'
     if (reduced) {
       machine.current = shipReducer(machine.current, { type: 'arrive', target })
-      group.current?.position.set(...destination)
+      group.current?.position.set(...visitPosition(anchor.position, anchor.radius, cameraPos, visitSide))
+      shipPose.velocity = [0, 0, 0]
     } else {
-      machine.current = shipReducer(machine.current, { type: 'travel', target, path: planTravel(shipPose.position, destination) })
+      // O alvo ainda anda enquanto o relógio desacelera: o destino é onde ele vai estar no instante da chegada.
+      const destinationAt = (seconds: number) => {
+        const at = targetAnchor(target, system, clockTimeAfter(simClock, seconds)) ?? anchor
+        return visitPosition(at.position, at.radius, cameraPos, visitSide)
+      }
+      const path = planTransferTo(shipPose.position, destinationAt, {
+        sun: barycenterOffset(system, stop),
+        // Troca de destino em voo: parte com a velocidade atual (sem quina). Parada (escolta, visita): queima de partida.
+        velocity: machine.current.mode === 'traveling' ? shipPose.velocity : null,
+        bodies: travelBodies(system, stop),
+      })
+      machine.current = shipReducer(machine.current, { type: 'travel', target, path })
+      shipPose.velocity = travelVelocity(path, 0)
     }
     shipPose.mode = machine.current.mode
     shipPose.target = machine.current.target
-    // A nova viagem parte do ponto atual, parada (o easing começa em zero).
-    shipPose.velocity = [0, 0, 0]
   }, [target, system, camera, reduced, step, visitSide])
 
   useFrame(({ clock }, rawDt) => {
@@ -225,9 +241,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
 
     if (s.mode === 'traveling' && s.path) {
       hasLocal.current = false
-      const p = travelProgress(s.elapsed, s.path.duration)
-      g.position.set(...bezierPoint(s.path.points, p))
-      tangent = bezierTangent(s.path.points, p)
+      g.position.fromArray(travelPoint(s.path, s.elapsed, posArr))
+      tangent = travelTangent(s.path, s.elapsed)
     } else if (s.mode === 'entering' && !reduced) {
       // Desce de fora da imagem até o canto, no referencial da câmera.
       const k = Math.min(1, s.elapsed / ENTER_DURATION)
@@ -292,7 +307,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     if (trailHead.current) g.localToWorld(trailHead.current.position)
     g.position.toArray(shipPose.position)
     shipPose.tangent = tangent ?? shipPose.tangent
-    if (s.mode === 'traveling' && s.path) shipPose.velocity = travelVelocity(s.path, s.elapsed)
+    if (s.mode === 'traveling' && s.path) travelVelocity(s.path, s.elapsed, shipPose.velocity)
     else shipPose.velocity.fill(0)
     shipPose.mode = s.mode
     shipPose.target = s.target
