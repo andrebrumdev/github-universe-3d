@@ -24,9 +24,11 @@ export function CountUp({ value }: { value: number }) {
     // antes da pintura: nunca aparece vazio nem com o valor de antes
     paint(countUpValue(value, 0, duration))
     if (duration === 0) return
-    const start = performance.now() + COUNT_UP_DELAY_MS
+    // o relógio é o do próprio rAF (o primeiro quadro marca o início): uma fonte só de tempo
+    let start = -1
     let frame = 0
     const tick = (now: number) => {
+      if (start < 0) start = now + COUNT_UP_DELAY_MS
       const elapsed = now - start
       paint(countUpValue(value, elapsed, duration))
       if (elapsed < duration) frame = requestAnimationFrame(tick)

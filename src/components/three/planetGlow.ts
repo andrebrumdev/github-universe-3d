@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { GLOW_CELL, GRID_COLS, POLAR_CAP_PX, ROW_H, TEX_H } from './grid'
+import { attachHoverUniforms, createHoverUniforms, HOVER_GLSL_FRAGMENT, HOVER_GLSL_PARS, type PlanetHoverUniforms } from './planetHover'
 
 /** Verde do brilho próprio: multiplica o GLOW_CELL refeito do alfa do mapa. */
 export const GLOW_EMISSIVE = '#34d399'
@@ -29,7 +30,8 @@ const RATIO = `vec3( ${f(GLOW_CELL_RATIO.r / GLOW_CELL_RATIO.g)}, 1.0, ${f(GLOW_
 const PARS = /* glsl */ `#include <emissivemap_pars_fragment>
 uniform float uGlowTime;
 uniform float uGlowPulse;
-float planetGlowMask = 0.0;`
+float planetGlowMask = 0.0;
+${HOVER_GLSL_PARS}`
 
 /**
  * Cor da superfície: só o rgb do mapa. O alfa dele é o brilho (ver `packGlowIntoAlpha`) e fica guardado para o
@@ -50,6 +52,8 @@ const MAP_FRAGMENT = /* glsl */ `#ifdef USE_MAP
  * Pulso por célula: a fase sai de um hash da célula (semana, faixa de latitude) achada pela UV com a mesma grade
  * de `grid.ts`, então os quadrados não piscam juntos. Amplitude 0,12–0,25 (dia mais movimentado pulsa mais):
  * o brilho fica entre ~0,75× e ~1,25× da base. Fora das células o alfa é 0 e nada muda.
+ *
+ * Por cima, o dia sob o ponteiro (planetHover): o realce soma ao emissivo, depois do pulso.
  */
 const FRAGMENT = /* glsl */ `#ifdef USE_MAP
 	float glowLevel = clamp( planetGlowMask, 0.0, 1.0 );
@@ -63,6 +67,7 @@ const FRAGMENT = /* glsl */ `#ifdef USE_MAP
 	float glowAmp = ( 0.12 + 0.13 * glowLevel ) * uGlowPulse;
 	float glowSpeed = 1.1 + 0.7 * fract( glowHash * 7.31 );
 	totalEmissiveRadiance *= 1.0 + glowAmp * sin( uGlowTime * glowSpeed + glowHash * 6.2831853 );
+${HOVER_GLSL_FRAGMENT}
 #else
 	totalEmissiveRadiance = vec3( 0.0 );
 #endif`
@@ -73,20 +78,29 @@ type ShaderLike = { uniforms: Record<string, { value: unknown }>; fragmentShader
 
 const CHUNKS = ['#include <emissivemap_pars_fragment>', '#include <map_fragment>', '#include <emissivemap_fragment>']
 
-/** Troca a cor do mapa e o trecho do emissiveMap do MeshStandardMaterial pelo brilho do alfa, com o pulso por célula. */
-export function patchGlowShader(shader: ShaderLike): void {
+/**
+ * Troca a cor do mapa e o trecho do emissiveMap do MeshStandardMaterial pelo brilho do alfa, com o pulso por célula
+ * (uniforms de todos) e o dia aceso sob o ponteiro (`hover`, uniforms deste planeta).
+ */
+export function patchGlowShader(shader: ShaderLike, hover: PlanetHoverUniforms = createHoverUniforms()): void {
   for (const chunk of CHUNKS) {
     if (!shader.fragmentShader.includes(chunk)) throw new Error(`planetGlow: o shader não tem ${chunk}`)
   }
   shader.uniforms.uGlowTime = GLOW_UNIFORMS.uGlowTime
   shader.uniforms.uGlowPulse = GLOW_UNIFORMS.uGlowPulse
+  shader.uniforms.uHoverCell = hover.uHoverCell
+  shader.uniforms.uHoverTime = hover.uHoverTime
+  shader.uniforms.uHoverGlow = hover.uHoverGlow
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <emissivemap_pars_fragment>', PARS)
     .replace('#include <map_fragment>', MAP_FRAGMENT)
     .replace('#include <emissivemap_fragment>', FRAGMENT)
 }
 
-/** Material do planeta: luz padrão (MeshStandardMaterial), mas só os quadrados verdes emitem, e pulsam. */
+/**
+ * Material do planeta: luz padrão (MeshStandardMaterial), mas só os quadrados verdes emitem, e pulsam; o dia sob o
+ * ponteiro acende (uniforms deste material, ver `planetHoverUniforms`). Todos os planetas usam o mesmo programa.
+ */
 export function createPlanetMaterial(map: THREE.Texture): THREE.MeshStandardMaterial {
   const material = new THREE.MeshStandardMaterial({
     map,
@@ -95,7 +109,8 @@ export function createPlanetMaterial(map: THREE.Texture): THREE.MeshStandardMate
     roughness: 0.85,
     metalness: 0.05,
   })
-  material.onBeforeCompile = patchGlowShader
+  const hover = attachHoverUniforms(material)
+  material.onBeforeCompile = (shader) => patchGlowShader(shader, hover)
   material.customProgramCacheKey = () => GLOW_PROGRAM_KEY
   return material
 }

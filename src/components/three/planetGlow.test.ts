@@ -51,7 +51,6 @@ describe('pulso dos quadrados verdes no shader do planeta', () => {
     expect(m.emissiveMap).toBeNull()
     expect(m.emissive.g).toBeGreaterThan(m.emissive.r)
     expect(m.customProgramCacheKey()).toBe(GLOW_PROGRAM_KEY)
-    expect(m.onBeforeCompile).toBe(patchGlowShader)
   })
 
   it('dois planetas: mesma chave de programa, e o onBeforeCompile do material injeta o pulso', () => {

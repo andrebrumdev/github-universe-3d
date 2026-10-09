@@ -42,17 +42,27 @@ export const CELL_COLOR = '#10b981'
 /** Dia sem commits: quadradinho escuro (mas não preto), como a célula vazia do GitHub no tema escuro. */
 export const EMPTY_CELL = '#1f2a4a'
 
-export function cellFromUv(u: number, v: number): { week: number; day: number } | null {
-  if (!Number.isFinite(u) || !Number.isFinite(v)) return null
+/**
+ * Dia (semana × 7 + dia) do uv na grade, ou -1 nas calotas: o mesmo de `cellFromUv`, sem alocar (o hover do planeta
+ * em foco pergunta a cada quadro).
+ */
+export function cellIndexFromUv(u: number, v: number): number {
+  if (!Number.isFinite(u) || !Number.isFinite(v)) return -1
   // A textura repete em u (a esfera dá a volta): u = 1 é o mesmo meridiano de u = 0.
   const col = ((Math.floor((u * TEX_W) / COL_PX) % GRID_COLS) + GRID_COLS) % GRID_COLS
   const y = (1 - v) * TEX_H
-  if (y < rowTop(0) || y >= rowTop(GRID_ROWS)) return null
+  if (y < rowTop(0) || y >= rowTop(GRID_ROWS)) return -1
   let row = Math.min(GRID_ROWS - 1, Math.floor((y - POLAR_CAP_PX) / ROW_H))
   // acerta o arredondamento das bordas, para bater com o desenho
   while (row > 0 && y < rowTop(row)) row--
   while (row < GRID_ROWS - 1 && y >= rowTop(row + 1)) row++
-  return row < GRID_DAYS ? { week: col, day: row } : { week: GRID_COLS + col, day: row - GRID_DAYS }
+  const week = row < GRID_DAYS ? col : GRID_COLS + col
+  return week * GRID_DAYS + (row % GRID_DAYS)
+}
+
+export function cellFromUv(u: number, v: number): { week: number; day: number } | null {
+  const idx = cellIndexFromUv(u, v)
+  return idx < 0 ? null : { week: Math.floor(idx / GRID_DAYS), day: idx % GRID_DAYS }
 }
 
 export function cellAlpha(count: number, max: number): number {

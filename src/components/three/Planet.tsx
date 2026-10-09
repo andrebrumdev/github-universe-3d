@@ -2,24 +2,25 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useCursor } from '@react-three/drei'
 import { useReducedMotion } from 'framer-motion'
-import type * as THREE from 'three'
+import * as THREE from 'three'
+import { leaveCell, newCellHover, pointCell, stepCellHover, tapCell } from '@/lib/cellHover'
 import { selectedPlanet } from '@/lib/interaction'
 import type { Repo } from '@/lib/types'
-import { cellDate } from '@/lib/universe/activity'
+import { cellDate, GRID_DAYS, maxCount } from '@/lib/universe/activity'
 import { planetPosition, type PlanetOrbit, type Ring, type Vec3 } from '@/lib/universe/orbits'
 import { axisAngles, focusSpinStep, moonOrbits, planetSpin } from '@/lib/universe/planets'
 import { simClock } from '@/store/simClock'
-import { type HoveredCell, useUniverse } from '@/store/universe'
+import { useUniverse } from '@/store/universe'
 import {
   ATMOSPHERE_MATERIAL,
   ATMOSPHERE_SCALE,
   PLANET_GEOMETRY_HI,
   PLANET_GEOMETRY_LO,
 } from './geometries'
-import { cellFromUv } from './grid'
 import { HitProxy } from './HitProxy'
 import { Moon } from './Moon'
 import { PlanetHoverCard } from './PlanetHoverCard'
+import { cellOnSphere, planetHoverUniforms, writeHoverUniforms } from './planetHover'
 import { usePlanetMaterial } from './usePlanetMaterial'
 
 export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: PlanetOrbit }) {
@@ -46,7 +47,37 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
   /** Giro extra enquanto o planeta está em foco (o relógio para, mas ele continua girando devagar no eixo). */
   const focusSpin = useRef(0)
 
-  useFrame((_, dt) => {
+  // O dia sob o ponteiro (ou o dedo), aceso no próprio planeta (ver planetHover) e com o balão da data e dos commits.
+  // Só com o planeta em foco e com atividade real; de longe vale o cartão geral do repo.
+  const showDays = isSelected && isReal
+  const hoverUniforms = planetHoverUniforms(material)
+  const hover = useMemo(() => newCellHover(), [])
+  const maxCommits = useMemo(() => maxCount(repo.activity.weeks), [repo.activity.weeks])
+  const pointerRay = useMemo(() => new THREE.Raycaster(), [])
+  /** Último ponto do ponteiro na tela (px): o balão fica nele quando o dia muda com o planeta girando. */
+  const pointerAt = useRef({ x: 0, y: 0 })
+
+  /** Mostra (ou tira) o balão do dia do hover, no ponto (x, y) da tela. */
+  function publishDay(x: number, y: number) {
+    const cell = hover.cell
+    if (cell < 0) {
+      if (useUniverse.getState().hoveredCell?.planet === repo.name) setHoveredCell(null)
+      return
+    }
+    const week = Math.floor(cell / GRID_DAYS)
+    const day = cell % GRID_DAYS
+    setHoveredCell({
+      planet: repo.name,
+      week,
+      day,
+      count: repo.activity.weeks[week][day],
+      date: cellDate(repo.activity.startDate, week, day),
+      x,
+      y,
+    })
+  }
+
+  useFrame((state, dt) => {
     const t = simClock.time
     focusSpin.current = focusSpinStep(focusSpin.current, dt, isSelected, simClock.scale, reduced)
     // já com a precessão do periélio do anel; sem alocar por frame
@@ -58,52 +89,61 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
     if (precession.current) precession.current.rotation.y = angles.precession
     if (tilt.current) tilt.current.rotation.z = angles.obliquity
     if (surface.current) surface.current.rotation.y = angles.spin + focusSpin.current
+
+    if (!isReal) return
+    // O planeta gira sob o cursor parado: o dia sob ele muda sem evento. Uma vez por quadro, o raio do ponteiro só
+    // contra esta esfera, sem alocar.
+    if (showDays && canHover && surfaceHovered && surface.current) {
+      surface.current.updateWorldMatrix(true, false)
+      pointerRay.setFromCamera(state.pointer, state.camera)
+      if (pointCell(hover, cellOnSphere(pointerRay.ray, surface.current))) publishDay(pointerAt.current.x, pointerAt.current.y)
+    }
+    // o prazo do toque venceu: o dia apaga e o balão sai
+    if (stepCellHover(hover, dt, reduced)) publishDay(0, 0)
+    if (hover.lit >= 0 || hoverUniforms.uHoverTime.value !== 0) writeHoverUniforms(hoverUniforms, hover, repo.activity.weeks, maxCommits)
   })
 
   // Saiu do foco com o cursor parado sobre o planeta: o detalhe do dia não pode ficar na tela.
   useEffect(() => {
-    if (!isSelected && useUniverse.getState().hoveredCell?.planet === repo.name) setHoveredCell(null)
-  }, [isSelected, repo.name, setHoveredCell])
-
-  /** O dia (data e commits) sob o ponteiro: só com o planeta em foco; de longe vale o cartão geral do repo. */
-  function cellAt(e: ThreeEvent<PointerEvent | MouseEvent>): HoveredCell | null {
-    if (!isSelected || !isReal || !e.uv) return null
-    const cell = cellFromUv(e.uv.x, e.uv.y)
-    if (!cell) return null
-    return {
-      planet: repo.name,
-      ...cell,
-      count: repo.activity.weeks[cell.week][cell.day],
-      date: cellDate(repo.activity.startDate, cell.week, cell.day),
-      x: e.nativeEvent.clientX,
-      y: e.nativeEvent.clientY,
-    }
-  }
+    if (isSelected) return
+    leaveCell(hover)
+    if (useUniverse.getState().hoveredCell?.planet === repo.name) setHoveredCell(null)
+  }, [isSelected, hover, repo.name, setHoveredCell])
 
   function handleMove(e: ThreeEvent<PointerEvent>) {
     // No toque não há hover: o detalhe sai no toque (handleTap), não ao arrastar.
-    if (canHover) setHoveredCell(cellAt(e))
+    if (!canHover || !showDays || !surface.current) return
+    pointerAt.current.x = e.nativeEvent.clientX
+    pointerAt.current.y = e.nativeEvent.clientY
+    // o mesmo cálculo do quadro (direto na esfera), para os dois nunca discordarem na borda de uma célula
+    pointCell(hover, cellOnSphere(e.ray, surface.current))
+    // o balão segue o ponteiro
+    publishDay(e.nativeEvent.clientX, e.nativeEvent.clientY)
   }
 
-  // Toque: o dia fica na tela até o próximo toque em qualquer lugar. Tocar no mesmo dia de novo fecha; noutro, troca.
+  // Toque: o dia acende e fica na tela por ~2 s (stepCellHover), ou até o próximo toque em qualquer lugar. Tocar no
+  // mesmo dia de novo fecha; noutro, troca.
   /** O dia que estava na tela quando o toque atual começou (o pointerdown limpa antes do clique chegar). */
-  const pressedDay = useRef<string | null>(null)
+  const pressedDay = useRef(-1)
   useEffect(() => {
     if (!isSelected || canHover) return
     const onDown = () => {
       const shown = useUniverse.getState().hoveredCell
-      pressedDay.current = shown?.planet === repo.name ? `${shown.week}:${shown.day}` : null
+      pressedDay.current = shown?.planet === repo.name ? shown.week * GRID_DAYS + shown.day : -1
+      leaveCell(hover)
       if (shown) setHoveredCell(null)
     }
     window.addEventListener('pointerdown', onDown, true)
     return () => window.removeEventListener('pointerdown', onDown, true)
-  }, [isSelected, canHover, repo.name, setHoveredCell])
+  }, [isSelected, canHover, hover, repo.name, setHoveredCell])
 
   function handleTap(e: ThreeEvent<MouseEvent>) {
-    const cell = cellAt(e)
-    const same = cell !== null && `${cell.week}:${cell.day}` === pressedDay.current
-    pressedDay.current = null
-    setHoveredCell(same ? null : cell)
+    const cell = showDays && surface.current ? cellOnSphere(e.ray, surface.current) : -1
+    const same = cell >= 0 && cell === pressedDay.current
+    pressedDay.current = -1
+    if (same) return
+    tapCell(hover, cell)
+    publishDay(e.nativeEvent.clientX, e.nativeEvent.clientY)
   }
 
   return (
@@ -141,8 +181,10 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
             }}
             onPointerOut={() => {
               setSurfaceHovered(false)
-              // no toque, o dia tocado fica (o próximo toque o fecha)
-              if (canHover) setHoveredCell(null)
+              // no toque, o dia tocado fica (o próximo toque ou o prazo o fecha)
+              if (!canHover) return
+              leaveCell(hover)
+              publishDay(0, 0)
             }}
             onPointerMove={handleMove}
           />
