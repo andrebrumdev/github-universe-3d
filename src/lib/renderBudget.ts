@@ -3,9 +3,13 @@
  * notebook e desktop. Celular e tablet (toque, ponteiro grosso, sem hover) ficam com o teto menor.
  */
 
-/** Faixa de DPR do Canvas: até 2× com mouse; no toque, até 1,5× (2× numa tela de celular é ~1,8× mais pixels). */
-export function canvasDpr(finePointer: boolean): [number, number] {
-  return finePointer ? DPR_FINE : DPR_TOUCH
+/**
+ * Faixa de DPR do Canvas: até 2× com mouse; no toque, até 1,5× (2× numa tela de celular é ~1,8× mais pixels). Com o
+ * bloom ligado, até 1,5× também no desktop: os alvos do EffectComposer (cor em meio float, MSAA, a cadeia do bloom)
+ * crescem com o quadrado do DPR, e a 2× numa tela Retina passam de 300 MB de GPU.
+ */
+export function canvasDpr(finePointer: boolean, bloom: boolean): [number, number] {
+  return finePointer && !bloom ? DPR_FINE : DPR_TOUCH
 }
 // constantes: o Canvas recebe a mesma faixa a cada render
 const DPR_FINE: [number, number] = [1, 2]

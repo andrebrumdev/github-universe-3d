@@ -111,7 +111,8 @@ export function Scene({ universe }: { universe: Universe }) {
   const bloom = useBloomEnabled()
   // O fundo segue o bloom que de fato montou: se o remendo do shader falhar, o GlowBloom não monta e não há ACES.
   const bloomActive = useBloom((s) => s.active)
-  const dpr = canvasDpr(useMediaQuery(FINE_POINTER_QUERY))
+  // Segue o bloom que de fato montou: se o pedaço dele não carregar, a cena fica sem bloom e com o DPR de sempre.
+  const dpr = canvasDpr(useMediaQuery(FINE_POINTER_QUERY), bloomActive)
   if (contextLost) throw new WebGLContextLostError()
 
   return (

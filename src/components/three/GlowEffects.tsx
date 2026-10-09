@@ -10,6 +10,8 @@ import { createGlowBloomEffect, SunMaskToneMappingEffect } from './sunComposer'
  * (que agora pega também o fundo: ver `preToneMapped` no Scene). Monte só quando `useBloomEnabled()`.
  * O sol fica fora dos dois (ver `sunComposer.ts`): ele marca alfa 0, o bloom ignora a marca e o tone mapping a deixa
  * passar sem ACES — o rosto sai igual ao `?nobloom` (olhos brancos, amarelo limpo).
+ * MSAA de 2 amostras (com o DPR do canvas em até 1,5×, ver `canvasDpr`): o alvo multiamostrado em meio float é o
+ * maior gasto de GPU da cena, e a marca do sol no alfa só precisa de a borda misturar (ver `sunComposer.ts`).
  * Montado, liga o visual "com bloom" (opacidades menores para órbitas, atmosferas e halo do sol); desmontado, volta.
  */
 export function GlowBloom() {
@@ -37,7 +39,7 @@ export function GlowBloom() {
   }, [bloom])
   if (!bloom || !toneMapping) return null
   return (
-    <EffectComposer multisampling={4}>
+    <EffectComposer multisampling={2}>
       <primitive object={bloom} />
       <primitive object={toneMapping} />
     </EffectComposer>
