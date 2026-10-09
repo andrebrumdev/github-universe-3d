@@ -10,10 +10,10 @@ import { create } from 'zustand'
  * fica quase todo abaixo do limiar do bloom e, aditivo sobre o preto, já bate com o `?nobloom` em voo normal (×1: +0,1%;
  * visão larga −1,3%); só o núcleo quente do estilingue passa do limiar (×1: +14%). ×0,9 divide o erro: −5% no voo
  * normal, +6% no estilingue.
- * Sol (brilho `halo` e névoa `haze`): o próprio sol não passa do limiar com bloom (teto de luminância), então nada
- * dele vaza e o ACES do ToneMapping só escurece o aditivo — aqui as chaves passam de 1. Medidos contra o `?nobloom`
- * (luminância radial média em 64 ângulos, close-up do perfil): brilho ×1,6 (anel de 1,04 a 1,45 R: −1,4%; o ACES
- * deixa o miolo ~6% mais claro e a borda ~12% mais escura) e névoa ×1,8 (anel de 1,5 a 1,7 R: −1%).
+ * Sol (brilho `halo` e névoa `haze`): o próprio sol fica fora do bloom e do ACES (marca alfa 0, ver `sunComposer`),
+ * então nada dele vaza e o ACES do ToneMapping só escurece o aditivo — aqui as chaves passam de 1. Medidos contra o
+ * `?nobloom` (luminância radial média em 64 ângulos, close-up do perfil): brilho ×1,6 (anel de 1,04 a 1,45 R: −1,4%;
+ * o ACES deixa o miolo ~6% mais claro e a borda ~12% mais escura) e névoa ×1,8 (anel de 1,5 a 1,7 R: −1%).
  */
 export const BLOOM_LOOK = {
   plain: { thrusterHalo: 1, orbit: 0.14, atmosphere: 0.24, halo: 1, ionTail: 0.9, dustTail: 0.55, coma: 0.6, trail: 1, haze: 1 },

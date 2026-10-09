@@ -40,7 +40,7 @@ import {
   SUN_UNIFORMS,
   sunGlowOpacity,
   sunHazeOpacity,
-  sunBloomCompensation,
+  sunMask,
 } from './sunMaterial'
 
 const NEAR_DISTANCE = 9
@@ -102,7 +102,7 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   const bloomActive = useBloom((s) => s.active)
   const bloom = bloomLook(bloomActive)
   useEffect(() => {
-    SUN_UNIFORMS.uSunBloom.value = sunBloomCompensation(bloomActive)
+    SUN_UNIFORMS.uSunMask.value = sunMask(bloomActive)
   }, [bloomActive])
 
   // O `pointer` do R3F começa em (0,0) e nunca zera: só há "perto" com um ponteiro real no canvas.
