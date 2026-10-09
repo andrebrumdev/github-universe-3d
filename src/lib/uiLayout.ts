@@ -1,6 +1,7 @@
 /**
  * Medidas fixas (px) dos elementos da interface que a nave da escolta precisa evitar.
- * Fonte única: o botão "? Tutorial" e o cartão do tutorial leem daqui, e o posicionamento da nave também.
+ * Fonte única: os botões "? Tutorial" e "▶ Apresentação" e os cartões do tutorial e da apresentação leem daqui,
+ * e o posicionamento da nave também.
  */
 
 /** Retângulo na tela, em px, com origem no canto superior esquerdo. */
@@ -28,8 +29,36 @@ export const TUTORIAL_CARD = {
   desktopWidth: 340,
 } as const
 
-/** Largura do painel lateral aberto no desktop (espelho de `md:w-[380px]` do SidePanel). */
+/** Largura do painel lateral aberto no desktop (o SidePanel lê daqui). */
 export const SIDE_PANEL_WIDTH = 380
+
+/**
+ * Desktop: à esquerda do "? Tutorial", na mesma linha. Celular: logo acima dele, alinhado à direita
+ * (na mesma linha, os dois tomariam a largura que a nave da escolta usa no canto esquerdo).
+ */
+export const PRESENTATION_BUTTON = {
+  width: 132,
+  height: TUTORIAL_BUTTON.height,
+  desktopRight: TUTORIAL_BUTTON.right + TUTORIAL_BUTTON.width + UI_GAP,
+  desktopBottom: TUTORIAL_BUTTON.bottom,
+  phoneRight: TUTORIAL_BUTTON.right,
+  phoneBottom: TUTORIAL_BUTTON.bottom + TUTORIAL_BUTTON.height + UI_GAP,
+} as const
+
+const PRESENTATION_MARGIN = 16
+
+export const PRESENTATION_CARD = {
+  /**
+   * Desktop: na coluna do painel lateral (as poses de foco da câmera já deixam o alvo à esquerda dela),
+   * acima da linha dos botões, crescendo para cima até `desktopTop` do topo.
+   */
+  desktopRight: PRESENTATION_MARGIN,
+  desktopBottom: TUTORIAL_BUTTON.bottom + TUTORIAL_BUTTON.height + PRESENTATION_MARGIN,
+  desktopTop: PRESENTATION_MARGIN,
+  desktopWidth: SIDE_PANEL_WIDTH - 2 * PRESENTATION_MARGIN,
+  /** Celular: folha presa ao pé da tela, com no máximo essa fração da altura (o resto rola dentro dela). */
+  phoneMaxHeight: 0.45,
+} as const
 
 export function tutorialButtonRect(width: number, height: number): Rect {
   const { right, bottom, width: w, height: h } = TUTORIAL_BUTTON
@@ -49,9 +78,36 @@ export function tutorialCardZone(width: number, height: number): Rect {
   return { x: phoneInset, y: 0, w: width - 2 * phoneInset, h: height - phoneBottom }
 }
 
-/** O que a nave da escolta não pode cobrir: sempre o botão; o cartão, quando o tutorial está aberto. */
-export function reservedRects(width: number, height: number, tutorialOpen: boolean): Rect[] {
-  const rects = [tutorialButtonRect(width, height)]
-  if (tutorialOpen) rects.push(tutorialCardZone(width, height))
+export function presentationButtonRect(width: number, height: number): Rect {
+  const { width: w, height: h } = PRESENTATION_BUTTON
+  const desktop = width >= DESKTOP_MIN_WIDTH
+  const right = desktop ? PRESENTATION_BUTTON.desktopRight : PRESENTATION_BUTTON.phoneRight
+  const bottom = desktop ? PRESENTATION_BUTTON.desktopBottom : PRESENTATION_BUTTON.phoneBottom
+  return { x: width - right - w, y: height - bottom - h, w, h }
+}
+
+/**
+ * Zona do cartão da apresentação. Desktop: a faixa da coluna dele, do topo da tela até a borda de baixo (a altura
+ * varia com a parada). Celular: a folha no pé da tela, na altura máxima.
+ */
+export function presentationCardZone(width: number, height: number): Rect {
+  if (width >= DESKTOP_MIN_WIDTH) {
+    const { desktopRight, desktopBottom, desktopWidth } = PRESENTATION_CARD
+    return { x: width - desktopRight - desktopWidth, y: 0, w: desktopWidth, h: height - desktopBottom }
+  }
+  const h = Math.ceil(height * PRESENTATION_CARD.phoneMaxHeight)
+  return { x: 0, y: height - h, w: width, h }
+}
+
+export interface OpenCards {
+  tutorial?: boolean
+  presentation?: boolean
+}
+
+/** O que a nave da escolta não pode cobrir: sempre os dois botões; cada cartão, quando aberto. */
+export function reservedRects(width: number, height: number, open: OpenCards = {}): Rect[] {
+  const rects = [tutorialButtonRect(width, height), presentationButtonRect(width, height)]
+  if (open.tutorial) rects.push(tutorialCardZone(width, height))
+  if (open.presentation) rects.push(presentationCardZone(width, height))
   return rects
 }

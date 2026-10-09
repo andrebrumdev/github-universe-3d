@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { guideEventFor, type GuideEvent, type UniverseSelection } from '@/lib/interaction'
-import { pickLine, type OctocatLine } from '@/lib/octocat/lines'
+import { pickLine, type OctocatExpression, type OctocatLine } from '@/lib/octocat/lines'
 
 export interface HoveredCell {
   planet: string
@@ -24,10 +24,13 @@ interface UniverseState {
   bubble: Bubble | null
   seenLines: string[]
   seq: number
-  select: (selection: UniverseSelection) => void
+  /** `quiet`: sem a fala do guia (quem seleciona narra por conta própria, como a apresentação). */
+  select: (selection: UniverseSelection, options?: { quiet?: boolean }) => void
   clearSelection: () => void
   setHoveredCell: (cell: HoveredCell | null) => void
   emitGuide: (event: GuideEvent) => void
+  /** Fala livre no balão do Octocat (`{name}` vira o primeiro nome do perfil). */
+  say: (text: string, expression?: OctocatExpression) => void
   dismissBubble: (seq: number) => void
 }
 
@@ -38,7 +41,7 @@ export const useUniverse = create<UniverseState>()((set, get) => ({
   bubble: null,
   seenLines: [],
   seq: 0,
-  select: (selection) => {
+  select: (selection, options) => {
     const { zoomedOnce } = get()
     const event = guideEventFor(selection, zoomedOnce)
     set({
@@ -46,7 +49,7 @@ export const useUniverse = create<UniverseState>()((set, get) => ({
       hoveredCell: null,
       zoomedOnce: zoomedOnce || selection.kind === 'planet' || selection.kind === 'moon',
     })
-    if (event) get().emitGuide(event)
+    if (event && !options?.quiet) get().emitGuide(event)
   },
   clearSelection: () => set({ selection: { kind: 'none' }, hoveredCell: null }),
   setHoveredCell: (hoveredCell) => set({ hoveredCell }),
@@ -55,6 +58,10 @@ export const useUniverse = create<UniverseState>()((set, get) => ({
     const line = pickLine(event, new Set(seenLines))
     if (!line) return
     set({ bubble: { line, seq: seq + 1 }, seq: seq + 1, seenLines: line.once ? [...seenLines, line.id] : seenLines })
+  },
+  say: (text, expression = 'happy') => {
+    const seq = get().seq + 1
+    set({ bubble: { line: { id: 'presentation', text, once: false, expression }, seq }, seq })
   },
   dismissBubble: (s) => {
     if (get().bubble?.seq === s) set({ bubble: null })

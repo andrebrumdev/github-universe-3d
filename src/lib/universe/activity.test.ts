@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bucketCommits, cellDate, deriveActivity, GRID_DAYS, GRID_WEEKS, maxCount, startOfGrid } from './activity'
+import { bucketCommits, cellDate, commitsInWindow, deriveActivity, GRID_DAYS, GRID_WEEKS, maxCount, startOfGrid } from './activity'
 
 const END = new Date('2026-10-08T12:00:00Z') // quinta-feira
 
@@ -64,5 +64,16 @@ describe('helpers', () => {
   it('maxCount devolve o maior valor', () => {
     expect(maxCount([[0, 3], [7, 1]])).toBe(7)
     expect(maxCount([[0]])).toBe(0)
+  })
+})
+
+describe('commitsInWindow', () => {
+  it('soma os commits das 52 semanas (o último ano)', () => {
+    const weeks = Array.from({ length: GRID_WEEKS }, () => Array<number>(GRID_DAYS).fill(0))
+    weeks[0][0] = 3
+    weeks[51][6] = 2
+    weeks[20][3] = 5
+    expect(commitsInWindow({ source: 'real', weeks, startDate: '2025-10-12' })).toBe(10)
+    expect(commitsInWindow({ source: 'derived', weeks: [], startDate: '2025-10-12' })).toBe(0)
   })
 })

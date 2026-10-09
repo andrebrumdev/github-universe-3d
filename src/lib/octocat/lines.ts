@@ -4,7 +4,8 @@ import type { OctocatExpression } from './expression'
 export type { OctocatExpression }
 
 export interface OctocatLine {
-  id: GuideEvent
+  /** Evento do guia, ou 'presentation' para as falas livres do modo apresentação. */
+  id: GuideEvent | 'presentation'
   /** `{name}` vira o primeiro nome do perfil. */
   text: string
   once: boolean

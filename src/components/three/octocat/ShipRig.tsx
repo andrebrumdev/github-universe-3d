@@ -34,6 +34,7 @@ import { reservedRects } from '@/lib/uiLayout'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
 import { resetShipPose, shipPose } from '@/store/shipPose'
+import { usePresentation } from '@/store/presentation'
 import { simClock } from '@/store/simClock'
 import { useTutorial } from '@/store/tutorial'
 import { useUniverse } from '@/store/universe'
@@ -82,15 +83,16 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
   const step = useTutorial((s) => s.step)
   const startTutorial = useTutorial((s) => s.start)
   const tutorialOpen = step !== null
+  const presentationOpen = usePresentation((s) => s.state !== null)
 
-  // Posição da escolta: calculada só quando a tela, o fov ou o cartão do tutorial mudam (não por frame).
-  // Em pixels, longe do botão "? Tutorial" e do cartão (medidas compartilhadas em uiLayout).
+  // Posição da escolta: calculada só quando a tela, o fov ou um cartão (tutorial, apresentação) mudam (não por frame).
+  // Em pixels, longe dos botões e dos cartões (medidas compartilhadas em uiLayout).
   const escort = useMemo(() => {
     const { width, height } = size
     const framing = escortFraming(width, height)
-    const placement = escortPlacement({ width, height, reserved: reservedRects(width, height, tutorialOpen) }, framing)
+    const placement = escortPlacement({ width, height, reserved: reservedRects(width, height, { tutorial: tutorialOpen, presentation: presentationOpen }) }, framing)
     return { side: framing.side, base: placementOffset(placement, width, height, fov) }
-  }, [size, fov, tutorialOpen])
+  }, [size, fov, tutorialOpen, presentationOpen])
   const latestEscort = useRef(escort)
   useEffect(() => {
     latestEscort.current = escort
@@ -161,6 +163,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     if (!target) {
       machine.current = shipReducer(machine.current, { type: 'release' })
       shipPose.mode = machine.current.mode
+      shipPose.target = machine.current.target
       shipPose.userTravel = false
       shipPose.velocity = [0, 0, 0]
       return
@@ -183,6 +186,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
       machine.current = shipReducer(machine.current, { type: 'travel', target, path: planTravel(shipPose.position, destination) })
     }
     shipPose.mode = machine.current.mode
+    shipPose.target = machine.current.target
     // A nova viagem parte do ponto atual, parada (o easing começa em zero).
     shipPose.velocity = [0, 0, 0]
   }, [target, system, camera, reduced, step, visitSide])
@@ -291,6 +295,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     if (s.mode === 'traveling' && s.path) shipPose.velocity = travelVelocity(s.path, s.elapsed)
     else shipPose.velocity.fill(0)
     shipPose.mode = s.mode
+    shipPose.target = s.target
   })
 
   const expression: OctocatExpression = hovered

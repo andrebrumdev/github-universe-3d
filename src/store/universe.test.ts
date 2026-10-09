@@ -38,4 +38,19 @@ describe('store do universo', () => {
     s().dismissBubble(s().bubble!.seq)
     expect(s().bubble).toBeNull()
   })
+
+  it('select quieto troca a seleção sem fala (a apresentação narra sozinha)', () => {
+    s().select({ kind: 'planet', name: 'a' }, { quiet: true })
+    expect(s().selection).toEqual({ kind: 'planet', name: 'a' })
+    expect(s().bubble).toBeNull()
+    expect(s().zoomedOnce).toBe(true)
+  })
+
+  it('say mostra uma fala livre, sempre (sem a regra do "uma vez só")', () => {
+    s().say('repo: faz coisas.')
+    expect(s().bubble?.line).toMatchObject({ id: 'presentation', text: 'repo: faz coisas.' })
+    const seq = s().bubble!.seq
+    s().say('repo: faz coisas.')
+    expect(s().bubble!.seq).toBe(seq + 1)
+  })
 })

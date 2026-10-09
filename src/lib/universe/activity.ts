@@ -59,3 +59,10 @@ export function maxCount(weeks: number[][]): number {
   for (const week of weeks) for (const count of week) if (count > max) max = count
   return max
 }
+
+/** Commits na janela inteira da grade (as 52 semanas: o último ano). */
+export function commitsInWindow(activity: Activity): number {
+  let total = 0
+  for (const week of activity.weeks) for (const count of week) total += count
+  return total
+}

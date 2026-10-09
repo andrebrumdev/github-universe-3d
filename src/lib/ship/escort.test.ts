@@ -28,7 +28,7 @@ import {
 } from './escort'
 import { bezierPoint, planTravel, travelProgress, travelVelocity } from './travel'
 import { SUN_SAFE_DISTANCE } from './travel'
-import { reservedRects, type Rect } from '../uiLayout'
+import { type OpenCards, presentationCardZone, reservedRects, type Rect } from '../uiLayout'
 import { cross, dot, length, sub } from './vec'
 
 const system = buildOrbits(Array.from({ length: 12 }, (_, i) => ({ name: `p${i}`, radius: 2.2 })))
@@ -193,9 +193,14 @@ describe('escortPlacement (em pixels, sem cobrir o botão nem o cartão do tutor
   const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
   const inside = (a: Rect, w: number, h: number) => a.x >= 0 && a.y >= 0 && a.x + a.w <= w && a.y + a.h <= h
 
+  const cases: [string, OpenCards][] = [
+    ['', {}],
+    [' com o cartão do tutorial', { tutorial: true }],
+    [' com o cartão da apresentação', { presentation: true }],
+  ]
   for (const [w, h] of [...desktops, ...phones]) {
-    for (const open of [false, true]) {
-      it(`${w}×${h}${open ? ' com o cartão' : ''}: nada coberto, rosto na tela, tamanho dentro dos limites`, () => {
+    for (const [label, open] of cases) {
+      it(`${w}×${h}${label}: nada coberto, rosto na tela, tamanho dentro dos limites`, () => {
         const reserved = reservedRects(w, h, open)
         const framing = escortFraming(w, h)
         const p = escortPlacement({ width: w, height: h, reserved })
@@ -204,8 +209,13 @@ describe('escortPlacement (em pixels, sem cobrir o botão nem o cartão do tutor
         for (const r of reserved) expect(overlaps(box, r)).toBe(false)
         expect(inside(shipFaceBox(p, h), w, h)).toBe(true)
         expect(p.heightFraction).toBeLessThanOrEqual(framing.heightFraction)
-        expect(p.heightFraction).toBeGreaterThanOrEqual(framing.minHeightFraction)
-        expect(box.y + box.h).toBeGreaterThan(h * 0.6) // embaixo
+        expect(p.heightFraction).toBeGreaterThanOrEqual(framing.minHeightFraction - 1e-9) // o passo do laço acumula erro de float
+        if (w < h && open.presentation) {
+          // celular com a folha da apresentação: logo acima dela
+          expect(box.y + box.h).toBeGreaterThan(presentationCardZone(w, h).y - h * 0.1)
+        } else {
+          expect(box.y + box.h).toBeGreaterThan(h * 0.6) // embaixo
+        }
         if (w < h) {
           // celular: a nave inteira dentro da tela (nenhuma ponta de asa cortada), à esquerda
           expect(inside(box, w, h)).toBe(true)
@@ -217,14 +227,24 @@ describe('escortPlacement (em pixels, sem cobrir o botão nem o cartão do tutor
     }
   }
 
+  it('os botões e os cartões reservados não se sobrepõem entre si', () => {
+    for (const [w, h] of [...desktops, ...phones]) {
+      const [tutorial, presentation] = reservedRects(w, h)
+      expect(overlaps(tutorial, presentation)).toBe(false)
+      expect(presentation.x).toBeGreaterThanOrEqual(0)
+      // o cartão da apresentação fica acima dos botões no desktop (no celular a folha cobre a linha deles)
+      if (w >= h) expect(overlaps(presentationCardZone(w, h), presentation)).toBe(false)
+    }
+  })
+
   it('desktop sem o cartão fica no tamanho cheio (25% da altura)', () => {
-    expect(escortPlacement({ width: 1280, height: 800, reserved: reservedRects(1280, 800, false) }).heightFraction).toBeCloseTo(0.25)
+    expect(escortPlacement({ width: 1280, height: 800, reserved: reservedRects(1280, 800) }).heightFraction).toBeCloseTo(0.25)
   })
 
   it('o offset no referencial da câmera reproduz a caixa da tela e fica longe do plano próximo', () => {
     const t = Math.tan((50 * Math.PI) / 360)
     for (const [w, h] of [...desktops, ...phones]) {
-      const p = escortPlacement({ width: w, height: h, reserved: reservedRects(w, h, true) })
+      const p = escortPlacement({ width: w, height: h, reserved: reservedRects(w, h, { tutorial: true }) })
       const o = placementOffset(p, w, h, 50)
       const depth = -o[2]
       expect(depth).toBeGreaterThan(MIN_SHIP_DISTANCE + SHIP_WORLD_WIDTH)

@@ -1,3 +1,4 @@
+import type { ShipTarget } from '@/lib/ship/escort'
 import type { ShipMode } from '@/lib/ship/shipMachine'
 import type { Vec3 } from '@/lib/universe/orbits'
 
@@ -7,6 +8,8 @@ export interface ShipPose {
   /** Velocidade analítica no caminho (unidades/s); zero fora de viagem. A câmera antecipa por ela. */
   velocity: Vec3
   mode: ShipMode
+  /** Alvo da viagem/visita atual (null na escolta). A apresentação compara com a parada para saber se a nave chegou. */
+  target: ShipTarget | null
   userTravel: boolean
   /** Ponto da tela (px, como o canvas: tela cheia) onde o balão da fala se apoia; escrito pela nave a cada frame. */
   speechX: number
@@ -20,6 +23,7 @@ export const INITIAL_SHIP_POSE: Readonly<ShipPose> = {
   tangent: [0, 0, 1],
   velocity: [0, 0, 0],
   mode: 'entering',
+  target: null,
   userTravel: false,
   speechX: 0,
   speechY: 0,
