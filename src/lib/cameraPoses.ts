@@ -87,6 +87,10 @@ const overviewCache = new WeakMap<OrbitSystem, Map<string, Pose>>()
  * com folga FIT_EDGE, em qualquer fase da precessão do periélio. Encaixe exato por bissecção nas amostras.
  */
 export function overviewPose(system: OrbitSystem, viewport: Viewport = DEFAULT_VIEWPORT): Pose {
+  // canvas de tamanho zero (aspecto NaN, ∞ ou 0) nunca "cabe": usa o enquadramento padrão
+  if (!(Number.isFinite(viewport.aspect) && viewport.aspect > 0 && Number.isFinite(viewport.fov) && viewport.fov > 0)) {
+    viewport = DEFAULT_VIEWPORT
+  }
   const outer = system.rings[system.rings.length - 1]
   if (!outer) return overviewAt(12 * 1.5 + 10, 0)
   const key = `${viewport.aspect}|${viewport.fov}`
@@ -102,7 +106,8 @@ export function overviewPose(system: OrbitSystem, viewport: Viewport = DEFAULT_V
   }
   let lo = 0
   let hi = reach * 1.5 + 10
-  while (!fits(hi)) {
+  // 20 × 1,5 ≈ 3300× o chute inicial: limite só contra laço infinito
+  for (let i = 0; i < 20 && !fits(hi); i++) {
     lo = hi
     hi *= 1.5
   }

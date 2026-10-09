@@ -44,6 +44,12 @@ describe('overviewPose', () => {
     const pose = overviewPose({ rings: [], orbits: [] })
     expect(len(pose.position)).toBeGreaterThan(10)
   })
+
+  it.each([NaN, Infinity, 0, -1])('canvas de tamanho zero (aspecto %s) não trava: usa o enquadramento padrão', (aspect) => {
+    const pose = overviewPose(system, { aspect, fov: 50 })
+    expect(pose.position.every(Number.isFinite)).toBe(true)
+    expect(pose).toEqual(overviewPose(system))
+  })
 })
 
 /**
