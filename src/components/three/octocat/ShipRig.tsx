@@ -5,7 +5,7 @@ import { useReducedMotion } from 'framer-motion'
 import * as THREE from 'three'
 import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 import { useIdle } from '@/hooks/useIdle'
-import { showcasePlanet } from '@/lib/cameraPoses'
+import { selectionPose, showcasePlanet, tutorialPose, type PanelLayout } from '@/lib/cameraPoses'
 import { selectedPlanet } from '@/lib/interaction'
 import type { OctocatExpression } from '@/lib/octocat/expression'
 import {
@@ -24,13 +24,13 @@ import {
   SHIP_WORLD_WIDTH,
   targetAnchor,
   THREE_QUARTER_YAW,
-  visitPosition,
   type ShipTarget,
 } from '@/lib/ship/escort'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
-import { frameToLocal, type CameraFrame } from '@/lib/ship/cameraFrame'
+import { blendFramesPoint, frameFromPose, frameToLocal, frameToWorld, type CameraFrame } from '@/lib/ship/cameraFrame'
 import { planReturn, returnFaceWeight, returnHeading, returnPoint, returnThrust, type ReturnPlan } from '@/lib/ship/returnFlight'
-import { clockTimeAfter, planTransferTo, travelBodies } from '@/lib/ship/transfer'
+import { planTransferTo, travelBodies } from '@/lib/ship/transfer'
+import { projectDisc, visitLocal, visitPlacement, type Disc } from '@/lib/ship/visit'
 import { travelPoint, travelTangent, travelVelocity, type TravelPath } from '@/lib/ship/travel'
 import type { Repo } from '@/lib/types'
 import { reservedRects } from '@/lib/uiLayout'
@@ -58,11 +58,31 @@ const BUBBLE_IN = SHIP_WORLD_WIDTH * 0.3
 
 /** Quanto a entrada começa acima do canto: uma altura de tela inteira (desce de fora da imagem). */
 const enterRise = (local: Vec3, fov: number) => -local[2] * Math.tan((fov * Math.PI) / 360) * 2
-/**
- * Lado em que a nave paira, na visão da câmera: no desktop, à direita do alvo (entre ele e o painel lateral,
- * já que a pose de foco põe o alvo à esquerda); no celular, perto do alvo para não sair da tela estreita.
- */
-const VISIT_SIDE = { side: 1, bottom: 0.35 } as const
+/** Distância (unidades) da câmera à pose de foco a partir da qual a visita começa a passar para o referencial dela. */
+const VISIT_HANDOFF_RANGE = 12
+/** Ritmo máximo (1/s) dessa passagem: começa do zero na chegada, sem salto. */
+const VISIT_HANDOFF_RATE = 1.2
+/** O alvo andou na tela mais que essa fração da altura (o usuário arrastou a câmera longe): a nave muda de lugar. */
+const VISIT_REPLACE_SHIFT = 0.12
+/** Ritmo (1/s) com que a nave desliza para o lugar novo. */
+const VISIT_REPLACE_RATE = 3
+
+/** Visita em primeiro plano (lib/ship/visit): ponto no referencial da câmera, preso primeiro à pose de foco e depois à câmera. */
+interface VisitSpot {
+  /** Referencial da pose de foco (para onde a câmera vai). */
+  goal: CameraFrame
+  /** Ponto atual (desliza para `targetLocal` quando muda de lugar). */
+  local: Vec3
+  targetLocal: Vec3
+  /** Lado do giro de três-quartos (nariz para o alvo). */
+  side: 1 | -1
+  /** Disco do alvo que gerou o lugar atual (px), e a interface de então. */
+  disc: Disc | null
+  layoutKey: string
+  /** 0 = preso à pose de foco (mundo), 1 = preso à câmera atrasada. */
+  hand: number
+  checkAt: number
+}
 /** No estilingue a curva é fechada e rápida: a nave inclina bem mais que numa curva comum. */
 const ASSIST_BANK = 1.8
 /** Aceno de "voltei" ao assentar no canto depois da volta (s). */
@@ -106,13 +126,25 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
   const size = useThree((s) => s.size)
   const fov = (camera as THREE.PerspectiveCamera).fov
   const reduced = useReducedMotion() ?? false
-  const visitSide = VISIT_SIDE[useMediaQuery(MOBILE_QUERY) ? 'bottom' : 'side']
+  const layout: PanelLayout = useMediaQuery(MOBILE_QUERY) ? 'bottom' : 'side'
   const selection = useUniverse((s) => s.selection)
   const bubble = useUniverse((s) => s.bubble)
   const step = useTutorial((s) => s.step)
   const startTutorial = useTutorial((s) => s.start)
   const tutorialOpen = step !== null
   const presentationOpen = usePresentation((s) => s.state !== null)
+  // O painel do planeta/perfil abre com a seleção (fora da apresentação, que tem o cartão dela).
+  const panelOpen = (selection.kind === 'planet' || selection.kind === 'moon' || selection.kind === 'profile') && !presentationOpen
+  /** O que a nave na visita não pode cobrir, e uma chave para notar quando muda. */
+  const visitUi = useMemo(() => {
+    const reserved = reservedRects(size.width, size.height, { tutorial: tutorialOpen, presentation: presentationOpen, panel: panelOpen })
+    return { reserved, key: `${size.width}x${size.height}:${tutorialOpen}:${presentationOpen}:${panelOpen}:${fov}` }
+  }, [size, fov, tutorialOpen, presentationOpen, panelOpen])
+  const latestVisitUi = useRef(visitUi)
+  useEffect(() => {
+    latestVisitUi.current = visitUi
+  })
+  const visit = useRef<VisitSpot | null>(null)
 
   // Posição da escolta: calculada só quando a tela, o fov ou um cartão (tutorial, apresentação) mudam (não por frame).
   // Em pixels, longe dos botões e dos cartões (medidas compartilhadas em uiLayout).
@@ -230,18 +262,30 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     const stop = predictStopTime(simClock)
     const anchor = targetAnchor(target, system, stop)
     if (!anchor) return
-    const cameraPos = camera.position.toArray() as Vec3
     shipPose.userTravel = step === null || step === 'free'
+    // Visita em primeiro plano: o lugar sai da pose para onde a câmera vai (a mesma conta do CameraRig) e da tela.
+    const { width, height } = size
+    const pfov = (camera as THREE.PerspectiveCamera).fov
+    const viewport = { aspect: width / height, fov: pfov }
+    const guided = step !== null && step !== 'free'
+    const pose = guided
+      ? tutorialPose(step, system, repos, stop, layout, viewport)
+      : selectionPose(useUniverse.getState().selection, system, stop, layout, viewport)
+    const ui = latestVisitUi.current
+    const disc = projectDisc(pose, anchor.position, anchor.radius, width, height, pfov)
+    const placement = disc ? visitPlacement({ width, height, reserved: ui.reserved, disc }) : null
+    const local: Vec3 = placement ? visitLocal(placement, width, height, pfov) : [...latestEscort.current.base]
+    const goalFrame = frameFromPose(pose)
+    visit.current = { goal: goalFrame, local, targetLocal: [local[0], local[1], local[2]], side: placement?.side ?? 1, disc, layoutKey: ui.key, hand: reduced ? 1 : 0, checkAt: 0 }
+    const destination = frameToWorld(goalFrame, local)
     if (reduced) {
       machine.current = shipReducer(machine.current, { type: 'arrive', target })
-      group.current?.position.set(...visitPosition(anchor.position, anchor.radius, cameraPos, visitSide))
+      group.current?.position.set(...destination)
       shipPose.velocity = [0, 0, 0]
     } else {
-      // O alvo ainda anda enquanto o relógio desacelera: o destino é onde ele vai estar no instante da chegada.
-      const destinationAt = (seconds: number) => {
-        const at = targetAnchor(target, system, clockTimeAfter(simClock, seconds)) ?? anchor
-        return visitPosition(at.position, at.radius, cameraPos, visitSide)
-      }
+      // A viagem termina no lugar da visita, no referencial da pose de foco, que já é a do instante em que o tempo
+      // para (o alvo não anda mais depois da chegada).
+      const destinationAt = () => destination
       const path = planTransferTo(shipPose.position, destinationAt, {
         sun: barycenterOffset(system, stop),
         // Troca de destino em voo: parte com a velocidade atual (sem quina). Parada (escolta, visita): queima de partida.
@@ -254,7 +298,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     }
     shipPose.mode = machine.current.mode
     shipPose.target = machine.current.target
-  }, [target, system, camera, reduced, step, visitSide, lagQuat, returnFrame, scratch])
+  }, [target, system, camera, reduced, step, layout, size, repos, lagQuat, returnFrame, scratch])
 
   useFrame(({ clock }, rawDt) => {
     const g = group.current
@@ -346,13 +390,44 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
       }
       escortLocal.lerp(goal, reduced || knockStart.current !== null ? 1 : 1 - Math.exp(-ESCORT_SETTLE * dt))
       g.position.copy(escortLocal).applyQuaternion(lagQuat).add(camera.position)
+    } else if (s.mode === 'visiting' && visit.current) {
+      // Em primeiro plano: preso à pose de foco até a câmera chegar nela, depois à câmera atrasada (gira com ela).
+      hasLocal.current = false
+      const v = visit.current
+      writeFrame(frameNow, camera.position, lagQuat, scratch)
+      const far = camera.position.distanceTo(scratch.fromArray(v.goal.position))
+      const reach = Math.min(1, Math.max(0, 1 - far / VISIT_HANDOFF_RANGE))
+      v.hand = reduced ? 1 : Math.max(v.hand, Math.min(reach, v.hand + VISIT_HANDOFF_RATE * dt))
+      if (v.hand >= 1 && s.target && clock.elapsedTime >= v.checkAt) {
+        // A interface mudou ou o usuário levou a câmera longe: escolhe outro lugar e desliza até ele.
+        v.checkAt = clock.elapsedTime + 0.3
+        const anchor = targetAnchor(s.target, system, simClock.time)
+        const ui = latestVisitUi.current
+        if (anchor) {
+          const { width, height } = size
+          scratch.fromArray(anchor.position).applyMatrix4(camera.matrixWorldInverse)
+          const depth = -scratch.z
+          scratch.fromArray(anchor.position).project(camera)
+          const tanY = Math.tan((fov * Math.PI) / 360)
+          const disc: Disc | null = depth > 0 ? { x: ((scratch.x + 1) / 2) * width, y: ((1 - scratch.y) / 2) * height, r: (anchor.radius / depth / tanY) * (height / 2) } : null
+          const moved =
+            !v.disc || !disc || Math.hypot(disc.x - v.disc.x, disc.y - v.disc.y) > VISIT_REPLACE_SHIFT * height || Math.abs(Math.log(disc.r / v.disc.r)) > 0.35
+          if (disc && (moved || ui.key !== v.layoutKey)) {
+            const p = visitPlacement({ width, height, reserved: ui.reserved, disc })
+            v.targetLocal = visitLocal(p, width, height, fov)
+            v.side = p.side
+            v.disc = disc
+            v.layoutKey = ui.key
+          }
+        }
+      }
+      const k = reduced ? 1 : 1 - Math.exp(-VISIT_REPLACE_RATE * dt)
+      for (let i = 0; i < 3; i++) v.local[i] += (v.targetLocal[i] - v.local[i]) * k
+      const h = v.hand * v.hand * (3 - 2 * v.hand)
+      g.position.fromArray(blendFramesPoint(v.goal, frameNow, h, v.local, posArr))
     } else {
       hasLocal.current = false
       look.copy(goal).applyQuaternion(lagQuat).add(camera.position)
-      if (s.mode === 'visiting' && s.target) {
-        const anchor = targetAnchor(s.target, system, simClock.time)
-        if (anchor) look.fromArray(visitPosition(anchor.position, anchor.radius, camera.position.toArray(camArr), visitSide))
-      }
       const rate = s.mode === 'returning' ? 3 / RETURN_DURATION : 4
       g.position.lerp(look, reduced ? 1 : 1 - Math.exp(-rate * dt))
     }
@@ -362,6 +437,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
       g.position.fromArray(posArr)
     }
 
+    const yawSide = s.mode === 'visiting' && visit.current ? visit.current.side : escort.side
     // Orientação: na viagem, a frente (+z) segue a tangente e inclina nas curvas. Parada, olha para quem vê:
     // na escolta em três-quartos (nariz para o centro da tela) e, na batida, inclinada para a lente.
     // Parada, o "para cima" é o da câmera: perto da lente, no canto, o para-cima do mundo a deixaria tombada
@@ -383,17 +459,16 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     } else {
       helper.up.copy(up)
       helper.lookAt(camera.position)
-      if (s.mode !== 'visiting') {
-        helper.rotateY(-escort.side * THREE_QUARTER_YAW)
-        helper.rotateX(KNOCK_LEAN * knock.closer)
-      }
+      // Na visita, em três-quartos com o nariz para o alvo (o Octocat aponta para ele); na escolta, para o centro.
+      helper.rotateY(-yawSide * THREE_QUARTER_YAW)
+      if (s.mode !== 'visiting') helper.rotateX(KNOCK_LEAN * knock.closer)
     }
     targetQuat.copy(helper.quaternion)
     g.quaternion.slerp(targetQuat, reduced ? 1 : 1 - Math.exp(-6 * dt))
 
     // Apoio do balão (DOM, no OctocatSpeech): acima da nave, puxado para o centro da tela, projetado em pixels.
     right.set(1, 0, 0).applyQuaternion(camera.quaternion)
-    speech.copy(g.position).addScaledVector(up, BUBBLE_UP).addScaledVector(right, -escort.side * BUBBLE_IN).project(camera)
+    speech.copy(g.position).addScaledVector(up, BUBBLE_UP).addScaledVector(right, -yawSide * BUBBLE_IN).project(camera)
     shipPose.speechX = ((speech.x + 1) / 2) * size.width
     shipPose.speechY = ((1 - speech.y) / 2) * size.height
     shipPose.speechOnScreen = speech.z < 1 && Math.abs(speech.x) < 1.2 && Math.abs(speech.y) < 1.2

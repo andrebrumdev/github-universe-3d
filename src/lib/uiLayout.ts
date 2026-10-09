@@ -31,6 +31,8 @@ export const TUTORIAL_CARD = {
 
 /** Largura do painel lateral aberto no desktop (o SidePanel lê daqui). */
 export const SIDE_PANEL_WIDTH = 380
+/** Celular: o painel vira uma folha no pé da tela com no máximo essa fração da altura (o `max-h-[60vh]` do SidePanel). */
+export const SIDE_SHEET_MAX_HEIGHT = 0.6
 
 /**
  * Desktop: à esquerda do "? Tutorial", na mesma linha. Celular: logo acima dele, alinhado à direita
@@ -99,9 +101,25 @@ export function presentationCardZone(width: number, height: number): Rect {
   return { x: 0, y: height - h, w: width, h }
 }
 
+/** "← Galáxia" no canto de cima à esquerda (`left-4 top-4`, texto pequeno), com folga para a fonte. */
+export const BACK_BUTTON = { left: 16, top: 16, width: 112, height: 40 } as const
+
+export function backButtonRect(): Rect {
+  return { x: BACK_BUTTON.left, y: BACK_BUTTON.top, w: BACK_BUTTON.width, h: BACK_BUTTON.height }
+}
+
+/** Zona do painel do planeta/perfil: a coluna da direita no desktop; no celular, a folha no pé da tela na altura máxima. */
+export function sidePanelZone(width: number, height: number): Rect {
+  if (width >= DESKTOP_MIN_WIDTH) return { x: width - SIDE_PANEL_WIDTH, y: 0, w: SIDE_PANEL_WIDTH, h: height }
+  const h = Math.ceil(height * SIDE_SHEET_MAX_HEIGHT)
+  return { x: 0, y: height - h, w: width, h }
+}
+
 export interface OpenCards {
   tutorial?: boolean
   presentation?: boolean
+  /** Painel do planeta/perfil e o "← Galáxia", que aparecem juntos (a nave na visita evita os dois). */
+  panel?: boolean
 }
 
 /** O que a nave da escolta não pode cobrir: sempre os dois botões; cada cartão, quando aberto. */
@@ -109,5 +127,6 @@ export function reservedRects(width: number, height: number, open: OpenCards = {
   const rects = [tutorialButtonRect(width, height), presentationButtonRect(width, height)]
   if (open.tutorial) rects.push(tutorialCardZone(width, height))
   if (open.presentation) rects.push(presentationCardZone(width, height))
+  if (open.panel) rects.push(sidePanelZone(width, height), backButtonRect())
   return rects
 }

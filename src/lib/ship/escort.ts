@@ -153,12 +153,18 @@ export function escortPlacement(screen: EscortScreen, framing: EscortFraming = e
  * Posição da escolta no referencial da câmera (x à direita, y para cima, −z à frente) para um posicionamento
  * na tela: a profundidade sai da fração de altura; x e y, do centro da caixa.
  */
-export function placementOffset(p: EscortPlacement, width: number, height: number, fov: number): Vec3 {
+export function placementOffset(
+  p: EscortPlacement,
+  width: number,
+  height: number,
+  fov: number,
+  /** Lado do giro de três-quartos (1 = nariz para a esquerda); sem ele, o nariz vai para o centro da tela. */
+  side: 1 | -1 = Math.sign(p.centerX - width / 2) >= 0 ? 1 : -1,
+): Vec3 {
   const t = Math.tan((fov * Math.PI) / 360)
   const depth = SHIP_WORLD_HEIGHT / (2 * p.heightFraction * t)
   const halfH = depth * t
   const halfW = halfH * (width / height)
-  const side = Math.sign(p.centerX - width / 2) || 1
   const originX = p.centerX - side * SHIP_BOX_SHIFT * p.heightFraction * height
   const ndcX = (2 * originX) / width - 1
   const ndcY = 1 - (2 * p.centerY) / height
