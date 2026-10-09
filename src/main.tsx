@@ -6,12 +6,18 @@ import './index.css'
 // Só no dev: no build o ramo some e o pedaço do preview nem é gerado.
 const OctocatPreview = import.meta.env.DEV ? lazy(() => import('./preview/OctocatPreview').then((m) => ({ default: m.OctocatPreview }))) : null
 const showOctocatPreview = new URLSearchParams(window.location.search).get('preview') === 'octocat'
+const SunPreview = import.meta.env.DEV ? lazy(() => import('./preview/SunPreview').then((m) => ({ default: m.SunPreview }))) : null
+const showSunPreview = new URLSearchParams(window.location.search).get('preview') === 'sun'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {OctocatPreview && showOctocatPreview ? (
       <Suspense fallback={null}>
         <OctocatPreview />
+      </Suspense>
+    ) : SunPreview && showSunPreview ? (
+      <Suspense fallback={null}>
+        <SunPreview />
       </Suspense>
     ) : (
       <App />
