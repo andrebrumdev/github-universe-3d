@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { buildSampleUniverse } from '@/lib/github/sample'
 import { STOP_SECONDS } from '@/lib/presentation'
-import { usePresentation } from './presentation'
+import { missCanvas, usePresentation } from './presentation'
 import { useTutorial } from './tutorial'
 import { useUniverse } from './universe'
 
@@ -18,7 +18,7 @@ function finishStop() {
 beforeEach(() => {
   useUniverse.setState(useUniverse.getInitialState(), true)
   useTutorial.setState({ step: null })
-  usePresentation.setState({ state: null, stops: [], universe: null })
+  usePresentation.setState({ state: null, stops: [], universe: null, ended: null })
 })
 
 describe('apresentação x seleção', () => {
@@ -60,10 +60,34 @@ describe('apresentação x seleção', () => {
     expect(u().selection).toEqual({ kind: 'profile' })
   })
 
-  it('clicar no vazio (limpar a seleção) também encerra', () => {
+  it('clicar no vazio durante a apresentação não faz nada (regra do tutorial)', () => {
+    p().start(universe)
+    p().next()
+    missCanvas()
+    expect(p().state?.index).toBe(1)
+    expect(u().selection).toEqual({ kind: 'planet', name: universe.repos[0].name })
+  })
+
+  it('fora da apresentação, clicar no vazio volta à galáxia', () => {
+    u().select({ kind: 'planet', name: 'a' })
+    missCanvas()
+    expect(u().selection).toEqual({ kind: 'none' })
+  })
+
+  it('mesmo uma seleção limpa por fora não encerra (só planeta, lua, sol, arrasto ou tutorial)', () => {
     p().start(universe)
     u().clearSelection()
-    expect(p().state).toBeNull()
+    expect(p().state).not.toBeNull()
+  })
+
+  it('sair registra como terminou (o botão recebe o foco de volta só no ✕/Esc/Explorar)', () => {
+    p().start(universe)
+    p().exit()
+    expect(p().ended).toBe('exit')
+    p().start(universe)
+    expect(p().ended).toBeNull()
+    u().select({ kind: 'profile' })
+    expect(p().ended).toBe('interrupt')
   })
 
   it('sair (✕ / Esc) encerra e volta à galáxia', () => {

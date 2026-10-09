@@ -18,6 +18,8 @@ interface PresentationStore {
   state: PresentationState | null
   stops: Stop[]
   universe: Pick<Universe, 'repos'> | null
+  /** Como a última apresentação terminou: pelo ✕/Esc/Explorar ('exit') ou porque o usuário assumiu ('interrupt'). */
+  ended: 'exit' | 'interrupt' | null
   start: (universe: Pick<Universe, 'repos'>) => void
   restart: () => void
   next: () => void
@@ -68,11 +70,12 @@ export const usePresentation = create<PresentationStore>()((set, get) => {
     state: null,
     stops: [],
     universe: null,
+    ended: null,
     start: (universe) => {
       // Mutuamente exclusivos: a apresentação fecha o tutorial.
       if (useTutorial.getState().step !== null) useTutorial.getState().skip()
       const stops = buildStops(universe)
-      set({ stops, universe, state: null })
+      set({ stops, universe, state: null, ended: null })
       dispatch({ type: 'start', count: stops.length })
     },
     restart: () => dispatch({ type: 'restart' }),
@@ -87,20 +90,28 @@ export const usePresentation = create<PresentationStore>()((set, get) => {
     setHovering: (on) => dispatch({ type: 'hover', on }),
     exit: () => {
       if (!get().state) return
-      set({ state: null })
+      set({ state: null, ended: 'exit' })
       applySelection({ kind: 'none' })
     },
     interrupt: () => {
-      if (get().state) set({ state: null })
+      if (get().state) set({ state: null, ended: 'interrupt' })
     },
   }
 })
 
-// A intenção do usuário vence: clicar num planeta, no sol ou no vazio durante a apresentação a encerra
-// (a seleção do usuário fica, e o painel normal abre). Igual ao tutorial.
+// A intenção do usuário vence: clicar num planeta, numa lua ou no sol durante a apresentação a encerra
+// (a seleção do usuário fica, e o painel normal abre). Limpar a seleção não encerra, como no tutorial.
 useUniverse.subscribe((state, prev) => {
-  if (!selecting && state.selection !== prev.selection) usePresentation.getState().interrupt()
+  if (!selecting && state.selection !== prev.selection && state.selection.kind !== 'none') usePresentation.getState().interrupt()
 })
+
+/**
+ * Clique no vazio do canvas: fora da apresentação, volta à galáxia; durante ela, não faz nada (um clique perdido
+ * para focar a janela não derruba quem está assistindo).
+ */
+export function missCanvas(): void {
+  if (!usePresentation.getState().state) useUniverse.getState().clearSelection()
+}
 
 // Abrir o tutorial encerra a apresentação (o tutorial já limpa a seleção ao começar).
 useTutorial.subscribe((state, prev) => {

@@ -2,7 +2,7 @@ import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { formatCount, timeAgo } from '@/lib/format'
 import { firstName } from '@/lib/octocat/lines'
-import { isHeld, isOutro, MAX_PRESENTED_REPOS, shipAtStop, STOP_SECONDS, type PresentationState, type Stop } from '@/lib/presentation'
+import { type ArrivalWatch, isHeld, MAX_PRESENTED_REPOS, shipAtStop, STOP_SECONDS, type Stop, watchArrival } from '@/lib/presentation'
 import type { Profile, Repo, Universe } from '@/lib/types'
 import { commitsInWindow } from '@/lib/universe/activity'
 import { languageShares, MAX_MOONS } from '@/lib/universe/planets'
@@ -25,19 +25,26 @@ function usePresentationClock(active: boolean): void {
     if (!active) return
     let frame = 0
     let last = performance.now()
+    const watch: ArrivalWatch = { index: -1, waited: 0 }
     const loop = (now: number) => {
       // Tempo de relógio, mesmo com poucos quadros por segundo; a aba escondida já pausa pelo visibilitychange.
       const dt = Math.min((now - last) / 1000, 1)
       last = now
       const { state, stops, arrived, tick } = usePresentation.getState()
       if (state) {
-        if (!state.arrived && shipAtStop(stops[state.index], shipPose.mode, shipPose.target)) arrived()
-        tick(dt)
+        // Chegou (ou a nave nunca chega, e a rede de segurança libera a parada no mesmo relógio da viagem).
+        // Em viagem, `tick` devolve o mesmo estado: nada re-renderiza.
+        if (!state.arrived && (shipAtStop(stops[state.index], shipPose.mode, shipPose.target) || watchArrival(watch, state.index, dt))) arrived()
+        else tick(dt)
       }
       frame = requestAnimationFrame(loop)
     }
     frame = requestAnimationFrame(loop)
-    const onVisibility = () => usePresentation.getState().setHidden(document.visibilityState === 'hidden')
+    const onVisibility = () => {
+      // Sem quadros enquanto a aba some: na volta, o primeiro passo não soma o tempo fora.
+      last = performance.now()
+      usePresentation.getState().setHidden(document.visibilityState === 'hidden')
+    }
     onVisibility()
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
@@ -78,10 +85,12 @@ function usePresentationKeys(active: boolean): void {
 }
 
 export function PresentationCard({ universe }: { universe: Universe }) {
-  const state = usePresentation((s) => s.state)
-  const stops = usePresentation((s) => s.stops)
+  // Só campos que mudam raramente: o tempo da parada (por quadro) fica fora do React (StopProgress).
+  const index = usePresentation((s) => s.state?.index ?? -1)
+  const count = usePresentation((s) => s.state?.count ?? 0)
+  const stop = usePresentation((s) => (s.state ? s.stops[s.state.index] : null))
   const reduced = useReducedMotion() ?? false
-  const active = state !== null
+  const active = index >= 0
   usePresentationClock(active)
   usePresentationKeys(active)
 
@@ -90,23 +99,25 @@ export function PresentationCard({ universe }: { universe: Universe }) {
   const pointerInside = useRef(false)
   const keyboardFocus = useRef(false)
   const syncHover = () => usePresentation.getState().setHovering(pointerInside.current || keyboardFocus.current)
-  const index = state?.index ?? -1
+  useEffect(() => {
+    // Ao abrir, o foco vai para o cartão (o botão que abriu sumiu); o próprio cartão não segura o tempo.
+    if (active) card.current?.focus({ preventScroll: true })
+  }, [active])
   useEffect(() => {
     // A cada parada o conteúdo troca: um botão focado pode ter saído da tela sem disparar blur.
     const focused = document.activeElement
-    keyboardFocus.current = !!focused && !!card.current?.contains(focused) && focused.matches(':focus-visible')
+    keyboardFocus.current = !!focused && focused !== card.current && !!card.current?.contains(focused) && focused.matches(':focus-visible')
     if (index < 0) pointerInside.current = false
     else syncHover()
   }, [index])
 
-  const stop = state ? stops[state.index] : null
-
   return (
     <AnimatePresence>
-      {state && stop && (
+      {active && stop && (
         <motion.section
           key="presentation"
           ref={card}
+          tabIndex={-1}
           aria-label="Apresentação"
           initial={{ opacity: 0, y: reduced ? 0 : 16 }}
           animate={{ opacity: 1, y: 0 }}
@@ -123,7 +134,7 @@ export function PresentationCard({ universe }: { universe: Universe }) {
             syncHover()
           }}
           onFocus={(e) => {
-            keyboardFocus.current = e.target.matches(':focus-visible')
+            keyboardFocus.current = e.target !== e.currentTarget && e.target.matches(':focus-visible')
             syncHover()
           }}
           onBlur={(e) => {
@@ -131,14 +142,14 @@ export function PresentationCard({ universe }: { universe: Universe }) {
             keyboardFocus.current = false
             syncHover()
           }}
-          className="fixed inset-x-0 bottom-0 z-40 max-h-(--sheet-max) overflow-y-auto rounded-t-2xl border border-neon/30 bg-panel/95 text-sm shadow-xl shadow-black/40 backdrop-blur md:left-auto md:right-(--card-right-md) md:bottom-(--card-bottom-md) md:max-h-(--card-max-md) md:w-(--card-width-md) md:rounded-2xl"
+          className="fixed inset-x-0 bottom-0 z-40 max-h-(--sheet-max) overflow-y-auto rounded-t-2xl border border-neon/30 bg-panel/95 text-sm shadow-xl shadow-black/40 backdrop-blur md:left-auto md:right-(--card-right-md) md:bottom-(--card-bottom-md) md:max-h-(--card-max-md) md:w-(--card-width-md) md:rounded-2xl outline-none"
         >
-          <Controls state={state} reduced={reduced} />
+          <Controls index={index} count={count} reduced={reduced} />
           <p aria-live="polite" className="sr-only">
-            {`Parada ${state.index + 1} de ${state.count}: ${stopTitle(stop, universe.profile)}`}
+            {`Parada ${index + 1} de ${count}: ${stopTitle(stop, universe.profile)}`}
           </p>
           <motion.div
-            key={state.index}
+            key={index}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={reduced ? { duration: 0 } : { duration: 0.35 }}
@@ -158,23 +169,24 @@ function stopTitle(stop: Stop, profile: Profile): string {
   return 'fim da apresentação'
 }
 
-function Controls({ state, reduced }: { state: PresentationState; reduced: boolean }) {
+function Controls({ index, count, reduced }: { index: number; count: number; reduced: boolean }) {
   const { prev, next, togglePause, exit } = usePresentation.getState()
-  const outro = isOutro(state)
+  const paused = usePresentation((s) => s.state?.paused ?? false)
+  const outro = index === count - 1
   return (
     // Fica no topo da folha/cartão enquanto o conteúdo rola.
     <div className="sticky top-0 z-10 bg-panel/95 px-4 pb-3 pt-3 backdrop-blur">
       <div className="flex items-center gap-2">
         <p className="text-xs uppercase tracking-wider text-slate-400">
-          Apresentação <span className="ml-1 tabular-nums normal-case tracking-normal text-slate-500">{state.index + 1}/{state.count}</span>
+          Apresentação <span className="ml-1 tabular-nums normal-case tracking-normal text-slate-500">{index + 1}/{count}</span>
         </p>
         <div className="ml-auto flex items-center gap-1">
-          <ControlButton label="Parada anterior" onClick={prev} disabled={state.index === 0}>
+          <ControlButton label="Parada anterior" onClick={prev} disabled={index === 0}>
             ◀
           </ControlButton>
           {!outro && (
-            <ControlButton label={state.paused ? 'Continuar' : 'Pausar'} onClick={togglePause} primary>
-              {state.paused ? '▶' : '⏸'}
+            <ControlButton label={paused ? 'Continuar' : 'Pausar'} onClick={togglePause} primary>
+              {paused ? '▶' : '⏸'}
             </ControlButton>
           )}
           <ControlButton label="Próxima parada" onClick={next} disabled={outro}>
@@ -186,11 +198,11 @@ function Controls({ state, reduced }: { state: PresentationState; reduced: boole
         </div>
       </div>
       <ol aria-hidden="true" className="mt-2 flex gap-1">
-        {Array.from({ length: state.count }, (_, i) => (
+        {Array.from({ length: count }, (_, i) => (
           <li
             key={i}
             className={`h-1.5 rounded-full transition-all motion-reduce:transition-none ${
-              i === state.index ? 'w-4 bg-neon' : i < state.index ? 'w-1.5 bg-neon/50' : 'w-1.5 bg-white/15'
+              i === index ? 'w-4 bg-neon' : i < index ? 'w-1.5 bg-neon/50' : 'w-1.5 bg-white/15'
             }`}
           />
         ))}
@@ -229,22 +241,39 @@ function ControlButton({
   )
 }
 
-/** Barra fina do tempo da parada; com movimento reduzido, os segundos que faltam em texto. */
+/**
+ * Barra fina do tempo da parada; com movimento reduzido, os segundos que faltam em texto. A barra anda por quadro
+ * sem React: uma assinatura do store escreve o `scaleX` direto no elemento.
+ */
 function StopProgress({ reduced }: { reduced: boolean }) {
-  const fraction = usePresentation((s) => (s.state ? s.state.holdElapsed / STOP_SECONDS : 0))
-  const remaining = usePresentation((s) => (s.state ? Math.ceil(STOP_SECONDS - s.state.holdElapsed) : 0))
+  const bar = useRef<HTMLDivElement>(null)
+  // Os segundos em texto mudam uma vez por segundo, e só valem com movimento reduzido.
+  const remaining = usePresentation((s) => (reduced && s.state ? Math.ceil(STOP_SECONDS - s.state.holdElapsed) : 0))
   const arrived = usePresentation((s) => s.state?.arrived ?? false)
   const held = usePresentation((s) => (s.state ? isHeld(s.state) : false))
   const paused = usePresentation((s) => s.state?.paused ?? false)
 
-  const status = !arrived ? 'A caminho…' : paused ? 'Pausado' : held ? 'Esperando você ler' : `Próxima em ${remaining} s`
+  useEffect(() => {
+    if (reduced) return
+    const paint = (holdElapsed: number) => {
+      if (bar.current) bar.current.style.transform = `scaleX(${Math.min(1, holdElapsed / STOP_SECONDS)})`
+    }
+    paint(usePresentation.getState().state?.holdElapsed ?? 0)
+    return usePresentation.subscribe((s, prev) => {
+      const t = s.state?.holdElapsed ?? 0
+      if (t !== (prev.state?.holdElapsed ?? 0)) paint(t)
+    })
+  }, [reduced])
+
+  // A pausa do usuário vem primeiro: é a resposta ao que ele acabou de fazer (mesmo com a nave ainda a caminho).
+  const status = paused ? 'Pausado' : !arrived ? 'A caminho…' : held ? 'Esperando você ler' : `Próxima em ${remaining} s`
   if (reduced) return <p className="mt-2 text-xs tabular-nums text-slate-400">{status}</p>
   return (
     <div className="mt-2">
       <div className="h-0.5 overflow-hidden rounded-full bg-white/10">
-        <div className="h-full origin-left bg-neon" style={{ transform: `scaleX(${Math.min(1, fraction)})` }} />
+        <div ref={bar} className="h-full origin-left bg-neon" style={{ transform: 'scaleX(0)' }} />
       </div>
-      {(paused || !arrived) && <p className="mt-1 text-[11px] text-slate-500">{status}</p>}
+      {(held || !arrived) && <p className="mt-1 text-[11px] text-slate-500">{status}</p>}
     </div>
   )
 }

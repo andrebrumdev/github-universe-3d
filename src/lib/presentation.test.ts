@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildSampleUniverse } from './github/sample'
 import {
   ARRIVAL_TIMEOUT,
+  autostartDecision,
   buildStops,
   firstSentence,
   MAX_PRESENTED_REPOS,
@@ -9,10 +10,12 @@ import {
   presentationRequested,
   type PresentationState,
   shipAtStop,
+  SHIP_MAX_DT,
   STOP_SECONDS,
   stopLine,
   stopSelection,
   stopTarget,
+  watchArrival,
 } from './presentation'
 import type { Repo, Universe } from './types'
 import { emptyWeeks } from './universe/activity'
@@ -65,7 +68,7 @@ describe('buildStops', () => {
 
 describe('presentationReducer', () => {
   it('start abre na primeira parada, esperando a nave chegar', () => {
-    expect(started(5)).toEqual({ index: 0, count: 5, paused: false, hidden: false, hovering: false, arrived: false, holdElapsed: 0, waited: 0 })
+    expect(started(5)).toEqual({ index: 0, count: 5, paused: false, hidden: false, hovering: false, arrived: false, holdElapsed: 0 })
   })
 
   it('o tempo da parada só corre depois que a nave chega (a viagem não conta)', () => {
@@ -152,18 +155,55 @@ describe('presentationReducer', () => {
     expect(presentationReducer(null, { type: 'tick', dt: 1 })).toBeNull()
   })
 
-  it('se a nave nunca chegar (alvo sumiu), segue mesmo assim depois de ARRIVAL_TIMEOUT', () => {
-    let s = started(3)
-    s = presentationReducer(s, { type: 'tick', dt: ARRIVAL_TIMEOUT - 0.1 })!
-    expect(s.arrived).toBe(false)
-    s = presentationReducer(s, { type: 'tick', dt: 0.2 })!
-    expect(s.arrived).toBe(true)
+  it('em viagem (antes de chegar), tick devolve o mesmo estado: nada re-renderiza', () => {
+    const s = started(3)
+    expect(presentationReducer(s, { type: 'tick', dt: 0.016 })).toBe(s)
+    expect(presentationReducer(s, { type: 'tick', dt: 5 })).toBe(s)
   })
 
   it('chegar de novo na mesma parada não reinicia o tempo', () => {
     let s = arrive(started(3))
     s = presentationReducer(s, { type: 'tick', dt: 2 })!
     expect(arrive(s)).toBe(s)
+  })
+})
+
+describe('watchArrival (rede de segurança se a nave nunca chegar)', () => {
+  it('conta o tempo de espera de cada parada no relógio da nave e avisa depois de ARRIVAL_TIMEOUT', () => {
+    const w = { index: -1, waited: 0 }
+    let overdue = false
+    for (let t = 0; t < ARRIVAL_TIMEOUT - 0.5; t += 0.05) overdue ||= watchArrival(w, 0, 0.05)
+    expect(overdue).toBe(false)
+    for (let t = 0; t < 1; t += 0.05) overdue ||= watchArrival(w, 0, 0.05)
+    expect(overdue).toBe(true)
+  })
+
+  it('trocar de parada zera a espera', () => {
+    const w = { index: 0, waited: ARRIVAL_TIMEOUT - 0.01 }
+    expect(watchArrival(w, 1, 0.05)).toBe(false)
+    expect(w).toEqual({ index: 1, waited: 0.05 })
+  })
+
+  it('quadros lentos contam no máximo SHIP_MAX_DT, como a viagem da nave (os dois relógios andam juntos)', () => {
+    const w = { index: 0, waited: 0 }
+    for (let i = 0; i < 20; i++) watchArrival(w, 0, 1)
+    expect(w.waited).toBeCloseTo(20 * SHIP_MAX_DT)
+  })
+})
+
+describe('autostartDecision (?apresentacao)', () => {
+  const idle = { shipMode: 'escort', selected: false, tutorialOpen: false, presenting: false } as const
+  it('espera a cena montar e a nave terminar a entrada; começa quando ela está na escolta', () => {
+    expect(autostartDecision({ ...idle, shipMode: 'entering' })).toBe('wait')
+    expect(autostartDecision(idle)).toBe('start')
+  })
+
+  it('desiste se o usuário agiu antes (selecionou, abriu o tutorial ou já começou a apresentação)', () => {
+    expect(autostartDecision({ ...idle, shipMode: 'entering', selected: true })).toBe('cancel')
+    expect(autostartDecision({ ...idle, selected: true })).toBe('cancel')
+    expect(autostartDecision({ ...idle, tutorialOpen: true })).toBe('cancel')
+    expect(autostartDecision({ ...idle, presenting: true })).toBe('cancel')
+    expect(autostartDecision({ ...idle, shipMode: 'traveling' })).toBe('cancel')
   })
 })
 

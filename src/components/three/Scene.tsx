@@ -6,7 +6,7 @@ import { CAMERA_FAR, starfieldRadius } from '@/lib/cameraPoses'
 import { buildOrbits } from '@/lib/universe/orbits'
 import { bodyExtent, MAX_MOONS, maxPlanetWeight, planetRadius } from '@/lib/universe/planets'
 import { useBloomEnabled } from '@/hooks/useBloomEnabled'
-import { useUniverse } from '@/store/universe'
+import { missCanvas } from '@/store/presentation'
 import { preToneMapped } from './acesBackground'
 import { CameraRig } from './CameraRig'
 import { GlowBloom, PlanetGlowDriver } from './GlowEffects'
@@ -24,7 +24,6 @@ const BACKGROUND = '#03050d'
 const BACKGROUND_BLOOM = preToneMapped(BACKGROUND)
 
 export function Scene({ universe }: { universe: Universe }) {
-  const clearSelection = useUniverse((s) => s.clearSelection)
   const system = useMemo(() => {
     // tamanho relativo ao próprio perfil: o repo de maior peso fica com o raio máximo
     const maxWeight = maxPlanetWeight(universe.repos)
@@ -41,7 +40,7 @@ export function Scene({ universe }: { universe: Universe }) {
   const bloom = useBloomEnabled()
 
   return (
-    <Canvas dpr={[1, 2]} camera={{ position: [0, 40, 70], fov: 50, near: 0.1, far: CAMERA_FAR }} onPointerMissed={clearSelection}>
+    <Canvas dpr={[1, 2]} camera={{ position: [0, 40, 70], fov: 50, near: 0.1, far: CAMERA_FAR }} onPointerMissed={missCanvas}>
       {bloom ? <color attach="background" args={BACKGROUND_BLOOM} /> : <color attach="background" args={[BACKGROUND]} />}
       <ambientLight intensity={0.25} />
       <hemisphereLight args={['#9bd8ff', '#1a2350', 0.2]} />

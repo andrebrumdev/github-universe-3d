@@ -9,6 +9,8 @@ export const STOP_SECONDS = 9
 export const MAX_PRESENTED_REPOS = 10
 /** Se a nave não chegar nesse tempo (s) — alvo que não virou planeta, por exemplo —, a parada começa mesmo assim. */
 export const ARRIVAL_TIMEOUT = 12
+/** Maior passo (s) por quadro do relógio da nave (ShipRig): a espera pela chegada conta no mesmo relógio. */
+export const SHIP_MAX_DT = 0.1
 
 export type Stop = { kind: 'profile' } | { kind: 'repo'; name: string } | { kind: 'outro' }
 
@@ -36,8 +38,6 @@ export interface PresentationState {
   arrived: boolean
   /** Tempo (s) já passado na parada, depois da chegada. */
   holdElapsed: number
-  /** Tempo (s) esperando a nave chegar (para o ARRIVAL_TIMEOUT). */
-  waited: number
 }
 
 export type PresentationAction =
@@ -63,7 +63,7 @@ export function isOutro(s: PresentationState): boolean {
 }
 
 const goTo = (s: PresentationState, index: number): PresentationState =>
-  index === s.index || index < 0 || index >= s.count ? s : { ...s, index, arrived: false, holdElapsed: 0, waited: 0 }
+  index === s.index || index < 0 || index >= s.count ? s : { ...s, index, arrived: false, holdElapsed: 0 }
 
 /**
  * Máquina da apresentação. Devolve o mesmo objeto quando nada muda (o laço por frame não re-renderiza à toa).
@@ -71,12 +71,12 @@ const goTo = (s: PresentationState, index: number): PresentationState =>
  */
 export function presentationReducer(s: PresentationState | null, a: PresentationAction): PresentationState | null {
   if (a.type === 'start') {
-    return { index: 0, count: a.count, paused: false, hidden: false, hovering: false, arrived: false, holdElapsed: 0, waited: 0 }
+    return { index: 0, count: a.count, paused: false, hidden: false, hovering: false, arrived: false, holdElapsed: 0 }
   }
   if (s === null || a.type === 'exit') return null
   switch (a.type) {
     case 'restart':
-      return { ...s, index: 0, paused: false, arrived: false, holdElapsed: 0, waited: 0 }
+      return { ...s, index: 0, paused: false, arrived: false, holdElapsed: 0 }
     case 'next':
       return goTo(s, s.index + 1)
     case 'prev':
@@ -86,21 +86,49 @@ export function presentationReducer(s: PresentationState | null, a: Presentation
     case 'resume':
       return s.paused ? { ...s, paused: false } : s
     case 'arrived':
-      return s.arrived ? s : { ...s, arrived: true, waited: 0 }
+      return s.arrived ? s : { ...s, arrived: true }
     case 'visibility':
       return s.hidden === a.hidden ? s : { ...s, hidden: a.hidden }
     case 'hover':
       return s.hovering === a.on ? s : { ...s, hovering: a.on }
     case 'tick': {
-      if (isOutro(s) || isHeld(s) || a.dt <= 0) return s
-      if (!s.arrived) {
-        const waited = s.waited + a.dt
-        return waited >= ARRIVAL_TIMEOUT ? { ...s, arrived: true, waited: 0 } : { ...s, waited }
-      }
+      // Em viagem nada muda (o mesmo objeto: ninguém re-renderiza); a espera pela nave fica no watchArrival.
+      if (isOutro(s) || isHeld(s) || !s.arrived || a.dt <= 0) return s
       const holdElapsed = s.holdElapsed + a.dt
       return holdElapsed >= STOP_SECONDS ? goTo(s, s.index + 1) : { ...s, holdElapsed }
     }
   }
+}
+
+/** Espera pela chegada da nave na parada `index`, fora do estado do React (escrita no lugar, sem alocar). */
+export interface ArrivalWatch {
+  index: number
+  waited: number
+}
+
+/**
+ * Soma a espera na parada `index` (zera ao trocar de parada) e diz se já passou de ARRIVAL_TIMEOUT. Conta no relógio
+ * da nave (passo de no máximo SHIP_MAX_DT): com poucos quadros por segundo, a viagem e a espera andam juntas.
+ */
+export function watchArrival(w: ArrivalWatch, index: number, dt: number): boolean {
+  if (w.index !== index) {
+    w.index = index
+    w.waited = 0
+  }
+  w.waited += Math.min(dt, SHIP_MAX_DT)
+  return w.waited >= ARRIVAL_TIMEOUT
+}
+
+export type AutostartDecision = 'wait' | 'start' | 'cancel'
+
+/**
+ * `?apresentacao`: começa quando a cena montou e a nave terminou a entrada (está na escolta). Se o usuário agiu antes
+ * (selecionou algo, abriu o tutorial, já começou a apresentação ou mandou a nave voar), desiste.
+ */
+export function autostartDecision(o: { shipMode: ShipMode; selected: boolean; tutorialOpen: boolean; presenting: boolean }): AutostartDecision {
+  if (o.selected || o.tutorialOpen || o.presenting) return 'cancel'
+  if (o.shipMode === 'entering') return 'wait'
+  return o.shipMode === 'escort' ? 'start' : 'cancel'
 }
 
 /** A seleção que a parada impõe: o painel some e a câmera e a nave seguem pelo caminho normal da seleção. */

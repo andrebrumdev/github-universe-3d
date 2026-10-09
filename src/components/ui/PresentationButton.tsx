@@ -1,11 +1,11 @@
-import { useEffect, type CSSProperties } from 'react'
-import { presentationRequested } from '@/lib/presentation'
+import { useEffect, useRef, type CSSProperties } from 'react'
+import { autostartDecision, presentationRequested } from '@/lib/presentation'
 import type { Universe } from '@/lib/types'
 import { PRESENTATION_BUTTON } from '@/lib/uiLayout'
 import { usePresentation } from '@/store/presentation'
-
-/** Com `?apresentacao` no link, espera a nave entrar em cena antes de partir. */
-const AUTO_START_MS = 1200
+import { shipPose } from '@/store/shipPose'
+import { useTutorial } from '@/store/tutorial'
+import { useUniverse } from '@/store/universe'
 
 // Posição e tamanho fixos, da mesma fonte que a nave da escolta usa para não cobrir o botão.
 const STYLE = {
@@ -20,17 +20,42 @@ const STYLE = {
 export function PresentationButton({ universe }: { universe: Universe }) {
   const active = usePresentation((s) => s.state !== null)
   const start = usePresentation((s) => s.start)
+  const button = useRef<HTMLButtonElement>(null)
+  const wasActive = useRef(false)
 
+  // `?apresentacao`: começa quando a cena montou e a nave terminou a entrada (o ShipRig escreve o modo em shipPose
+  // a cada quadro; antes de a cena montar ele é 'entering'). Se o usuário agiu antes, desiste.
   useEffect(() => {
     if (!presentationRequested(window.location.search)) return
-    const timer = window.setTimeout(() => start(universe), AUTO_START_MS)
-    return () => window.clearTimeout(timer)
-    // Roda uma vez: `universe` só muda numa nova carga, e `start` é estável.
+    let frame = 0
+    const poll = () => {
+      const decision = autostartDecision({
+        shipMode: shipPose.mode,
+        selected: useUniverse.getState().selection.kind !== 'none',
+        tutorialOpen: useTutorial.getState().step !== null,
+        presenting: usePresentation.getState().state !== null,
+      })
+      if (decision === 'start') start(universe)
+      else if (decision === 'wait') frame = requestAnimationFrame(poll)
+    }
+    frame = requestAnimationFrame(poll)
+    return () => cancelAnimationFrame(frame)
   }, [start, universe])
+
+  // Ao sair pelo ✕, Esc ou "Explorar", o foco volta para este botão (não cai no <body>). Se o usuário assumiu
+  // (clicou num planeta, abriu o tutorial), o foco fica com quem ele escolheu.
+  useEffect(() => {
+    if (active) wasActive.current = true
+    else if (wasActive.current) {
+      wasActive.current = false
+      if (usePresentation.getState().ended === 'exit') button.current?.focus({ preventScroll: true })
+    }
+  }, [active])
 
   if (active) return null
   return (
     <button
+      ref={button}
       type="button"
       onClick={() => start(universe)}
       aria-label="Começar a apresentação guiada do perfil e dos repositórios"
