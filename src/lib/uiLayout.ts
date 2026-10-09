@@ -122,9 +122,18 @@ export interface OpenCards {
   panel?: boolean
 }
 
-/** O que a nave da escolta não pode cobrir: sempre os dois botões; cada cartão, quando aberto. */
+/**
+ * Celular: com o painel (planeta, lua, sol) ou o cartão da apresentação aberto, os botões "? Tutorial" e
+ * "▶ Apresentação" somem — a folha no pé da tela ocupa o lugar deles, e o "← Galáxia" e o ✕ cuidam da navegação.
+ * `phone` = largura abaixo de DESKTOP_MIN_WIDTH (o MOBILE_QUERY).
+ */
+export function floatingButtonsHidden(phone: boolean, open: OpenCards = {}): boolean {
+  return phone && Boolean(open.panel || open.presentation)
+}
+
+/** O que a nave da escolta não pode cobrir: os dois botões, quando aparecem; cada cartão, quando aberto. */
 export function reservedRects(width: number, height: number, open: OpenCards = {}): Rect[] {
-  const rects = [tutorialButtonRect(width, height), presentationButtonRect(width, height)]
+  const rects = floatingButtonsHidden(width < DESKTOP_MIN_WIDTH, open) ? [] : [tutorialButtonRect(width, height), presentationButtonRect(width, height)]
   if (open.tutorial) rects.push(tutorialCardZone(width, height))
   if (open.presentation) rects.push(presentationCardZone(width, height))
   if (open.panel) rects.push(sidePanelZone(width, height), backButtonRect())

@@ -1,8 +1,12 @@
+import { useFloatingButtonsHidden } from '@/hooks/useFloatingButtonsHidden'
 import { TUTORIAL_BUTTON } from '@/lib/uiLayout'
 import { useTutorial } from '@/store/tutorial'
 
 export function TutorialButton() {
   const start = useTutorial((s) => s.start)
+  // No celular, com a folha do painel ou da apresentação aberta, sai do caminho (o tutorial segue no clique na nave).
+  const hidden = useFloatingButtonsHidden()
+  if (hidden) return null
   return (
     <button
       type="button"

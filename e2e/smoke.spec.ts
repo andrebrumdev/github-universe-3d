@@ -18,7 +18,7 @@ test('universo carrega, o sol abre o perfil e o Octocat reabre o tutorial', asyn
   // ?nobloom: o bloom por software sai preto e custa caro.
   await page.goto('/github-universe-3d/?nobloom')
 
-  const canvas = page.locator('canvas')
+  const canvas = page.locator('#root canvas')
   await expect(canvas).toBeVisible({ timeout: 60_000 })
   await expect(page.getByText('Carregando dados do GitHub…')).toBeHidden({ timeout: 60_000 })
 
@@ -53,4 +53,36 @@ test('universo carrega, o sol abre o perfil e o Octocat reabre o tutorial', asyn
   await expect(welcome).toBeVisible()
 
   expect(errors).toEqual([])
+})
+
+test('celular: com a folha do perfil aberta, os botões flutuantes saem do caminho', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 })
+  await page.goto('/github-universe-3d/?nobloom')
+
+  const canvas = page.locator('#root canvas')
+  await expect(canvas).toBeVisible({ timeout: 60_000 })
+  await page.getByRole('button', { name: 'Pular tutorial' }).click({ timeout: 30_000 })
+
+  const tutorialButton = page.getByRole('button', { name: 'Abrir tutorial com o Octocat' })
+  const presentationButton = page.getByRole('button', { name: /Começar a apresentação guiada/ })
+  await expect(tutorialButton).toBeVisible()
+  await expect(presentationButton).toBeVisible()
+
+  const box = await canvas.boundingBox()
+  if (!box) throw new Error('canvas sem dimensões')
+  const offsets = [0, 8, -8, 16, -16].flatMap((dx) => [0, 8, -8, 16, -16, 24, -24].map((dy) => [dx, dy]))
+  let attempt = 0
+  await expect(async () => {
+    const [dx, dy] = offsets[attempt++ % offsets.length]
+    await page.mouse.click(box.x + box.width / 2 + dx, box.y + box.height * 0.42 + dy)
+    await expect(page.getByRole('dialog', { name: /Perfil de/ })).toBeVisible({ timeout: 2_500 })
+  }).toPass({ timeout: 90_000 })
+
+  await expect(tutorialButton).toBeHidden()
+  await expect(presentationButton).toBeHidden()
+
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15_000 })
+  await expect(tutorialButton).toBeVisible()
+  await expect(presentationButton).toBeVisible()
 })

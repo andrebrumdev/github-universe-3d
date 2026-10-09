@@ -1,4 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from 'react'
+import { useFloatingButtonsHidden } from '@/hooks/useFloatingButtonsHidden'
 import { autostartDecision, presentationRequested } from '@/lib/presentation'
 import type { Universe } from '@/lib/types'
 import { PRESENTATION_BUTTON } from '@/lib/uiLayout'
@@ -22,6 +23,8 @@ export function PresentationButton({ universe }: { universe: Universe }) {
   const start = usePresentation((s) => s.start)
   const button = useRef<HTMLButtonElement>(null)
   const wasActive = useRef(false)
+  // No celular, com a folha do painel aberta, sai do caminho (na apresentação ele já some).
+  const hidden = useFloatingButtonsHidden()
 
   // `?apresentacao`: começa quando a cena montou e a nave terminou a entrada (o ShipRig escreve o modo em shipPose
   // a cada quadro; antes de a cena montar ele é 'entering'). Se o usuário agiu antes, desiste.
@@ -52,7 +55,7 @@ export function PresentationButton({ universe }: { universe: Universe }) {
     }
   }, [active])
 
-  if (active) return null
+  if (active || hidden) return null
   return (
     <button
       ref={button}
