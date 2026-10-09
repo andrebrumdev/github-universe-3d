@@ -20,3 +20,19 @@ const smoothstep = (a: number, b: number, x: number) => {
 export function faceCalmWeight(angle: number): number {
   return smoothstep(FACE_CALM_INNER, FACE_CALM_OUTER, angle)
 }
+
+/**
+ * Sombra do globo de LED, como nas fotos do Sphere: ouro no miolo (um pouco acima do centro), âmbar para a borda e mais
+ * fundo na metade de baixo. Entra a normal no espaço da vista (x para a direita, y para cima); 0 = miolo, 1 = âmbar fundo.
+ * O shader repete a mesma conta.
+ */
+export const SHADE_CORE_Y = 0.22
+export const SHADE_START = 0.45
+export const SHADE_END = 1.15
+/** Quanto a metade de baixo afunda a mais (por unidade de −y). */
+export const SHADE_LOW = 0.2
+
+export function sunShade(nx: number, ny: number): number {
+  const d = Math.hypot(nx, ny - SHADE_CORE_Y)
+  return clamp01(smoothstep(SHADE_START, SHADE_END, d) + SHADE_LOW * Math.max(0, -ny))
+}

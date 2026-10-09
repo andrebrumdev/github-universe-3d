@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { EYE, FACE_CENTER } from '@/lib/sun/face'
-import { FACE_CALM_INNER, FACE_CALM_OUTER } from '@/lib/sun/surface'
+import { FACE_CALM_INNER, FACE_CALM_OUTER, SHADE_CORE_Y, SHADE_END, SHADE_LOW, SHADE_START } from '@/lib/sun/surface'
 import { SUN_RADIUS } from '@/lib/universe/orbits'
 import { BLOOM_LOOK } from '@/store/bloom'
 import { SUN_NOISE_GLSL } from './sunGlsl'
@@ -12,7 +12,10 @@ import {
   HAZE_EXTENT,
   createSunGeometry,
   createSunMaterial,
+  createSunUniforms,
   patchSunShader,
+  SHADE_DEEP,
+  SHADE_RIM,
   SUN_EMISSIVE_INTENSITY,
   SUN_GLOW_OPACITY,
   SUN_HAZE_OPACITY,
@@ -51,12 +54,12 @@ describe('sol de LED: shader injetado no MeshStandardMaterial', () => {
     expect(frag).toContain('uniform vec3 uSunPupil;')
     expect(frag).toContain('float sunBlot = 0.0;')
     expect(frag).toContain('sunPupil = ( 1.0 - smoothstep( -sunAA, sunAA, sunD ) ) * sunWhite;')
-    expect(frag).toContain('totalEmissiveRadiance = mix( totalEmissiveRadiance, emissive * sunFeature, sunPupil ) * sunLedF;')
+    expect(frag).toContain('totalEmissiveRadiance = mix( mix( totalEmissiveRadiance, emissive * sunFeature, sunPupil ), emissive, sunSparkle ) * sunLedF;')
     // sem granulação nem manchas escuras do sol "de plasma"
     expect(frag).not.toContain('sunCells')
     expect(frag.indexOf('totalEmissiveRadiance *= sampledDiffuseColor.rgb;')).toBeLessThan(frag.indexOf('float sunBlot'))
-    expect(frag.indexOf('sunPupil ) * sunLedF;')).toBeGreaterThan(0)
-    expect(frag.indexOf('sunPupil ) * sunLedF;')).toBeLessThan(frag.indexOf('#include <lights_physical_fragment>'))
+    expect(frag.indexOf('sunSparkle ) * sunLedF;')).toBeGreaterThan(0)
+    expect(frag.indexOf('sunSparkle ) * sunLedF;')).toBeLessThan(frag.indexOf('#include <lights_physical_fragment>'))
   })
 
   it('as pupilas ficam nos olhos que o canvas desenha (mesmas medidas de face.ts)', () => {
@@ -111,6 +114,41 @@ describe('sol de LED: shader injetado no MeshStandardMaterial', () => {
     expect(frag).not.toContain('sunAcesInverse')
     expect(sunMask(true)).toBe(1)
     expect(sunMask(false)).toBe(0)
+  })
+
+  it('globo de LED: a mesma sombra de sunShade (miolo acima do centro, âmbar na borda e embaixo), só no corpo', () => {
+    const shader = standardShader()
+    patchSunShader(shader)
+    const frag = shader.fragmentShader
+    expect(frag).toContain(`float sunCoreD = length( normal.xy - vec2( 0.0, ${SHADE_CORE_Y.toFixed(5)} ) );`)
+    expect(frag).toContain(`smoothstep( ${SHADE_START.toFixed(5)}, ${SHADE_END.toFixed(5)}, sunCoreD ) + ${SHADE_LOW.toFixed(5)} * max( 0.0, -normal.y )`)
+    expect(frag).toContain('vec3 sunShadeMix = mix( vec3( 1.0 ), sunShadeF, sunBody );')
+    expect([SHADE_RIM, SHADE_DEEP]).toEqual(['#F2A50C', '#E8870A'])
+  })
+
+  it('bolinha de pensamento do viajando: anel no shader (balança pelo relógio do sol, sem repintar), só sobre o corpo', () => {
+    const shader = standardShader()
+    patchSunShader(shader)
+    const frag = shader.fragmentShader
+    expect(shader.uniforms.uSunBubble).toBe(SUN_UNIFORMS.uSunBubble)
+    expect(frag).toContain('uniform float uSunBubble;')
+    expect(frag).toContain('sin( uSunTime * 0.6 )')
+    expect(frag).toContain('* uSunBubble * sunBody );')
+    expect(SUN_UNIFORMS.uSunBubble.value).toBe(0)
+  })
+
+  it('admirando: brilho branco em cada pupila (uniform por material: a galeria tem um por sol)', () => {
+    const shader = standardShader()
+    patchSunShader(shader)
+    expect(shader.uniforms.uSunSparkle).toBe(SUN_UNIFORMS.uSunSparkle)
+    expect(shader.fragmentShader).toContain('sunSparkle = ( 1.0 - smoothstep( -sunSAA, sunSAA, sunSD ) ) * sunPupil * uSunSparkle;')
+    const own = createSunUniforms()
+    expect(own.uSunSparkle).not.toBe(SUN_UNIFORMS.uSunSparkle)
+    expect(own.uSunPupil).not.toBe(SUN_UNIFORMS.uSunPupil)
+    expect(own.uSunTime).toBe(SUN_UNIFORMS.uSunTime)
+    const other = standardShader()
+    createSunMaterial(new THREE.Texture(), own).onBeforeCompile(other as unknown as THREE.WebGLProgramParametersWithUniforms, undefined as unknown as THREE.WebGLRenderer)
+    expect(other.uniforms.uSunSparkle).toBe(own.uSunSparkle)
   })
 
   it('falha alto se o three mudar os trechos, em vez de perder a superfície em silêncio', () => {
@@ -205,6 +243,6 @@ describe('brilho e névoa seguem o visual com/sem bloom (chaves halo e haze)', (
     expect(BLOOM_LOOK.plain.halo).toBe(1)
     expect(BLOOM_LOOK.plain.haze).toBe(1)
     expect(BLOOM_LOOK.bloom.halo).toBe(1.6)
-    expect(BLOOM_LOOK.bloom.haze).toBe(1.8)
+    expect(BLOOM_LOOK.bloom.haze).toBe(1.95)
   })
 })

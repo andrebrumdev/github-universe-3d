@@ -6,9 +6,20 @@ import * as THREE from 'three'
 import { aberrationLimbPx, fringeRho, sunScreenRadius } from '@/lib/sun/aberration'
 import { showcasePlanet } from '@/lib/cameraPoses'
 import { selectedPlanet } from '@/lib/interaction'
-import { PUPIL, PUPIL_REACH, pupilLook } from '@/lib/sun/face'
+import { hasSparkle, PUPIL, PUPIL_REACH, pupilLook } from '@/lib/sun/face'
 import { FACE_AT_REST, faceTarget, stepFaceSpring, wrapAngle, type FaceSpring } from '@/lib/sun/faceSpring'
-import { GAZE_AT_START, isAdmiring, limitTurnAway, planetGazeWeight, quantizePupil, stepGaze, type GazeInput, type GazeState } from '@/lib/sun/gaze'
+import {
+  GAZE_AT_START,
+  gazeExpression,
+  headOffset,
+  limitTurn,
+  planetGazeWeight,
+  quantizePupil,
+  stepGaze,
+  wakesUp,
+  type GazeInput,
+  type GazeState,
+} from '@/lib/sun/gaze'
 import { kickSquash, SQUASH_AT_REST, SQUASH_TARGET, squashScale, stepSquash, type Squash } from '@/lib/sun/squash'
 import {
   CLICK_DURATION,
@@ -17,7 +28,6 @@ import {
   SUN_LOOK,
   sunReducer,
   type SunExpression,
-  type SunMode,
   type SunState,
 } from '@/lib/sun/sunMachine'
 import type { RepoBase } from '@/lib/types'
@@ -78,16 +88,17 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   const light = useRef<THREE.PointLight>(null)
   const machine = useRef<SunState>(INITIAL_SUN_STATE)
   const spring = useRef<FaceSpring>(FACE_AT_REST)
-  const [mode, setMode] = useState<SunMode>('idle')
   const [blink, setBlink] = useState(false)
   // O rosto e a área de toque em volta (HitProxy) marcam o hover cada um no seu.
   const [faceHovered, setFaceHovered] = useState(false)
   const [proxyHovered, setProxyHovered] = useState(false)
   const hovered = faceHovered || proxyHovered
   const gaze = useRef<GazeState>(GAZE_AT_START)
-  const [admiring, setAdmiring] = useState(false)
-  const admiringNow = useRef(false)
-  const expression: SunExpression = admiring && mode === 'idle' ? 'admiring' : SUN_LOOK[mode].expression
+  // Expressão vem do olhar e do modo (viajando por padrão); repinta só quando muda.
+  const [expression, setExpression] = useState<SunExpression>(SUN_LOOK.idle.expression)
+  const expressionNow = useRef<SunExpression>(SUN_LOOK.idle.expression)
+  // Acordando do "viajando": os traços abrem numa piscada rápida.
+  const [waking, setWaking] = useState(false)
   const showcase = useMemo(() => showcasePlanet(repos), [repos])
   // Planetas que o sol admira: os grandes e os com push recente (a hora do carregamento basta).
   const [loadedAt] = useState(() => Date.now())
@@ -144,10 +155,10 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   useEffect(() => {
     const ctx = (texture.image as HTMLCanvasElement).getContext('2d')
     if (!ctx) return
-    drawSunFace(ctx, expression, blink)
+    drawSunFace(ctx, expression, blink || waking)
     // oxlint-disable-next-line react/immutability -- API imperativa de textura do Three.js
     texture.needsUpdate = true
-  }, [expression, blink, texture])
+  }, [expression, blink, waking, texture])
 
   useEffect(() => () => texture.dispose(), [texture])
 
@@ -216,10 +227,7 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     const near = pointerPresent.current && raycaster.ray.intersectPlane(plane, hit) !== null && hit.sub(sunAt).length() < NEAR_DISTANCE
     let next = sunReducer(machine.current, { type: near ? 'near' : 'far' })
     next = sunReducer(next, { type: 'tick', dt })
-    if (next.mode !== machine.current.mode) {
-      setMode(next.mode)
-      if (!reduced) squash.current = kickSquash(squash.current, next.mode)
-    }
+    if (next.mode !== machine.current.mode && !reduced) squash.current = kickSquash(squash.current, next.mode)
     machine.current = next
     const look = SUN_LOOK[next.mode]
     const t = clock.elapsedTime
@@ -253,11 +261,19 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     input.reduced = reduced
     gaze.current = stepGaze(gaze.current, input, dt, Math.random)
     const g = gaze.current
-    const nowAdmiring = isAdmiring(g, next.mode)
-    if (nowAdmiring !== admiringNow.current) {
-      admiringNow.current = nowAdmiring
-      setAdmiring(nowAdmiring)
+    const nowExpression = gazeExpression(g, next.mode)
+    if (nowExpression !== expressionNow.current) {
+      if (!reduced && wakesUp(expressionNow.current, nowExpression)) {
+        setWaking(true)
+        window.setTimeout(() => setWaking(false), 130)
+      }
+      expressionNow.current = nowExpression
+      setExpression(nowExpression)
     }
+    // Bolinha de pensamento: aparece só viajando (o shader a desenha e balança pelo relógio, parado no movimento reduzido).
+    SUN_UNIFORMS.uSunSparkle.value = hasSparkle(nowExpression) ? 1 : 0
+    const bubble = SUN_UNIFORMS.uSunBubble
+    bubble.value += ((nowExpression === 'viajando' ? 1 : 0) - bubble.value) * (1 - Math.exp(-8 * dt))
 
     if (face.current) {
       face.current.getWorldPosition(facePos)
@@ -272,17 +288,26 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
       }
       const from = facePos.toArray() as Vec3
       const target = faceTarget(from, lookAt.toArray() as Vec3)
-      target.yaw += g.saccadeYaw
-      target.pitch += g.saccadePitch
-      // A cabeça vira no máximo três-quartos para longe de quem vê (o rosto nunca some); os olhos vão até o alvo.
-      const head = { yaw: limitTurnAway(target.yaw, faceTarget(from, camera.position.toArray() as Vec3).yaw), pitch: target.pitch }
+      const [offsetYaw, offsetPitch] = headOffset(g)
+      target.yaw += offsetYaw
+      target.pitch += offsetPitch
+      // Olhando longe, o rosto desliza pela esfera até ~70° de quem vê (pitch limitado); os olhos vão até o alvo.
+      const toViewer = faceTarget(from, camera.position.toArray() as Vec3)
+      const head = limitTurn(target, toViewer)
       spring.current = reduced ? { ...FACE_AT_REST, ...head } : stepFaceSpring(spring.current, head, dt)
       const wobble = next.mode === 'hover' && !reduced ? Math.sin(t * 3) * 0.08 : 0
       face.current.rotation.set(-spring.current.pitch, spring.current.yaw, wobble, 'YXZ')
       // As pupilas vão na frente: andam para o alvo enquanto a mola ainda vira o rosto, em degraus (sem tremer).
-      const pupilExpression = nowAdmiring ? 'admiring' : look.expression
-      const rest = PUPIL[pupilExpression]
-      pupilLook(pupilExpression, wrapAngle(target.yaw - spring.current.yaw), target.pitch - spring.current.pitch, pupilOut)
+      // De olho/admirando, a pupila corre para a borda do lado para onde a cabeça já virou.
+      const rest = PUPIL[nowExpression]
+      pupilLook(
+        nowExpression,
+        wrapAngle(target.yaw - spring.current.yaw),
+        target.pitch - spring.current.pitch,
+        pupilOut,
+        wrapAngle(spring.current.yaw - toViewer.yaw),
+        spring.current.pitch - toViewer.pitch,
+      )
       SUN_UNIFORMS.uSunPupil.value.set(
         rest.x + quantizePupil(pupilOut[0] - rest.x, PUPIL_REACH),
         rest.y + quantizePupil(pupilOut[1] - rest.y, PUPIL_REACH),
@@ -307,7 +332,6 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     e.stopPropagation()
     machine.current = sunReducer(machine.current, { type: 'click' })
     if (!reduced) squash.current = kickSquash(squash.current, 'click')
-    setMode('click')
     select({ kind: 'profile' })
   }
 

@@ -12,12 +12,12 @@ import { create } from 'zustand'
  * normal, +6% no estilingue.
  * Sol (brilho `halo` e névoa `haze`): o próprio sol fica fora do bloom e do ACES (marca alfa 0, ver `sunComposer`),
  * então nada dele vaza e o ACES do ToneMapping só escurece o aditivo — aqui as chaves passam de 1. Medidos contra o
- * `?nobloom` (luminância radial média em 64 ângulos, close-up do perfil): brilho ×1,6 (anel de 1,04 a 1,45 R: −1,4%;
- * o ACES deixa o miolo ~6% mais claro e a borda ~12% mais escura) e névoa ×1,8 (anel de 1,5 a 1,7 R: −1%).
+ * `?nobloom` (luminância radial média em 64 ângulos, close-up do perfil): brilho ×1,6 (anel de 1,03 a 1,7 R, casca
+ * mais larga do sol do Sphere: +1,7%) e névoa ×1,95 (anel de 1,8 a 2,3 R: −4%, já no ruído das estrelas).
  */
 export const BLOOM_LOOK = {
   plain: { thrusterHalo: 1, orbit: 0.14, atmosphere: 0.24, halo: 1, ionTail: 0.9, dustTail: 0.55, coma: 0.6, trail: 1, haze: 1, contrail: 1, puff: 1 },
-  bloom: { thrusterHalo: 0.35, orbit: 0.04, atmosphere: 0.08, halo: 1.6, ionTail: 0.39, dustTail: 0.24, coma: 0.18, trail: 0.9, haze: 1.8, contrail: 1.05, puff: 1.15 },
+  bloom: { thrusterHalo: 0.35, orbit: 0.04, atmosphere: 0.08, halo: 1.6, ionTail: 0.39, dustTail: 0.24, coma: 0.18, trail: 0.9, haze: 1.95, contrail: 1.05, puff: 1.15 },
 } as const
 
 export type BloomLook = (typeof BLOOM_LOOK)[keyof typeof BLOOM_LOOK]

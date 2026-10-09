@@ -1,6 +1,8 @@
 export type SunMode = 'idle' | 'hover' | 'click' | 'away'
-/** `admiring`: olhando um planeta (ver `gaze.ts`), não vem de um modo. */
-export type SunExpression = 'happy' | 'veryHappy' | 'surprised' | 'sad' | 'admiring'
+/** `serious`, `watching` e `admiring` vêm do olhar (ver `gazeExpression` em `gaze.ts`), não de um modo. */
+export type SunExpression = 'viajando' | 'serious' | 'watching' | 'happy' | 'surprised' | 'sad' | 'admiring'
+/** Todas as expressões, na ordem da galeria (`?preview=sun`). */
+export const SUN_EXPRESSIONS: readonly SunExpression[] = ['viajando', 'serious', 'watching', 'happy', 'surprised', 'sad', 'admiring']
 
 export interface SunState {
   mode: SunMode
@@ -41,8 +43,9 @@ export function sunReducer(s: SunState, e: SunEvent): SunState {
 }
 
 export const SUN_LOOK: Record<SunMode, { expression: SunExpression; glow: number }> = {
-  idle: { expression: 'happy', glow: 1 },
-  hover: { expression: 'veryHappy', glow: 1.6 },
+  // idle: "viajando" (o padrão); o diretor de olhar troca por sério/de olho/admirando/feliz (ver `gazeExpression`)
+  idle: { expression: 'viajando', glow: 1 },
+  hover: { expression: 'happy', glow: 1.6 },
   click: { expression: 'surprised', glow: 2.4 },
   away: { expression: 'sad', glow: 0.6 },
 }
