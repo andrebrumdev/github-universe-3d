@@ -150,6 +150,12 @@ export const ANTENNA_GEOMETRY = sweep(circleProfile(ANTENNA.radius, 6), transpor
 })
 export const ANTENNA_TIP_POSITION = ANTENNA.points[ANTENNA.points.length - 1]
 export const ANTENNA_TIP_GEOMETRY = new THREE.IcosahedronGeometry(ANTENNA.tipRadius, 1)
+/**
+ * Física da antena: os nós da cadeia são os pontos do arco (base presa no topo da coluna, bolinha no último)
+ * e a espinha amostra o arco em parâmetros uniformes; a mola acompanha o arco que a carrega.
+ */
+export const ANTENNA_NODES = ANTENNA.points
+export const ANTENNA_SPINE_TS = Array.from({ length: 25 }, (_, i) => i / 24)
 
 // ─── Interior: assento e painel ───
 

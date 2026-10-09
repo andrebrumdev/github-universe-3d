@@ -134,28 +134,6 @@ export function applyImpulse(chain: VerletChain, vx: number, vy: number, vz: num
 }
 
 /**
- * Gira os nós soltos (posição atual e anterior) pela matriz 3×3 `m` (coluna a coluna, como Matrix3.elements):
- * o referencial girou e os nós, por inércia, ficaram onde estavam no mundo.
- */
-export function rotateChain(chain: VerletChain, m: ArrayLike<number>): void {
-  rotateBuffer(chain, chain.pos, m)
-  rotateBuffer(chain, chain.prev, m)
-}
-
-function rotateBuffer(chain: VerletChain, buffer: Float32Array, m: ArrayLike<number>): void {
-  for (let i = 0; i < chain.count; i++) {
-    if (chain.pinned[i]) continue
-    const o = i * 3
-    const x = buffer[o]
-    const y = buffer[o + 1]
-    const z = buffer[o + 2]
-    buffer[o] = m[0] * x + m[3] * y + m[6] * z
-    buffer[o + 1] = m[1] * x + m[4] * y + m[7] * z
-    buffer[o + 2] = m[2] * x + m[5] * y + m[8] * z
-  }
-}
-
-/**
  * Avança a simulação `dt` segundos (limitado a maxFrame) em passos fixos. A entrada vale para o quadro todo.
  * Devolve quantos passos deu; o que sobrar fica no acumulador para o próximo quadro.
  */
@@ -218,7 +196,7 @@ function solveConstraints(chain: VerletChain): void {
       const dx = pos[b] - pos[a]
       const dy = pos[b + 1] - pos[a + 1]
       const dz = pos[b + 2] - pos[a + 2]
-      const d = Math.hypot(dx, dy, dz)
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
       if (d < 1e-9) continue
       const k = (d - lengths[i]) / d / (wa + wb)
       pos[a] += dx * k * wa

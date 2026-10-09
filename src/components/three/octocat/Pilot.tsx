@@ -24,6 +24,8 @@ import {
   WHISKERS,
 } from '@/lib/ship/geometry'
 import { POINT_ANGLE, waveAngle } from '@/lib/ship/motion'
+import { applyImpulse, setRest, type VerletOptions } from '@/lib/ship/verlet'
+import { FlexRod, InertiaProbe } from './flexRod'
 import { drawOctocatFace, FACE_TEX_H, FACE_TEX_W } from './octocatFace'
 
 export type ArmMode = 'rest' | 'wave' | 'point'
@@ -111,6 +113,8 @@ interface TentacleParts {
   /** Ponta arredondada (centro e raio). */
   tip: Vec3
   tipRadius: number
+  /** Parâmetro da curva em cada estação da varredura: a espinha da física amostra a curva nesses pontos. */
+  ts: number[]
 }
 
 const TOP_COLOR = new THREE.Color(COLORS.body)
@@ -119,11 +123,12 @@ const UNDER_COLOR = new THREE.Color(COLORS.tentacleUnder)
 /**
  * Tentáculo low-poly: `sweep` de um hexágono pela curva dos pontos (transporte paralelo com a normal
  * começando em +z), afinando com `tentacleRadius`. Uma face do hexágono fica centrada no ângulo `under`:
- * é a face de baixo (cor clara + ventosas). Coordenadas relativas a `origin` (o pivô do grupo).
+ * é a face de baixo (cor clara + ventosas). Coordenadas do piloto. É a pose de descanso: a física (FlexRod)
+ * dobra cópias destas malhas a cada quadro.
  */
-function tentacleParts({ points, under }: Tentacle, origin: Vec3): TentacleParts {
+function tentacleParts({ points, under }: Tentacle): TentacleParts {
   const curve = new THREE.CatmullRomCurve3(
-    points.map(([x, y, z]) => new THREE.Vector3(x - origin[0], y - origin[1], z - origin[2])),
+    points.map(([x, y, z]) => new THREE.Vector3(x, y, z)),
     false,
     'centripetal',
   )
@@ -167,15 +172,71 @@ function tentacleParts({ points, under }: Tentacle, origin: Vec3): TentacleParts
   const merged = mergeGeometries(suckers)
   for (const s of suckers) s.dispose()
 
-  return { tube, suckers: merged, tip: stations[last].position.toArray() as Vec3, tipRadius: tentacleRadius(1) }
+  return {
+    tube,
+    suckers: merged,
+    tip: stations[last].position.toArray() as Vec3,
+    tipRadius: tentacleRadius(1),
+    ts: Array.from({ length: TENTACLE.segments + 1 }, (_, i) => curve.getUtoTmapping(i / TENTACLE.segments, 0)),
+  }
 }
 
-/** O tentáculo livre é desenhado a partir do ombro, para a Parte D girá-lo em torno dele. */
+/**
+ * Física de cada tentáculo (cadeia de Verlet semeada pelos pontos, raiz presa no corpo). Rigidez em 1/s²
+ * (ω² da mola de descanso), da raiz à ponta: as pontas são mais soltas. O braço livre é duro o bastante
+ * para o aceno (7 rad/s) ficar bem abaixo da ressonância: a física só dá o arrasto da ponta. O do manche
+ * fica preso no ombro e na volta em torno da empunhadura: só o trecho do meio balança.
+ */
+interface TentacleSpec {
+  tentacle: Tentacle
+  parts: TentacleParts
+  physics: VerletOptions
+}
+const FREE_SPEC: TentacleSpec = {
+  tentacle: FREE_TENTACLE,
+  parts: tentacleParts(FREE_TENTACLE),
+  physics: { stiffness: 420, tipStiffness: 220, damping: 6 },
+}
+const OTHER_SPECS: TentacleSpec[] = [
+  {
+    tentacle: STICK_TENTACLE,
+    parts: tentacleParts(STICK_TENTACLE),
+    physics: { stiffness: 160, damping: 5, pinned: STICK_TENTACLE.points.map((_, i) => i).filter((i) => i !== 1) },
+  },
+  // braço parado no painel e as duas pernas: mesmo construtor, a mesma família
+  { tentacle: DASH_TENTACLE, parts: tentacleParts(DASH_TENTACLE), physics: { stiffness: 150, tipStiffness: 70, damping: 4 } },
+  ...LEG_TENTACLES.map((tentacle) => ({
+    tentacle,
+    parts: tentacleParts(tentacle),
+    physics: { stiffness: 140, tipStiffness: 60, damping: 4 },
+  })),
+]
+/** O braço livre acena girando em z em torno do ombro (a pose de descanso da cadeia gira junto). */
 const FREE_SHOULDER = FREE_TENTACLE.points[0]
-const FREE_PARTS = tentacleParts(FREE_TENTACLE, FREE_SHOULDER)
-const STICK_PARTS = tentacleParts(STICK_TENTACLE, [0, 0, 0])
-/** Braço parado no painel e as duas pernas: mesmo construtor, a mesma família. */
-const STATIC_PARTS = [DASH_TENTACLE, ...LEG_TENTACLES].map((tentacle) => tentacleParts(tentacle, [0, 0, 0]))
+
+/**
+ * Inércia no referencial do piloto: o ganho deixa a flutuação visível e a saturação segura a viagem
+ * (unidades do piloto/s² e rad/s²).
+ */
+const PILOT_INERTIA = { gain: 15, maxLinear: 16, angularGain: 12, maxAngular: 5 } as const
+/** Tranco do botão "Sacudir" (unidades do piloto/s), um sentido por tentáculo para não balançarem iguais. */
+const SHAKE_IMPULSES: Vec3[] = [
+  [2.4, 2.6, -1.4],
+  [-1.2, 1.6, 1.2],
+  [1.8, -2.2, 1.6],
+  [-2.2, 1.8, -1.6],
+  [2.2, 1.6, 1.8],
+]
+
+/** Tentáculos de uma instância do piloto: cópias das malhas de descanso, dobradas pela física. */
+function createTentacleRods() {
+  return [FREE_SPEC, ...OTHER_SPECS].map(({ tentacle, parts, physics }) => {
+    const tube = parts.tube.clone()
+    const suckers = parts.suckers.clone()
+    return { rod: new FlexRod(tentacle.points, parts.ts, [tube, suckers], physics), tube, suckers, tipRadius: parts.tipRadius, tip: parts.tip }
+  })
+}
+type TentacleRods = ReturnType<typeof createTentacleRods>
 
 const solid = (color: string, roughness = 0.6) => new THREE.MeshStandardMaterial({ color, roughness, flatShading: true })
 const BODY_MATERIAL = solid(COLORS.body)
@@ -214,33 +275,70 @@ function paintFace(texture: THREE.CanvasTexture, expression: OctocatExpression, 
   texture.needsUpdate = true
 }
 
-function TentacleMesh({ parts }: { parts: TentacleParts }) {
-  return (
-    <>
-      <mesh geometry={parts.tube} material={TENTACLE_MATERIAL} />
-      <mesh geometry={parts.suckers} material={SUCKER_MATERIAL} />
-      <mesh geometry={TIP_GEOMETRY} material={BODY_MATERIAL} position={parts.tip} scale={parts.tipRadius} />
-    </>
-  )
-}
-
 interface PilotProps {
   expression: OctocatExpression
   blinking: boolean
   armMode: ArmMode
+  /** Muda a cada clique em "Sacudir" (preview): um tranco nos tentáculos. */
+  shake?: number
 }
 
-export function Pilot({ expression, blinking, armMode }: PilotProps) {
-  const freeArm = useRef<THREE.Group>(null)
+/** Gira a pose de descanso do braço livre `angle` rad em z, em torno do ombro. */
+function poseFreeArm({ rod }: TentacleRods[number], angle: number): void {
+  const c = Math.cos(angle)
+  const s = Math.sin(angle)
+  const ox = FREE_SHOULDER[0]
+  const oy = FREE_SHOULDER[1]
+  const points = FREE_TENTACLE.points
+  for (let i = 0; i < points.length; i++) {
+    const dx = points[i][0] - ox
+    const dy = points[i][1] - oy
+    setRest(rod.chain, i, ox + c * dx - s * dy, oy + s * dx + c * dy, points[i][2])
+  }
+}
+
+export function Pilot({ expression, blinking, armMode, shake = 0 }: PilotProps) {
+  const root = useRef<THREE.Group>(null)
+  const tips = useRef<(THREE.Mesh | null)[]>([])
+  const armAngle = useRef(0)
   const reduced = useReducedMotion() ?? false
 
-  // rotação em z gira o tentáculo no plano do corpo, em torno do ombro: acena para cima/baixo ou estica para o lado
+  const tentacles = useMemo(() => createTentacleRods(), [])
+  useEffect(() => () => tentacles.forEach(({ rod }) => rod.dispose()), [tentacles])
+  const probe = useMemo(() => new InertiaProbe(PILOT_INERTIA), [])
+
+  // Movimento reduzido: sem física, tudo na pose de descanso (o braço livre ainda aponta, sem balanço).
+  useEffect(() => {
+    if (!reduced) return
+    probe.reset()
+    for (const { rod } of tentacles) rod.pose()
+  }, [reduced, probe, tentacles])
+
+  // só reage a um clique novo (remontar com o mesmo contador não sacode)
+  const lastShake = useRef(shake)
+  useEffect(() => {
+    if (shake === lastShake.current) return
+    lastShake.current = shake
+    if (reduced) return
+    tentacles.forEach(({ rod }, i) => applyImpulse(rod.chain, ...SHAKE_IMPULSES[i % SHAKE_IMPULSES.length]))
+  }, [shake, reduced, tentacles])
+
   useFrame(({ clock }, dt) => {
-    const arm = freeArm.current
-    if (!arm) return
+    // braço livre: o aceno/apontar gira a pose de descanso em torno do ombro (para cima/baixo ou para o lado)
     const goal = armMode === 'point' ? POINT_ANGLE : 0
-    if (armMode === 'wave' && !reduced) arm.rotation.z = waveAngle(clock.elapsedTime)
-    else arm.rotation.z += (goal - arm.rotation.z) * (1 - Math.exp(-8 * dt))
+    if (armMode === 'wave' && !reduced) armAngle.current = waveAngle(clock.elapsedTime)
+    else armAngle.current += (goal - armAngle.current) * (1 - Math.exp(-8 * dt))
+    poseFreeArm(tentacles[0], armAngle.current)
+
+    if (reduced) tentacles[0].rod.pose()
+    else if (root.current) {
+      const input = probe.sample(root.current, dt)
+      for (let i = 0; i < tentacles.length; i++) tentacles[i].rod.step(dt, input)
+    }
+    for (let i = 0; i < tentacles.length; i++) {
+      const tip = tips.current[i]
+      if (tip) tentacles[i].rod.tip(tip.position)
+    }
   })
 
   const texture = useMemo(() => createFaceTexture(), [])
@@ -248,7 +346,7 @@ export function Pilot({ expression, blinking, armMode }: PilotProps) {
   useEffect(() => () => texture.dispose(), [texture])
 
   return (
-    <group>
+    <group ref={root}>
       <mesh
         geometry={TORSO_GEOMETRY}
         material={BODY_MATERIAL}
@@ -280,15 +378,22 @@ export function Pilot({ expression, blinking, armMode }: PilotProps) {
         <mesh key={i} geometry={WHISKER_GEOMETRY} material={WHISKER_MATERIAL} position={position} quaternion={quaternion} scale={scale} />
       ))}
 
-      {/* tentáculo livre, com pivô no ombro */}
-      <group ref={freeArm} position={FREE_SHOULDER}>
-        <TentacleMesh parts={FREE_PARTS} />
-      </group>
-
-      {/* tentáculo enrolado na empunhadura do manche (que fica na nave), o braço no painel e as duas pernas */}
-      <TentacleMesh parts={STICK_PARTS} />
-      {STATIC_PARTS.map((parts, i) => (
-        <TentacleMesh key={i} parts={parts} />
+      {/* tentáculos: o livre (acena), o enrolado na empunhadura do manche (que fica na nave), o do painel e as
+          duas pernas. Malhas dobradas pela física a cada quadro; a ponta arredondada segue o fim da espinha */}
+      {tentacles.map(({ tube, suckers, tipRadius, tip }, i) => (
+        <group key={i}>
+          <mesh geometry={tube} material={TENTACLE_MATERIAL} />
+          <mesh geometry={suckers} material={SUCKER_MATERIAL} />
+          <mesh
+            ref={(mesh) => {
+              tips.current[i] = mesh
+            }}
+            geometry={TIP_GEOMETRY}
+            material={BODY_MATERIAL}
+            position={tip}
+            scale={tipRadius}
+          />
+        </group>
       ))}
 
       {expression === 'thinking' &&

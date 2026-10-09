@@ -4,7 +4,6 @@ import {
   createChain,
   maxRestDistance,
   resetChain,
-  rotateChain,
   segmentLength,
   setRest,
   stepChain,
@@ -124,16 +123,6 @@ describe('cadeia de Verlet', () => {
     stepChain(chain, 1 / 60, still())
     expect(maxRestDistance(chain)).toBeGreaterThan(0.1) // ainda atrás
     run(chain, 3)
-    expect(maxRestDistance(chain)).toBeLessThan(1e-3)
-  })
-
-  it('girar o referencial deixa os nós para trás, e eles voltam', () => {
-    const chain = createChain(ARC)
-    const [c, s] = [Math.cos(0.2), Math.sin(0.2)]
-    rotateChain(chain, [c, s, 0, -s, c, 0, 0, 0, 1])
-    expect(maxRestDistance(chain)).toBeGreaterThan(0.1)
-    expect(chain.pos[0]).toBe(chain.rest[0]) // a raiz presa não gira
-    run(chain, 4)
     expect(maxRestDistance(chain)).toBeLessThan(1e-3)
   })
 

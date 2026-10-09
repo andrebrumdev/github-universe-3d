@@ -42,6 +42,7 @@ export function OctocatPreview() {
   const [spin, setSpin] = useState(true)
   const [armMode, setArmMode] = useState<ArmMode>('wave')
   const [floating, setFloating] = useState(true)
+  const [shake, setShake] = useState(0)
 
   const showView = ({ position, target }: View) => {
     const orbit = controls.current
@@ -60,7 +61,7 @@ export function OctocatPreview() {
         <directionalLight position={[3, 5, 4]} intensity={1.6} />
         <pointLight position={[-4, 2, 3]} intensity={20} color="#22d3ee" />
         <Stars radius={60} depth={30} count={1500} factor={3} fade />
-        <OctocatShip expression={expression} thrusterLevel={thruster} armMode={armMode} floating={floating} parts={parts} />
+        <OctocatShip expression={expression} thrusterLevel={thruster} armMode={armMode} floating={floating} parts={parts} shake={shake} />
         <OrbitControls ref={controls} target={[0, 0.2, -0.4]} autoRotate={spin} autoRotateSpeed={0.8} enablePan={false} minDistance={2.5} maxDistance={14} />
       </Canvas>
 
@@ -117,6 +118,15 @@ export function OctocatPreview() {
           <input type="checkbox" checked={floating} onChange={(e) => setFloating(e.target.checked)} />
           Flutuar
         </label>
+
+        {/* tranco nos tentáculos e na antena, para ver a física de Verlet balançar e assentar */}
+        <button
+          type="button"
+          onClick={() => setShake((n) => n + 1)}
+          className="w-full rounded-lg border border-neon/40 px-3 py-1.5 text-neon hover:bg-neon/10"
+        >
+          Sacudir
+        </button>
 
         <label className="block">
           <span className="text-xs uppercase tracking-wider text-slate-400">Propulsor</span>

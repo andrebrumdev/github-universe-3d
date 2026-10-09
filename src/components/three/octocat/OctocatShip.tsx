@@ -25,6 +25,8 @@ interface OctocatShipProps {
   thrusterLevel?: number
   floating?: boolean
   parts?: OctocatShipParts
+  /** Muda a cada pedido de tranco (botão "Sacudir" do preview): tentáculos e antena balançam. */
+  shake?: number
 }
 
 export function OctocatShip({
@@ -33,6 +35,7 @@ export function OctocatShip({
   thrusterLevel = 0.3,
   floating = true,
   parts = ALL_PARTS,
+  shake = 0,
 }: OctocatShipProps) {
   const root = useRef<THREE.Group>(null)
   const blinkRef = useRef(false)
@@ -55,10 +58,10 @@ export function OctocatShip({
 
   return (
     <group ref={root}>
-      {parts.ship && <Ship thrusterLevel={thrusterLevel} />}
+      {parts.ship && <Ship thrusterLevel={thrusterLevel} shake={shake} />}
       {/* piloto e gorro em coordenadas do SVG, levados para dentro da bolha pelo COCKPIT, de frente para +z */}
       <group position={COCKPIT.position} scale={COCKPIT.scale}>
-        {parts.pilot && <Pilot expression={expression} blinking={blinking} armMode={armMode} />}
+        {parts.pilot && <Pilot expression={expression} blinking={blinking} armMode={armMode} shake={shake} />}
         {parts.hat && <ClawdHat />}
       </group>
     </group>

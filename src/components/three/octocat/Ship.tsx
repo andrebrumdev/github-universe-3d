@@ -5,8 +5,12 @@ import * as THREE from 'three'
 import { EmissivePulseEffect, GlowHalo } from 'three-low-poly'
 import { COLORS, CONTRIBUTION_COLORS, DASHBOARD } from '@/lib/ship/geometry'
 import { thrusterScale } from '@/lib/ship/motion'
+import { applyImpulse } from '@/lib/ship/verlet'
+import { FlexRod, InertiaProbe } from './flexRod'
 import {
   ANTENNA_GEOMETRY,
+  ANTENNA_NODES,
+  ANTENNA_SPINE_TS,
   ANTENNA_TIP_GEOMETRY,
   ANTENNA_TIP_POSITION,
   CANOPY_GEOMETRY,
@@ -89,11 +93,40 @@ const FLAME_MATERIAL = new THREE.MeshBasicMaterial({
 })
 
 const RING_PULSE = { speed: 2.2, min: 0.45, max: 1.2 } as const
+/** Antena em mola: mais solta na ponta e pouco amortecida, para balançar e quicar antes de assentar (1/s², 1/s). */
+const ANTENNA_PHYSICS = { stiffness: 110, tipStiffness: 45, damping: 2.6 } as const
+/** Inércia no referencial da nave (unidades da nave/s², rad/s²): ganho para a flutuação, teto para a viagem. */
+const ANTENNA_INERTIA = { gain: 15, maxLinear: 9, angularGain: 12, maxAngular: 5 } as const
+/** Tranco do botão "Sacudir" (unidades da nave/s). */
+const ANTENNA_SHAKE = [1.4, 0.9, -0.8] as const
 /** Faróis olham um pouco para baixo. */
 const HEADLIGHT_TILT = 0.1
 
-export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
-  const reducedMotion = useReducedMotion()
+export function Ship({ thrusterLevel, shake = 0 }: { thrusterLevel: number; shake?: number }) {
+  const reducedMotion = useReducedMotion() ?? false
+  const root = useRef<THREE.Group>(null)
+
+  // Antena: cópia da malha de descanso, dobrada por uma cadeia de Verlet presa na base; a bolinha vai na ponta.
+  const antenna = useMemo(() => {
+    const geometry = ANTENNA_GEOMETRY.clone()
+    return { geometry, rod: new FlexRod(ANTENNA_NODES, ANTENNA_SPINE_TS, [geometry], ANTENNA_PHYSICS) }
+  }, [])
+  useEffect(() => () => antenna.rod.dispose(), [antenna])
+  const antennaTip = useRef<THREE.Mesh>(null)
+  const probe = useMemo(() => new InertiaProbe(ANTENNA_INERTIA), [])
+  useEffect(() => {
+    if (!reducedMotion) return
+    probe.reset()
+    antenna.rod.pose()
+    antennaTip.current?.position.set(...ANTENNA_TIP_POSITION)
+  }, [reducedMotion, probe, antenna])
+  // só reage a um clique novo (remontar com o mesmo contador não sacode)
+  const lastShake = useRef(shake)
+  useEffect(() => {
+    if (shake === lastShake.current) return
+    lastShake.current = shake
+    if (!reducedMotion) applyImpulse(antenna.rod.chain, ...ANTENNA_SHAKE)
+  }, [shake, reducedMotion, antenna])
 
   // Anéis do motor: um material emissivo só, pulsado pelo EmissivePulseEffect.
   // Com movimento reduzido o pulso não anda e os anéis ficam acesos no máximo (o valor inicial).
@@ -117,6 +150,10 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
   const flame = useRef<THREE.Mesh>(null)
   const thrusterHalo = useMemo(() => new GlowHalo({ color: COLORS.thruster, size: 1.1, opacity: 0 }), [])
   useFrame(({ clock }, delta) => {
+    if (!reducedMotion && root.current) {
+      antenna.rod.step(delta, probe.sample(root.current, delta))
+      if (antennaTip.current) antenna.rod.tip(antennaTip.current.position)
+    }
     if (!reducedMotion) ringPulse.update(delta)
     // chama tremulando (steady com movimento reduzido); a chama cresce em z
     const s = reducedMotion ? thrusterLevel : thrusterScale(clock.elapsedTime, thrusterLevel)
@@ -141,7 +178,7 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
     [headlightHalos, thrusterHalo],
   )
   return (
-    <group>
+    <group ref={root}>
       {/* casco em banheira com piso e fundo, aro fino e quadradinhos de contribuição na frente do aro */}
       <mesh geometry={TUB_GEOMETRY} material={HULL_MATERIAL} />
       <mesh geometry={TUB_DECK_GEOMETRY} material={HULL_MATERIAL} />
@@ -199,8 +236,8 @@ export function Ship({ thrusterLevel }: { thrusterLevel: number }) {
 
       {/* coluna grossa em arco por dentro da cúpula; a antena em mola sai do topo dela */}
       <mesh geometry={PILLAR_GEOMETRY} material={ENGINE_MATERIAL} />
-      <mesh geometry={ANTENNA_GEOMETRY} material={CREAM_MATERIAL} />
-      <mesh geometry={ANTENNA_TIP_GEOMETRY} material={CREAM_MATERIAL} position={ANTENNA_TIP_POSITION} />
+      <mesh geometry={antenna.geometry} material={CREAM_MATERIAL} />
+      <mesh ref={antennaTip} geometry={ANTENNA_TIP_GEOMETRY} material={CREAM_MATERIAL} position={ANTENNA_TIP_POSITION} />
 
       {/* motor baixo: creme em cima, cinza embaixo, faixas ciano */}
       <mesh geometry={FUSELAGE_TOP_GEOMETRY} material={CREAM_MATERIAL} />
