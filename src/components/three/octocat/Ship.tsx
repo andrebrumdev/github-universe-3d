@@ -47,6 +47,7 @@ import {
   WING_LIGHT_GEOMETRY,
   WINGS,
 } from './shipParts'
+import { createThrusterMaterial, createThrusterParams, thrusterParams, updateThrusterMaterial } from './thrusterMaterial'
 
 // Materiais opacos compartilhados: cor sólida + flatShading (as faces aparecem).
 const solid = (color: string, roughness = 0.6, metalness = 0.05) =>
@@ -82,13 +83,6 @@ const GLASS_MATERIAL = new THREE.MeshStandardMaterial({
   roughness: 0.1,
   metalness: 0.1,
   flatShading: true,
-  depthWrite: false,
-})
-const FLAME_MATERIAL = new THREE.MeshBasicMaterial({
-  color: COLORS.thruster,
-  transparent: true,
-  opacity: 0.85,
-  blending: THREE.AdditiveBlending,
   depthWrite: false,
 })
 
@@ -156,6 +150,10 @@ export function Ship({
   )
   useEffect(() => () => ringPulse.material.dispose(), [ringPulse])
   const flame = useRef<THREE.Mesh>(null)
+  // chama em shader: um material por nave (uniforms de nível e relógio próprios), descartado no unmount
+  const flameMaterial = useMemo(() => createThrusterMaterial(), [])
+  useEffect(() => () => flameMaterial.dispose(), [flameMaterial])
+  const flameParams = useMemo(() => createThrusterParams(), [])
   const thrusterHalo = useMemo(() => new GlowHalo({ color: COLORS.thruster, size: 1.1, opacity: 0 }), [])
   useFrame(({ clock }, delta) => {
     if (!reducedMotion && root.current) {
@@ -163,12 +161,14 @@ export function Ship({
       if (antennaTip.current) antenna.rod.tip(antennaTip.current.position)
     }
     if (!reducedMotion) ringPulse.update(delta)
-    // chama tremulando (steady com movimento reduzido); a chama cresce em z
+    // chama tremulando (steady com movimento reduzido): comprimento em z pelo nível, ruído e cor no shader.
+    // Movimento reduzido: delta 0 congela o relógio do ruído (chama parada).
     const s = reducedMotion ? thrusterLevel : thrusterScale(clock.elapsedTime, thrusterLevel)
-    const on = s > 0.01
+    const params = thrusterParams(thrusterLevel, s, flameParams)
+    updateThrusterMaterial(flameMaterial, params, reducedMotion ? 0 : delta)
     if (flame.current) {
-      flame.current.scale.set(1, 1, Math.max(s, 0.001))
-      flame.current.visible = on
+      flame.current.scale.set(1, 1, Math.max(params.length, 0.001))
+      flame.current.visible = params.visible
     }
     thrusterHalo.setOpacity(0.8 * s)
   })
@@ -257,7 +257,7 @@ export function Ship({
       {/* bocal com lábio creme e o propulsor */}
       <mesh geometry={NOZZLE_GEOMETRY} material={NOZZLE_MATERIAL} />
       <mesh geometry={NOZZLE_LIP_GEOMETRY} material={CREAM_MATERIAL} />
-      <mesh ref={flame} geometry={FLAME_GEOMETRY} material={FLAME_MATERIAL} position={THRUSTER_ORIGIN} />
+      <mesh ref={flame} geometry={FLAME_GEOMETRY} material={flameMaterial} position={THRUSTER_ORIGIN} />
       <primitive object={thrusterHalo} position={THRUSTER_ORIGIN} />
 
       {/* asas espelhadas abertas para os lados (diedro, enflechadas): lilás, faixa verde-água por baixo, 2 luzinhas */}

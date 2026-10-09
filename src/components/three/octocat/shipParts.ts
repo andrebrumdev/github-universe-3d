@@ -296,9 +296,29 @@ export const NOZZLE_LIP_GEOMETRY = new THREE.TorusGeometry(NOZZLE.radiusBack, NO
   .scale(1, NOZZLE.squash, 1)
   .translate(0, nozzleY, NOZZLE_BACK_Z)
 export const THRUSTER_ORIGIN: [number, number, number] = [0, nozzleY, NOZZLE_BACK_Z]
-/** Chama com a base na origem, apontando para −z (o mesh escala z por thrusterLevel). */
-export const FLAME_GEOMETRY = new THREE.ConeGeometry(THRUSTER.radius, THRUSTER.length, 8)
-  .translate(0, THRUSTER.length / 2, 0)
+/**
+ * Perfil da chama (raio relativo a THRUSTER.radius, posição relativa a THRUSTER.length): fechada um pouco dentro do
+ * bocal, incha logo na saída e afina em gota até a ponta. Normais lisas do lathe = fresnel suave no shader.
+ */
+const FLAME_PROFILE: [number, number][] = [
+  [0, -0.03],
+  [0.95, 0],
+  [1, 0.08],
+  [0.93, 0.2],
+  [0.74, 0.4],
+  [0.52, 0.6],
+  [0.29, 0.8],
+  [0.11, 0.93],
+  [0, 1],
+]
+/**
+ * Chama com a base na origem, apontando para −z (o mesh escala z pela tremulação). Lathe de 14 lados × 8 trechos
+ * (224 triângulos), girado de +y para −z e achatado como o bocal. Material: `thrusterMaterial.ts`.
+ */
+export const FLAME_GEOMETRY = new THREE.LatheGeometry(
+  FLAME_PROFILE.map(([r, h]) => new THREE.Vector2(r * THRUSTER.radius, h * THRUSTER.length)),
+  14,
+)
   .rotateX(-Math.PI / 2)
   .scale(1, NOZZLE.squash, 1)
 
