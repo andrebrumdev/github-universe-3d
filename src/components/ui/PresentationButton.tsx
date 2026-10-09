@@ -23,7 +23,7 @@ export function PresentationButton({ universe }: { universe: Universe }) {
   const start = usePresentation((s) => s.start)
   const button = useRef<HTMLButtonElement>(null)
   const wasActive = useRef(false)
-  // No celular, com a folha do painel aberta, sai do caminho (na apresentação ele já some).
+  // Com o painel aberto, sai do caminho (na apresentação ele já some).
   const hidden = useFloatingButtonsHidden()
 
   // `?apresentacao`: começa quando a cena montou e a nave terminou a entrada (o ShipRig escreve o modo em shipPose

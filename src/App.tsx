@@ -14,6 +14,7 @@ import { Tutorial } from '@/components/ui/Tutorial'
 import { TutorialButton } from '@/components/ui/TutorialButton'
 import { useUniverseData } from '@/hooks/useUniverseData'
 import { supportsWebGL } from '@/hooks/webgl'
+import { useSceneReady } from '@/store/sceneReady'
 
 const Scene = lazy(() => import('@/components/three/Scene').then((m) => ({ default: m.Scene })))
 
@@ -23,6 +24,7 @@ export function App() {
   // "Tentar de novo" do SceneBoundary: uma key nova remonta a cena (canvas e contexto WebGL novos).
   const [sceneAttempt, setSceneAttempt] = useState(0)
   const retryScene = useCallback(() => setSceneAttempt((n) => n + 1), [])
+  const sceneReady = useSceneReady((s) => s.ready)
 
   if (state.status === 'error') return <LoadError message={state.message} onRetry={retry} />
   if (state.status === 'loading') return <Loader />
@@ -32,9 +34,11 @@ export function App() {
   return (
     <SceneBoundary key={sceneAttempt} universe={universe} onRetry={retryScene}>
       <main className="fixed inset-0 overflow-hidden bg-space text-slate-100">
-        <Suspense fallback={<Loader />}>
+        <Suspense fallback={null}>
           <Scene universe={universe} />
         </Suspense>
+        {/* Até o primeiro quadro da cena (o pedaço do 3D pode demorar numa rede lenta), o Loader cobre tudo. */}
+        {!sceneReady && <Loader />}
         <ActivityTooltip />
         <BackButton />
         <PlanetPanel universe={universe} />

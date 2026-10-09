@@ -19,3 +19,19 @@ export const TUTORIAL_COPY: Record<TutorialStep, string> = {
 export function tutorialFocusesPlanet(step: TutorialStep | null): boolean {
   return step === 'tech'
 }
+
+/**
+ * Abre sozinho só na primeira visita, sem a apresentação pedida no link e com a cena já desenhada: numa rede lenta,
+ * o texto falaria de um sol que ainda não está na tela.
+ */
+export function shouldAutostartTutorial(o: { done: boolean; presentationRequested: boolean; sceneReady: boolean }): boolean {
+  return o.sceneReady && !o.done && !o.presentationRequested
+}
+
+/**
+ * O cartão cede a um painel ou folha aberto (a seleção é do usuário): some da tela sem mexer no passo, e volta quando
+ * o painel fecha. Só o passo "free" chega a conviver com uma seleção (os outros terminam nela).
+ */
+export function tutorialCardVisible(step: TutorialStep | null, panelOpen: boolean): boolean {
+  return step !== null && !panelOpen
+}

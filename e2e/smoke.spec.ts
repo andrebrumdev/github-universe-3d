@@ -20,15 +20,19 @@ test('universo carrega, o sol abre o perfil e o Octocat reabre o tutorial', asyn
 
   const canvas = page.locator('#root canvas')
   await expect(canvas).toBeVisible({ timeout: 60_000 })
+  // O Loader fica até o primeiro quadro da cena; o tutorial e os botões só aparecem depois dele.
   await expect(page.getByText('Carregando dados do GitHub…')).toBeHidden({ timeout: 60_000 })
 
   const welcome = page.getByText(/Bem-vindo ao universo GitHub de/)
   await expect(welcome).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: 'Pular tutorial' }).click()
-  await expect(welcome).toBeHidden()
+  // Até o último passo ("free"): ele convive com a seleção, mas cede o lugar ao painel.
+  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Próximo' }).click()
+  const tutorial = page.getByRole('region', { name: 'Tutorial' })
+  await expect(page.getByRole('button', { name: 'Explorar' })).toBeVisible()
 
-  await expect(page.getByRole('button', { name: /Começar a apresentação guiada/ })).toBeVisible()
+  const presentationButton = page.getByRole('button', { name: /Começar a apresentação guiada/ })
   const tutorialButton = page.getByRole('button', { name: 'Abrir tutorial com o Octocat' })
+  await expect(presentationButton).toBeVisible()
   await expect(tutorialButton).toBeVisible()
   await expect(tutorialButton).toHaveText('? Tutorial')
 
@@ -46,8 +50,17 @@ test('universo carrega, o sol abre o perfil e o Octocat reabre o tutorial', asyn
     await expect(page.getByRole('dialog', { name: /Perfil de/ })).toBeVisible({ timeout: 2_500 })
   }).toPass({ timeout: 90_000 })
 
+  // Com o painel aberto, em qualquer largura: o cartão do tutorial e os botões flutuantes saem de cima dele.
+  await expect(tutorial).toBeHidden()
+  await expect(tutorialButton).toBeHidden()
+  await expect(presentationButton).toBeHidden()
+
+  // O Esc é do painel (o tutorial escondido não o captura); fechado o painel, o cartão volta.
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15_000 })
+  await expect(tutorial).toBeVisible()
+  await page.getByRole('button', { name: 'Explorar' }).click()
+  await expect(tutorial).toBeHidden()
 
   await tutorialButton.click()
   await expect(welcome).toBeVisible()

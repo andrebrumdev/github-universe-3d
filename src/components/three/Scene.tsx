@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Canvas, useThree } from '@react-three/fiber'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Stats } from '@react-three/drei'
 import type { Universe } from '@/lib/types'
 import { CAMERA_FAR, starfieldRadius } from '@/lib/cameraPoses'
@@ -11,6 +11,7 @@ import { FINE_POINTER_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 import { canvasDpr } from '@/lib/renderBudget'
 import { useBloom } from '@/store/bloom'
 import { missCanvas } from '@/store/presentation'
+import { useSceneReady } from '@/store/sceneReady'
 import { preToneMapped } from './acesBackground'
 import { CameraRig } from './CameraRig'
 import { Comets } from './Comets'
@@ -37,6 +38,19 @@ function ContextLossWatcher({ onLost }: { onLost: () => void }) {
     canvas.addEventListener('webglcontextlost', onLost)
     return () => canvas.removeEventListener('webglcontextlost', onLost)
   }, [canvas, onLost])
+  return null
+}
+
+/** Marca a cena como pronta no primeiro quadro (e desfaz ao desmontar, no "Tentar de novo"). */
+function SceneReadySignal() {
+  const setReady = useSceneReady((s) => s.setReady)
+  const signaled = useRef(false)
+  useFrame(() => {
+    if (signaled.current) return
+    signaled.current = true
+    setReady(true)
+  })
+  useEffect(() => () => setReady(false), [setReady])
   return null
 }
 
@@ -68,6 +82,7 @@ export function Scene({ universe }: { universe: Universe }) {
     <Canvas dpr={dpr} camera={{ position: [0, 40, 70], fov: 50, near: 0.1, far: CAMERA_FAR }} onPointerMissed={missCanvas}>
       {bloomActive ? <color attach="background" args={BACKGROUND_BLOOM} /> : <color attach="background" args={[BACKGROUND]} />}
       <ContextLossWatcher onLost={onContextLost} />
+      <SceneReadySignal />
       <ambientLight intensity={0.25} />
       <hemisphereLight args={['#9bd8ff', '#1a2350', 0.2]} />
       <Starfield radius={starRadius} />

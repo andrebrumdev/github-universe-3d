@@ -3,9 +3,11 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { formatLine } from '@/lib/octocat/lines'
 import { TUTORIAL_CARD } from '@/lib/uiLayout'
 import { presentationRequested } from '@/lib/presentation'
-import { TUTORIAL_COPY, TUTORIAL_STEPS } from '@/lib/tutorial'
+import { shouldAutostartTutorial, TUTORIAL_COPY, TUTORIAL_STEPS, tutorialCardVisible } from '@/lib/tutorial'
 import { usePresentation } from '@/store/presentation'
+import { useSceneReady } from '@/store/sceneReady'
 import { useTutorial } from '@/store/tutorial'
+import { useUniverse } from '@/store/universe'
 
 const STORAGE_KEY = 'gu3d:tutorial-done'
 
@@ -34,15 +36,19 @@ export function Tutorial({ profileName }: { profileName: string }) {
   const primary = useRef<HTMLButtonElement>(null)
   const reduced = useReducedMotion() ?? false
   const instant = { duration: 0 }
+  const sceneReady = useSceneReady((s) => s.ready)
+  // Com o painel ou a folha de uma seleção aberto, o cartão sai da tela (o passo "free" continua e volta depois).
+  const selected = useUniverse((s) => s.selection.kind !== 'none')
+  const visible = tutorialCardVisible(step, selected)
 
   useEffect(() => {
-    // Com a apresentação pedida no link (ou já rodando), o tutorial não se abre sozinho por cima dela.
-    if (tutorialDone() || presentationRequested(window.location.search)) return
+    // Só depois do primeiro quadro da cena; com a apresentação pedida no link (ou já rodando), não abre por cima dela.
+    if (!shouldAutostartTutorial({ done: tutorialDone(), presentationRequested: presentationRequested(window.location.search), sceneReady })) return
     const timer = window.setTimeout(() => {
       if (!usePresentation.getState().state) start()
     }, 1500)
     return () => window.clearTimeout(timer)
-  }, [start])
+  }, [start, sceneReady])
 
   useEffect(() => {
     if (step) wasActive.current = true
@@ -50,7 +56,8 @@ export function Tutorial({ profileName }: { profileName: string }) {
   }, [step])
 
   useEffect(() => {
-    if (!step) return
+    // Escondido atrás de um painel, o Esc é do painel.
+    if (!visible) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       // Fase de captura: só o tutorial reage ao Esc (o painel lateral não fecha junto).
@@ -59,15 +66,15 @@ export function Tutorial({ profileName }: { profileName: string }) {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [step, skip])
+  }, [visible, skip])
 
   useEffect(() => {
-    if (step) primary.current?.focus()
-  }, [step])
+    if (visible) primary.current?.focus()
+  }, [step, visible])
 
   return (
     <AnimatePresence>
-      {step && (
+      {visible && step && (
         <motion.section
           key="tutorial"
           aria-label="Tutorial"
