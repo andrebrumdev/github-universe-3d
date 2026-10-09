@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { languageBadge } from './languageIcons'
+import { flipRows, lazyDataTexture, paintPixels } from './lazyTexture'
 
 const WIDTH = 512
 const HEIGHT = 256
@@ -7,26 +8,31 @@ const REPEATS = 3
 const ICON_FRACTION = 0.4
 
 // Cache por linguagem no módulo: luas vivem a sessão inteira e há poucas linguagens,
-// então as texturas nunca são descartadas (dispose) de propósito.
-const cache = new Map<string, THREE.CanvasTexture>()
+// então as texturas nunca são descartadas (dispose) de propósito. Sem canvas guardado: os pixels são pintados na hora
+// do upload e soltos logo depois (ver `lazyDataTexture`); uma cena nova (outro renderer) os pinta de novo.
+const cache = new Map<string, THREE.DataTexture>()
 
 function luminance(hex: string): number {
   const c = new THREE.Color(hex)
   return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
 }
 
-export function getMoonTexture(language: string, color: string): THREE.CanvasTexture {
+export function getMoonTexture(language: string, color: string): THREE.DataTexture {
   const key = `${language}|${color}`
   const hit = cache.get(key)
   if (hit) return hit
 
-  const canvas = document.createElement('canvas')
-  canvas.width = WIDTH
-  canvas.height = HEIGHT
-  const ctx = canvas.getContext('2d')
-  if (ctx) draw(ctx, language, color)
-
-  const tex = new THREE.CanvasTexture(canvas)
+  const tex = lazyDataTexture(WIDTH, HEIGHT, () =>
+    flipRows(
+      paintPixels(WIDTH, HEIGHT, (ctx) => draw(ctx, language, color)),
+      WIDTH,
+      HEIGHT,
+    ),
+  )
+  // os mesmos filtros do CanvasTexture de antes (o DataTexture nasce sem mipmaps e com filtro nearest)
+  tex.generateMipmaps = true
+  tex.minFilter = THREE.LinearMipmapLinearFilter
+  tex.magFilter = THREE.LinearFilter
   tex.colorSpace = THREE.SRGBColorSpace
   tex.anisotropy = 4
   cache.set(key, tex)

@@ -91,8 +91,9 @@ export const GLOW_BACKGROUND = '#000000'
 export const GLOW_CELL = '#34d399'
 
 /**
- * Mesma grade de `drawActivityGrid`, para o `emissiveMap`: fundo, grade, calotas e dias sem commit ficam pretos;
- * cada dia com commit acende em GLOW_CELL com o brilho de `cellAlpha` (dia mais movimentado, mais claro).
+ * Mesma grade de `drawActivityGrid`, para o brilho: fundo, grade, calotas e dias sem commit ficam pretos; cada dia
+ * com commit acende em GLOW_CELL com o brilho de `cellAlpha` (dia mais movimentado, mais claro). Não vira textura
+ * própria: `packGlowIntoAlpha` leva o verde dele para o alfa do mapa de cor.
  */
 export function drawGlowGrid(ctx: GridContext, weeks: number[][]): void {
   const max = maxCount(weeks)
@@ -108,4 +109,41 @@ export function drawGlowGrid(ctx: GridContext, weeks: number[][]): void {
     }
   }
   ctx.globalAlpha = 1
+}
+
+/** sRGB (byte) → linear: a mesma curva que o hardware aplica ao amostrar uma textura sRGB. */
+function srgbToLinear(byte: number): number {
+  const c = byte / 255
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+}
+
+/** Alfa de cada verde (byte sRGB) do mapa de brilho: o verde em linear, 0 no preto e 255 no GLOW_CELL cheio. */
+const GLOW_ALPHA = (() => {
+  const full = srgbToLinear(parseInt(GLOW_CELL.slice(3, 5), 16))
+  const lut = new Uint8Array(256)
+  for (let g = 0; g < 256; g++) lut[g] = Math.min(255, Math.round((255 * srgbToLinear(g)) / full))
+  return lut
+})()
+
+/**
+ * Uma textura só para o planeta: o rgb da grade de cor (`drawActivityGrid`) e, no alfa (que o material opaco não
+ * usa), o brilho de `drawGlowGrid` — o verde dele em linear, normalizado pelo GLOW_CELL cheio. Em linear, para a GPU
+ * filtrar e fazer os mipmaps do brilho como fazia com o mapa sRGB separado; o shader (planetGlow) refaz a cor do
+ * GLOW_CELL a partir dele. As duas entradas são RGBA de cima para baixo (getImageData); a saída vem de baixo para
+ * cima, como o flipY do CanvasTexture (a linha 0 é v = 0), para o DataTexture subir sem flipY.
+ */
+export function packGlowIntoAlpha(color: ArrayLike<number>, glow: ArrayLike<number>, width: number, height: number): Uint8Array {
+  const out = new Uint8Array(width * height * 4)
+  const row = width * 4
+  for (let y = 0; y < height; y++) {
+    const src = y * row
+    const dst = (height - 1 - y) * row
+    for (let i = 0; i < row; i += 4) {
+      out[dst + i] = color[src + i]
+      out[dst + i + 1] = color[src + i + 1]
+      out[dst + i + 2] = color[src + i + 2]
+      out[dst + i + 3] = GLOW_ALPHA[glow[src + i + 1]]
+    }
+  }
+  return out
 }

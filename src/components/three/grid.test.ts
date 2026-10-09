@@ -12,6 +12,7 @@ import {
   GLOW_CELL,
   GRID_COLS,
   GRID_ROWS,
+  packGlowIntoAlpha,
   POLAR_CAP_DEG,
   POLAR_CAP_PX,
   rowTop,
@@ -183,4 +184,59 @@ describe('mapa de brilho (emissiveMap): só os quadrados verdes acendem', () => 
     expect(byRect.get(cellRect(40, 5).join(','))).toBeGreaterThan(byRect.get(cellRect(3, 2).join(','))!)
     expect(byRect.get(cellRect(40, 5).join(','))).toBe(1)
   })
+})
+
+/** sRGB (0–255) → linear, a mesma curva do decode do hardware. */
+const decode = (byte: number) => {
+  const c = byte / 255
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+}
+
+describe('packGlowIntoAlpha: o brilho vai no alfa do mapa de cor', () => {
+  const W = 3
+  const H = 2
+  /** Imagem RGBA de cima para baixo (como o getImageData), com `rgb(x, y)` em cada pixel. */
+  function image(rgb: (x: number, y: number) => [number, number, number]): Uint8ClampedArray {
+    const data = new Uint8ClampedArray(W * H * 4)
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const [r, g, b] = rgb(x, y)
+        data.set([r, g, b, 255], (y * W + x) * 4)
+      }
+    }
+    return data
+  }
+
+  it('rgb da cor intacto, linhas de baixo para cima (a linha 0 da textura é v = 0, como o flipY do canvas)', () => {
+    const color = image((x, y) => [10 + x, 20 + y, 30 + x + y])
+    const glow = image(() => [0, 0, 0])
+    const out = glowAlphaPack(color, glow)
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = ((H - 1 - y) * W + x) * 4
+        expect([out[i], out[i + 1], out[i + 2]]).toEqual([10 + x, 20 + y, 30 + x + y])
+      }
+    }
+  })
+
+  it('sem brilho: alfa 0; o GLOW_CELL cheio: alfa 255', () => {
+    const color = image(() => [91, 123, 192])
+    const glow = image((x) => (x === 0 ? [0, 0, 0] : [0x34, 0xd3, 0x99]))
+    const out = glowAlphaPack(color, glow)
+    expect(out[3]).toBe(0)
+    expect(out[7]).toBe(255)
+  })
+
+  it('o alfa é o verde do brilho em linear, normalizado pelo GLOW_CELL cheio (o filtro da GPU mistura em linear, como antes)', () => {
+    const levels = [0, 16, 63, 120, 180, 211]
+    const color = new Uint8ClampedArray(levels.length * 4)
+    const glow = new Uint8ClampedArray(levels.length * 4)
+    levels.forEach((g, i) => glow.set([Math.round((g * 52) / 211), g, Math.round((g * 153) / 211), 255], i * 4))
+    const out = packGlowIntoAlpha(color, glow, levels.length, 1)
+    levels.forEach((g, i) => expect(out[i * 4 + 3]).toBe(Math.round((255 * decode(g)) / decode(0xd3))))
+  })
+
+  function glowAlphaPack(color: Uint8ClampedArray, glow: Uint8ClampedArray) {
+    return packGlowIntoAlpha(color, glow, W, H)
+  }
 })

@@ -11,6 +11,7 @@ describe('pulso dos quadrados verdes no shader do planeta', () => {
     const shader = standardShader()
     patchGlowShader(shader)
     expect(shader.fragmentShader).not.toContain('#include <emissivemap_fragment>')
+    expect(shader.fragmentShader).not.toContain('#include <map_fragment>')
     expect(shader.fragmentShader).toContain('uniform float uGlowTime;')
     expect(shader.fragmentShader).toContain('uniform float uGlowPulse;')
     expect(shader.fragmentShader).toContain('uGlowTime * glowSpeed')
@@ -30,20 +31,32 @@ describe('pulso dos quadrados verdes no shader do planeta', () => {
     expect(() => patchGlowShader({ uniforms: {}, fragmentShader: 'void main() {}' })).toThrow()
   })
 
-  it('material com mapa de brilho, emissive verde e chave de cache própria', () => {
+  it('o brilho sai do alfa do mapa de cor: a cor da superfície leva só o rgb, e o alfa do material fica intacto', () => {
+    const shader = standardShader()
+    patchGlowShader(shader)
+    const frag = shader.fragmentShader
+    expect(frag).toContain('planetGlowMask = sampledDiffuseColor.a;')
+    expect(frag).toContain('diffuseColor.rgb *= sampledDiffuseColor.rgb;')
+    expect(frag).not.toMatch(/diffuseColor \*= sampledDiffuseColor/)
+    expect(frag).not.toContain('emissiveMap')
+    // a cor do brilho volta à curva do GLOW_CELL pintado no canvas (sRGB por canal), não só um verde proporcional
+    expect(frag).toContain('sRGBTransferOETF')
+    expect(frag).toContain('sRGBTransferEOTF')
+  })
+
+  it('material com um mapa só (cor + brilho no alfa), emissive verde e chave de cache própria', () => {
     const map = new THREE.Texture()
-    const glow = new THREE.Texture()
-    const m = createPlanetMaterial(map, glow)
+    const m = createPlanetMaterial(map)
     expect(m.map).toBe(map)
-    expect(m.emissiveMap).toBe(glow)
+    expect(m.emissiveMap).toBeNull()
     expect(m.emissive.g).toBeGreaterThan(m.emissive.r)
     expect(m.customProgramCacheKey()).toBe(GLOW_PROGRAM_KEY)
     expect(m.onBeforeCompile).toBe(patchGlowShader)
   })
 
   it('dois planetas: mesma chave de programa, e o onBeforeCompile do material injeta o pulso', () => {
-    const a = createPlanetMaterial(new THREE.Texture(), new THREE.Texture())
-    const b = createPlanetMaterial(new THREE.Texture(), new THREE.Texture())
+    const a = createPlanetMaterial(new THREE.Texture())
+    const b = createPlanetMaterial(new THREE.Texture())
     expect(a.customProgramCacheKey()).toBe(b.customProgramCacheKey())
     const shader = standardShader()
     // assinatura do three: (shader, renderer); o patch só usa o shader
