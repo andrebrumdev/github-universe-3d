@@ -32,15 +32,16 @@ function PlanetDetails({ repo, focusLanguage }: { repo: Repo; focusLanguage: str
 
   return (
     <div className="space-y-5 pr-6">
-      <header>
-        <h2 className="text-xl font-semibold text-neon">{repo.name}</h2>
-        {repo.description && <p className="mt-1 text-sm text-slate-300">{repo.description}</p>}
+      {/* folga à direita para o ✕ (44 px no toque); no celular, os blocos de leitura em 16 px */}
+      <header className="pr-4">
+        <h2 className="break-words text-xl font-semibold text-neon">{repo.name}</h2>
+        {repo.description && <p className="mt-1 text-base text-slate-300 side:text-sm">{repo.description}</p>}
       </header>
 
       {repo.readme && (
         <section>
           <h3 className="text-xs uppercase tracking-wider text-slate-400">Sobre</h3>
-          <p className="mt-2 text-sm leading-relaxed text-slate-300">{repo.readme}</p>
+          <p className="mt-2 text-base leading-relaxed text-slate-300 side:text-sm">{repo.readme}</p>
         </section>
       )}
 
@@ -77,7 +78,7 @@ function PlanetDetails({ repo, focusLanguage }: { repo: Repo; focusLanguage: str
       <section>
         <h3 className="text-xs uppercase tracking-wider text-slate-400">Último commit</h3>
         {repo.lastCommit ? (
-          <div className="mt-2 text-sm">
+          <div className="mt-2 text-base side:text-sm">
             <p className="text-slate-100">{repo.lastCommit.message}</p>
             <p className="text-xs text-slate-400">
               {timeAgo(repo.lastCommit.date)} · {commitsLabel(repo.totalCommits)} no total
@@ -92,7 +93,7 @@ function PlanetDetails({ repo, focusLanguage }: { repo: Repo; focusLanguage: str
         href={repo.url}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex rounded-full border border-neon/50 px-4 py-2 text-sm text-neon hover:bg-neon/10"
+        className="inline-flex items-center rounded-full border border-neon/50 px-4 py-2 text-sm text-neon hover:bg-neon/10 pointer-coarse:min-h-11"
       >
         Ver no GitHub ↗
       </a>

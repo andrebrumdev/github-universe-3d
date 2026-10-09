@@ -9,7 +9,7 @@ import { cellDate } from '@/lib/universe/activity'
 import { planetPosition, type PlanetOrbit, type Ring, type Vec3 } from '@/lib/universe/orbits'
 import { axisAngles, focusSpinStep, moonOrbits, planetSpin } from '@/lib/universe/planets'
 import { simClock } from '@/store/simClock'
-import { useUniverse } from '@/store/universe'
+import { type HoveredCell, useUniverse } from '@/store/universe'
 import {
   ATMOSPHERE_MATERIAL,
   ATMOSPHERE_SCALE,
@@ -65,19 +65,45 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
     if (!isSelected && useUniverse.getState().hoveredCell?.planet === repo.name) setHoveredCell(null)
   }, [isSelected, repo.name, setHoveredCell])
 
-  function handleMove(e: ThreeEvent<PointerEvent>) {
-    // O detalhe do dia (data e commits) só com o planeta em foco; de longe vale o cartão geral do repo.
-    if (!isSelected || !isReal || !e.uv) return setHoveredCell(null)
+  /** O dia (data e commits) sob o ponteiro: só com o planeta em foco; de longe vale o cartão geral do repo. */
+  function cellAt(e: ThreeEvent<PointerEvent | MouseEvent>): HoveredCell | null {
+    if (!isSelected || !isReal || !e.uv) return null
     const cell = cellFromUv(e.uv.x, e.uv.y)
-    if (!cell) return setHoveredCell(null)
-    setHoveredCell({
+    if (!cell) return null
+    return {
       planet: repo.name,
       ...cell,
       count: repo.activity.weeks[cell.week][cell.day],
       date: cellDate(repo.activity.startDate, cell.week, cell.day),
       x: e.nativeEvent.clientX,
       y: e.nativeEvent.clientY,
-    })
+    }
+  }
+
+  function handleMove(e: ThreeEvent<PointerEvent>) {
+    // No toque não há hover: o detalhe sai no toque (handleTap), não ao arrastar.
+    if (canHover) setHoveredCell(cellAt(e))
+  }
+
+  // Toque: o dia fica na tela até o próximo toque em qualquer lugar. Tocar no mesmo dia de novo fecha; noutro, troca.
+  /** O dia que estava na tela quando o toque atual começou (o pointerdown limpa antes do clique chegar). */
+  const pressedDay = useRef<string | null>(null)
+  useEffect(() => {
+    if (!isSelected || canHover) return
+    const onDown = () => {
+      const shown = useUniverse.getState().hoveredCell
+      pressedDay.current = shown?.planet === repo.name ? `${shown.week}:${shown.day}` : null
+      if (shown) setHoveredCell(null)
+    }
+    window.addEventListener('pointerdown', onDown, true)
+    return () => window.removeEventListener('pointerdown', onDown, true)
+  }, [isSelected, canHover, repo.name, setHoveredCell])
+
+  function handleTap(e: ThreeEvent<MouseEvent>) {
+    const cell = cellAt(e)
+    const same = cell !== null && `${cell.week}:${cell.day}` === pressedDay.current
+    pressedDay.current = null
+    setHoveredCell(same ? null : cell)
   }
 
   return (
@@ -105,7 +131,9 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
             scale={orbit.radius}
             onClick={(e) => {
               e.stopPropagation()
-              select({ kind: 'planet', name: repo.name })
+              // Em foco, no toque: o toque mostra o dia (o planeta já está selecionado).
+              if (isSelected && !canHover) handleTap(e)
+              else select({ kind: 'planet', name: repo.name })
             }}
             onPointerOver={(e) => {
               e.stopPropagation()
@@ -113,7 +141,8 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
             }}
             onPointerOut={() => {
               setSurfaceHovered(false)
-              setHoveredCell(null)
+              // no toque, o dia tocado fica (o próximo toque o fecha)
+              if (canHover) setHoveredCell(null)
             }}
             onPointerMove={handleMove}
           />

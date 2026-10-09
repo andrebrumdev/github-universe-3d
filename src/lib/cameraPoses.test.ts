@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { buildSampleUniverse } from './github/sample'
 import { buildOrbits, orbitPath, planetPosition, type OrbitSystem, type Vec3 } from './universe/orbits'
 import { barycenterOffset } from './universe/barycenter'
+import { projectDisc } from './ship/visit'
+import { SIDE_SHEET_MAX_HEIGHT, sidePanelWidth } from './uiLayout'
+import { SUN_RADIUS } from './universe/orbits'
 import { bodyExtent, MAX_MOONS, MAX_PLANET_RADIUS, MIN_PLANET_RADIUS, maxPlanetWeight, planetRadius } from './universe/planets'
 import {
   CAMERA_FAR,
@@ -205,6 +208,51 @@ describe('planetPose', () => {
 
   it('no mobile, o alvo desce (planeta acima do bottom sheet)', () => {
     expect(planetPose(position, radius, 'bottom').target[1]).toBeLessThan(position[1])
+  })
+})
+
+describe('enquadramento nas telas de toque', () => {
+  it('celular em pé: o sol inteiro (o rosto) fica acima da folha do perfil', () => {
+    for (const [W, H] of [[375, 667], [390, 844], [412, 915]]) {
+      const viewport = { aspect: W / H, fov: 50 }
+      const disc = projectDisc(sunPose('bottom', [0, 0, 0], viewport), [0, 0, 0], SUN_RADIUS, W, H, 50)
+      expect(disc).not.toBeNull()
+      const sheetTop = H * (1 - SIDE_SHEET_MAX_HEIGHT)
+      expect(disc!.y + disc!.r).toBeLessThan(sheetTop)
+      expect(disc!.y - disc!.r).toBeGreaterThan(0)
+      // e não vira um ponto: ocupa boa parte da faixa livre
+      expect(2 * disc!.r).toBeGreaterThan(sheetTop * 0.5)
+    }
+  })
+
+  it('iPad em pé e celular deitado: o planeta em foco cabe inteiro na coluna à esquerda do painel', () => {
+    const position: Vec3 = [12, 1, -5]
+    for (const radius of [MIN_PLANET_RADIUS, MAX_PLANET_RADIUS]) {
+      for (const [W, H] of [[820, 1180], [768, 1024], [667, 375], [1280, 800]]) {
+        const viewport = { aspect: W / H, fov: 50 }
+        const pose = planetPose(position, radius, 'side', viewport)
+        const disc = projectDisc(pose, position, radius, W, H, 50)
+        expect(disc).not.toBeNull()
+        expect(disc!.x - disc!.r).toBeGreaterThan(0)
+        expect(disc!.x + disc!.r).toBeLessThan(W - sidePanelWidth(W))
+      }
+    }
+  })
+
+  it('celular em pé: o planeta em foco cabe na largura', () => {
+    const position: Vec3 = [12, 1, -5]
+    for (const radius of [MIN_PLANET_RADIUS, MAX_PLANET_RADIUS]) {
+      const viewport = { aspect: 375 / 667, fov: 50 }
+      const disc = projectDisc(planetPose(position, radius, 'bottom', viewport), position, radius, 375, 667, 50)
+      expect(disc!.x - disc!.r).toBeGreaterThan(0)
+      expect(disc!.x + disc!.r).toBeLessThan(375)
+    }
+  })
+
+  it('no desktop padrão nada muda (o encaixe só afasta a câmera em telas estreitas)', () => {
+    const position: Vec3 = [12, 1, -5]
+    expect(planetPose(position, 1.5, 'side', DEFAULT_VIEWPORT)).toEqual(planetPose(position, 1.5, 'side'))
+    expect(len(sub(planetPose(position, 1.5, 'side').position, position))).toBeCloseTo(Math.hypot(1.5 * 4 + 3, 1.5 * 1.2), 6)
   })
 })
 

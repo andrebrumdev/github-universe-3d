@@ -16,6 +16,16 @@ export const TUTORIAL_COPY: Record<TutorialStep, string> = {
   free: 'Agora é com você: arraste para girar, role para aproximar e clique em tudo. Se precisar, é só me chamar!',
 }
 
+/** No toque não há clique nem rodinha: "toque" e a pinça para aproximar (os outros passos valem para os dois). */
+export const TUTORIAL_COPY_TOUCH: Partial<Record<TutorialStep, string>> = {
+  welcome: 'Bem-vindo ao universo GitHub de {name}! O sol no centro é o perfil: toque nele quando quiser.',
+  free: 'Agora é com você: arraste para girar, faça pinça para aproximar e toque em tudo. Se precisar, é só me chamar!',
+}
+
+export function tutorialCopy(step: TutorialStep, touch: boolean): string {
+  return (touch && TUTORIAL_COPY_TOUCH[step]) || TUTORIAL_COPY[step]
+}
+
 export function tutorialFocusesPlanet(step: TutorialStep | null): boolean {
   return step === 'tech'
 }

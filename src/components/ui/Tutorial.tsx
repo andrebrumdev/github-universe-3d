@@ -3,7 +3,8 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { formatLine } from '@/lib/octocat/lines'
 import { TUTORIAL_CARD } from '@/lib/uiLayout'
 import { presentationRequested } from '@/lib/presentation'
-import { shouldAutostartTutorial, TUTORIAL_COPY, TUTORIAL_STEPS, tutorialCardVisible } from '@/lib/tutorial'
+import { COARSE_POINTER_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
+import { shouldAutostartTutorial, tutorialCardVisible, tutorialCopy, TUTORIAL_STEPS } from '@/lib/tutorial'
 import { usePresentation } from '@/store/presentation'
 import { useSceneReady } from '@/store/sceneReady'
 import { useTutorial } from '@/store/tutorial'
@@ -37,6 +38,7 @@ export function Tutorial({ profileName }: { profileName: string }) {
   const reduced = useReducedMotion() ?? false
   const instant = { duration: 0 }
   const sceneReady = useSceneReady((s) => s.ready)
+  const touch = useMediaQuery(COARSE_POINTER_QUERY)
   // Com o painel ou a folha de uma seleção aberto, o cartão sai da tela (o passo "free" continua e volta depois).
   const selected = useUniverse((s) => s.selection.kind !== 'none')
   const visible = tutorialCardVisible(step, selected)
@@ -105,14 +107,14 @@ export function Tutorial({ profileName }: { profileName: string }) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={reduced ? instant : undefined}
-              className="text-slate-100"
+              className="text-base text-slate-100 side:text-sm"
             >
-              {formatLine(TUTORIAL_COPY[step], profileName)}
+              {formatLine(tutorialCopy(step, touch), profileName)}
             </motion.p>
           </div>
           <div className="mt-3 flex justify-end gap-2">
             {step !== 'free' && (
-              <button type="button" onClick={skip} className="rounded-full px-3 py-1.5 text-slate-400 hover:text-slate-100">
+              <button type="button" onClick={skip} className="rounded-full px-3 py-1.5 text-slate-400 hover:text-slate-100 pointer-coarse:min-h-11">
                 Pular tutorial
               </button>
             )}
@@ -120,7 +122,7 @@ export function Tutorial({ profileName }: { profileName: string }) {
               ref={primary}
               type="button"
               onClick={next}
-              className="rounded-full bg-neon/90 px-4 py-1.5 font-medium text-space hover:bg-neon"
+              className="rounded-full bg-neon/90 px-4 py-1.5 font-medium text-space hover:bg-neon pointer-coarse:min-h-11 pointer-coarse:px-5"
             >
               {step === 'free' ? 'Explorar' : 'Próximo'}
             </button>

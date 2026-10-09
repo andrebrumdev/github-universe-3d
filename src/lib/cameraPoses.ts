@@ -1,8 +1,9 @@
 import { selectedPlanet, type UniverseSelection } from './interaction'
 import type { TutorialStep } from './tutorial'
 import type { RepoBase } from './types'
+import { SIDE_SHEET_MAX_HEIGHT } from './uiLayout'
 import { barycenterOffset } from './universe/barycenter'
-import { orbitPath, planetPosition, type OrbitSystem, type Vec3 } from './universe/orbits'
+import { orbitPath, planetPosition, SUN_RADIUS, type OrbitSystem, type Vec3 } from './universe/orbits'
 
 export type PanelLayout = 'side' | 'bottom'
 
@@ -145,14 +146,37 @@ export function starfieldRadius(system: OrbitSystem): number {
   return Math.max(STARFIELD_MIN_RADIUS, 1.6 * far)
 }
 
-/** Pose do perfil, em volta do sol; `center` é onde o sol está (ele bamboleia em torno do baricentro). */
-export function sunPose(layout: PanelLayout, center: Vec3 = [0, 0, 0]): Pose {
+/** Câmera do perfil: um pouco acima do plano das órbitas (sobe 3 a cada 13 de recuo). */
+const SUN_ELEVATION = Math.atan2(3, 13)
+/** Celular: o sol ocupa essa fração (em diâmetro) da faixa de tela acima da folha do perfil. */
+const SUN_SHEET_FILL = 0.7
+
+/**
+ * Pose do perfil, em volta do sol; `center` é onde o sol está (ele bamboleia em torno do baricentro).
+ * Lateral: o sol à esquerda da coluna do painel. Folha (celular): a câmera recua até o sol inteiro caber na faixa
+ * acima da folha (SIDE_SHEET_MAX_HEIGHT) e mira abaixo dele, para o centro do sol cair no meio dessa faixa.
+ */
+export function sunPose(layout: PanelLayout, center: Vec3 = [0, 0, 0], viewport: Viewport = DEFAULT_VIEWPORT): Pose {
   const [cx, cy, cz] = center
-  const target: Vec3 = layout === 'side' ? [2.5, 0, 0] : [0, -2, 0]
-  return { position: [cx, 3 + cy, 13 + cz], target: [target[0] + cx, target[1] + cy, target[2] + cz] }
+  if (layout === 'side') return { position: [cx, 3 + cy, 13 + cz], target: [2.5 + cx, cy, cz] }
+  const tanY = Math.tan((viewport.fov * Math.PI) / 360)
+  const free = 1 - SIDE_SHEET_MAX_HEIGHT
+  // diâmetro na tela (fração da altura) = raio / (distância · tan(fov/2))
+  const dist = SUN_RADIUS / (free * SUN_SHEET_FILL * tanY)
+  // o centro do sol no meio da faixa livre: y normalizado = 1 − free (topo = 1)
+  const pitch = SUN_ELEVATION + Math.atan((1 - free) * tanY)
+  const position: Vec3 = [cx, cy + dist * Math.sin(SUN_ELEVATION), cz + dist * Math.cos(SUN_ELEVATION)]
+  return { position, target: [cx, position[1] - dist * Math.sin(pitch), position[2] - dist * Math.cos(pitch)] }
 }
 
-export function planetPose(position: Vec3, radius: number, layout: PanelLayout): Pose {
+/** Folga do planeta em foco até a borda da tela, em raios (o halo da atmosfera passa um pouco do raio). */
+const PLANET_FIT_MARGIN = 1.2
+
+/**
+ * Pose de foco num planeta. A distância padrão é proporcional ao raio; numa tela estreita (iPad em pé, celular) a
+ * câmera recua até o planeta caber na largura (no layout lateral, na coluna à esquerda do painel).
+ */
+export function planetPose(position: Vec3, radius: number, layout: PanelLayout, viewport: Viewport = DEFAULT_VIEWPORT): Pose {
   const [x, y, z] = position
   const len = Math.hypot(x, z) || 1
   const ox = x / len
@@ -163,8 +187,11 @@ export function planetPose(position: Vec3, radius: number, layout: PanelLayout):
   const dl = Math.hypot(dx, dz)
   dx /= dl
   dz /= dl
-  const dist = radius * 4 + 3
   const shift = radius * 1.3
+  // Meia largura que o planeta precisa a partir do centro da tela (de lado, o alvo o empurra `shift` para a esquerda).
+  const halfWidth = (layout === 'side' ? shift : 0) + radius * PLANET_FIT_MARGIN
+  const tanX = Math.tan((viewport.fov * Math.PI) / 360) * viewport.aspect
+  const dist = Math.max(radius * 4 + 3, halfWidth / (FIT_EDGE * tanX))
   return {
     position: [x + dx * dist, y + radius * 1.2, z + dz * dist],
     // Direita da câmera = (dz, 0, −dx). Alvo à direita → planeta aparece à esquerda do painel.
@@ -172,10 +199,16 @@ export function planetPose(position: Vec3, radius: number, layout: PanelLayout):
   }
 }
 
-export function planetFocusPose(system: OrbitSystem, name: string, time: number, layout: PanelLayout): Pose | null {
+export function planetFocusPose(
+  system: OrbitSystem,
+  name: string,
+  time: number,
+  layout: PanelLayout,
+  viewport: Viewport = DEFAULT_VIEWPORT,
+): Pose | null {
   const orbit = system.orbits.find((o) => o.name === name)
   if (!orbit) return null
-  return planetPose(planetPosition(system.rings[orbit.ring], orbit, time), orbit.radius, layout)
+  return planetPose(planetPosition(system.rings[orbit.ring], orbit, time), orbit.radius, layout, viewport)
 }
 
 export function selectionPose(
@@ -185,9 +218,9 @@ export function selectionPose(
   layout: PanelLayout,
   viewport: Viewport = DEFAULT_VIEWPORT,
 ): Pose {
-  if (sel.kind === 'profile') return sunPose(layout, barycenterOffset(system, time))
+  if (sel.kind === 'profile') return sunPose(layout, barycenterOffset(system, time), viewport)
   const name = selectedPlanet(sel)
-  return (name && planetFocusPose(system, name, time, layout)) || overviewPose(system, viewport)
+  return (name && planetFocusPose(system, name, time, layout, viewport)) || overviewPose(system, viewport)
 }
 
 export function showcasePlanet(repos: Pick<RepoBase, 'name' | 'languages'>[]): string | null {
@@ -202,10 +235,10 @@ export function tutorialPose(
   layout: PanelLayout,
   viewport: Viewport = DEFAULT_VIEWPORT,
 ): Pose {
-  if (step === 'welcome') return sunPose(layout, barycenterOffset(system, time))
+  if (step === 'welcome') return sunPose(layout, barycenterOffset(system, time), viewport)
   if (step === 'tech') {
     const name = showcasePlanet(repos)
-    return (name && planetFocusPose(system, name, time, layout)) || overviewPose(system, viewport)
+    return (name && planetFocusPose(system, name, time, layout, viewport)) || overviewPose(system, viewport)
   }
   return overviewPose(system, viewport)
 }

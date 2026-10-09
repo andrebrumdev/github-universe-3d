@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shouldAutostartTutorial, TUTORIAL_COPY, TUTORIAL_STEPS, tutorialCardVisible, tutorialFocusesPlanet, tutorialReducer } from './tutorial'
+import { shouldAutostartTutorial, TUTORIAL_COPY, tutorialCopy, TUTORIAL_STEPS, tutorialCardVisible, tutorialFocusesPlanet, tutorialReducer } from './tutorial'
 
 describe('tutorialReducer', () => {
   it('percorre os 4 passos e termina', () => {
@@ -45,5 +45,19 @@ describe('tutorialCardVisible', () => {
   })
   it('com um painel ou folha aberto, o cartão espera (o passo continua no store)', () => {
     expect(tutorialCardVisible('free', true)).toBe(false)
+  })
+})
+
+describe('tutorialCopy', () => {
+  it('com mouse, o texto de sempre', () => {
+    for (const step of TUTORIAL_STEPS) expect(tutorialCopy(step, false)).toBe(TUTORIAL_COPY[step])
+  })
+  it('no toque, "toque" no lugar de "clique" e a pinça no lugar da rodinha', () => {
+    expect(tutorialCopy('welcome', true)).toMatch(/toque nele/)
+    expect(tutorialCopy('free', true)).toMatch(/pinça/)
+    for (const step of TUTORIAL_STEPS) {
+      expect(tutorialCopy(step, true)).not.toMatch(/clique|role para/)
+      expect(tutorialCopy(step, true).length).toBeGreaterThan(20)
+    }
   })
 })

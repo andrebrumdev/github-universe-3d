@@ -20,14 +20,15 @@ export function ProfilePanel({ profile }: { profile: Profile }) {
   return (
     <SidePanel open={open} onClose={clearSelection} title={`Perfil de ${profile.name}`}>
       <div className="space-y-5 pr-6">
-        <header className="flex items-center gap-4">
+        {/* folga à direita para o ✕ (44 px no toque); no celular, os blocos de leitura em 16 px */}
+        <header className="flex items-center gap-4 pr-4">
           <img src={profile.avatarUrl} alt="" width={64} height={64} className="h-16 w-16 rounded-full ring-2 ring-neon/50" />
           <div>
             <h2 className="text-xl font-semibold text-neon">{profile.name}</h2>
             <p className="text-sm text-slate-400">@{profile.login}</p>
           </div>
         </header>
-        {profile.bio && <p className="text-sm text-slate-300">{profile.bio}</p>}
+        {profile.bio && <p className="text-base text-slate-300 side:text-sm">{profile.bio}</p>}
 
         <dl className="grid grid-cols-2 gap-3 text-center">
           {stats.map(([label, value]) => (
@@ -54,7 +55,7 @@ export function ProfilePanel({ profile }: { profile: Profile }) {
         <section>
           <h3 className="text-xs uppercase tracking-wider text-slate-400">Último commit</h3>
           {profile.lastCommit ? (
-            <p className="mt-2 text-sm">
+            <p className="mt-2 text-base side:text-sm">
               {profile.lastCommit.message}
               <span className="block text-xs text-slate-400">{timeAgo(profile.lastCommit.date)}</span>
             </p>

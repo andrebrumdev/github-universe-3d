@@ -20,6 +20,9 @@ const CARD_STYLE = {
   '--card-max-md': `calc(100dvh - ${PRESENTATION_CARD.desktopBottom + PRESENTATION_CARD.desktopTop}px - var(--safe-bottom) - var(--safe-top))`,
 } as CSSProperties
 
+/** Toque ou rolagem dentro do cartão: segura o tempo da parada até esse tempo depois do último gesto (ms). */
+const TOUCH_READ_HOLD_MS = 4000
+
 /** Laço da apresentação: avisa a chegada da nave e passa o tempo da parada (fora do React, por frame). */
 function usePresentationClock(active: boolean): void {
   useEffect(() => {
@@ -95,11 +98,24 @@ export function PresentationCard({ universe }: { universe: Universe }) {
   usePresentationClock(active)
   usePresentationKeys(active)
 
-  // Mouse em cima ou foco de teclado dentro do cartão seguram o tempo (quem está lendo não perde a parada).
+  // Mouse em cima, foco de teclado ou um toque/rolagem recente dentro do cartão seguram o tempo (quem está lendo não
+  // perde a parada). No toque não há "em cima": o gesto segura por TOUCH_READ_HOLD_MS depois do último.
   const card = useRef<HTMLElement>(null)
   const pointerInside = useRef(false)
   const keyboardFocus = useRef(false)
-  const syncHover = () => usePresentation.getState().setHovering(pointerInside.current || keyboardFocus.current)
+  const touchReading = useRef(false)
+  const readTimer = useRef(0)
+  const syncHover = () => usePresentation.getState().setHovering(pointerInside.current || keyboardFocus.current || touchReading.current)
+  const markReading = () => {
+    touchReading.current = true
+    syncHover()
+    window.clearTimeout(readTimer.current)
+    readTimer.current = window.setTimeout(() => {
+      touchReading.current = false
+      syncHover()
+    }, TOUCH_READ_HOLD_MS)
+  }
+  useEffect(() => () => window.clearTimeout(readTimer.current), [])
   useEffect(() => {
     // Ao abrir, o foco vai para o cartão (o botão que abriu sumiu); o próprio cartão não segura o tempo.
     if (active) card.current?.focus({ preventScroll: true })
@@ -108,8 +124,11 @@ export function PresentationCard({ universe }: { universe: Universe }) {
     // A cada parada o conteúdo troca: um botão focado pode ter saído da tela sem disparar blur.
     const focused = document.activeElement
     keyboardFocus.current = !!focused && focused !== card.current && !!card.current?.contains(focused) && focused.matches(':focus-visible')
-    if (index < 0) pointerInside.current = false
-    else syncHover()
+    if (index < 0) {
+      pointerInside.current = false
+      touchReading.current = false
+      window.clearTimeout(readTimer.current)
+    } else syncHover()
   }, [index])
 
   return (
@@ -134,6 +153,10 @@ export function PresentationCard({ universe }: { universe: Universe }) {
             pointerInside.current = false
             syncHover()
           }}
+          onPointerDown={(e) => {
+            if (e.pointerType !== 'mouse') markReading()
+          }}
+          onScroll={markReading}
           onFocus={(e) => {
             keyboardFocus.current = e.target !== e.currentTarget && e.target.matches(':focus-visible')
             syncHover()
@@ -276,7 +299,7 @@ function StopProgress({ reduced }: { reduced: boolean }) {
       <div className="h-0.5 overflow-hidden rounded-full bg-white/10">
         <div ref={bar} className="h-full origin-left bg-neon" style={{ transform: 'scaleX(0)' }} />
       </div>
-      {(held || !arrived) && <p className="mt-1 text-[11px] text-slate-400">{status}</p>}
+      {(held || !arrived) && <p className="mt-1 text-xs text-slate-400 side:text-[11px]">{status}</p>}
     </div>
   )
 }
@@ -309,11 +332,11 @@ function ProfileStop({ profile }: { profile: Profile }) {
           <p className="text-sm text-slate-400">@{profile.login}</p>
         </div>
       </header>
-      {profile.bio && <p className="text-slate-300">{profile.bio}</p>}
+      {profile.bio && <p className="text-base text-slate-300 side:text-sm">{profile.bio}</p>}
       <dl className="grid grid-cols-4 gap-2 text-center">
         {stats.map(([label, value]) => (
           <div key={label} className="rounded-lg bg-white/5 px-1 py-2">
-            <dt className="text-[11px] text-slate-400">{label}</dt>
+            <dt className="text-xs text-slate-400 side:text-[11px]">{label}</dt>
             <dd className="text-base font-semibold">{formatCount(value)}</dd>
           </div>
         ))}
@@ -356,8 +379,8 @@ function RepoStop({ repo }: { repo: Repo }) {
         <SectionTitle>O que faz</SectionTitle>
         {repo.description || repo.readme ? (
           <div className="mt-1.5 space-y-1.5">
-            {repo.description && <p className="text-slate-100">{repo.description}</p>}
-            {repo.readme && <p className="line-clamp-4 text-[13px] leading-snug text-slate-400">{repo.readme}</p>}
+            {repo.description && <p className="text-base text-slate-100 side:text-sm">{repo.description}</p>}
+            {repo.readme && <p className="line-clamp-4 text-base leading-snug text-slate-400 side:text-[13px]">{repo.readme}</p>}
           </div>
         ) : (
           <p className="mt-1.5 text-slate-400">Sem descrição nem README por aqui, mas o código conta a história. Vale a visita!</p>
@@ -394,7 +417,7 @@ function RepoStop({ repo }: { repo: Repo }) {
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg bg-white/5 px-2 py-1.5">
-      <dt className="text-[11px] text-slate-400">{label}</dt>
+      <dt className="text-xs text-slate-400 side:text-[11px]">{label}</dt>
       <dd className="font-semibold">{value}</dd>
     </div>
   )
