@@ -8,6 +8,7 @@ import { hoverOffset, isBlinking } from '@/lib/ship/motion'
 import { ClawdHat } from './ClawdHat'
 import { DazedStars } from './DazedStars'
 import type { InertiaFrame } from './flexRod'
+import type { Gaze } from './octocatFace'
 import { Pilot, type ArmMode } from './Pilot'
 import { Ship } from './Ship'
 
@@ -39,6 +40,14 @@ interface OctocatShipProps {
   inertiaFrame?: InertiaFrame
   /** Tonto depois da trombada na tela: estrelinhas girando em volta da cabeça. */
   dazed?: boolean
+  /** Modo de foco (ShipRig): olhar lido a cada quadro, peteleco num tentáculo, pulinho do Clawd e áreas de toque. */
+  gaze?: { readonly current: Readonly<Gaze> }
+  wiggle?: { seq: number; index: number }
+  hop?: number
+  proxies?: boolean
+  /** Tonto de tanto girar: s desde que ficou (estrelinhas; −1 não está), e a balançada de cabeça ao voltar a si. */
+  spinDizzySince?: { readonly current: number }
+  headShake?: number
 }
 
 export function OctocatShip({
@@ -51,6 +60,12 @@ export function OctocatShip({
   shake = 0,
   inertiaFrame = 'auto',
   dazed = false,
+  gaze,
+  wiggle,
+  hop = 0,
+  proxies = false,
+  spinDizzySince,
+  headShake = 0,
 }: OctocatShipProps) {
   const root = useRef<THREE.Group>(null)
   const blinkRef = useRef(false)
@@ -73,12 +88,24 @@ export function OctocatShip({
 
   return (
     <group ref={root}>
-      {parts.ship && <Ship thrusterLevel={thrusterLevel} thrusterRef={thrusterRef} shake={shake} inertiaFrame={inertiaFrame} />}
+      {parts.ship && <Ship thrusterLevel={thrusterLevel} thrusterRef={thrusterRef} shake={shake} inertiaFrame={inertiaFrame} proxies={proxies} />}
       {/* piloto e gorro em coordenadas do SVG, levados para dentro da bolha pelo COCKPIT, de frente para +z */}
       <group position={COCKPIT.position} scale={COCKPIT.scale}>
-        {parts.pilot && <Pilot expression={expression} blinking={blinking} armMode={armMode} shake={shake} inertiaFrame={inertiaFrame} />}
-        {parts.hat && <ClawdHat />}
-        {dazed && <DazedStars />}
+        {parts.pilot && (
+          <Pilot
+            expression={expression}
+            blinking={blinking}
+            armMode={armMode}
+            shake={shake}
+            inertiaFrame={inertiaFrame}
+            gaze={gaze}
+            wiggle={wiggle}
+            proxies={proxies}
+            headShake={headShake}
+          />
+        )}
+        {parts.hat && <ClawdHat hop={hop} proxy={proxies} />}
+        {dazed && <DazedStars spinSince={spinDizzySince} />}
       </group>
     </group>
   )

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react'
 import { Vector3, type PerspectiveCamera } from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
-import { CameraControls } from '@react-three/drei'
+import { CameraControls, CameraControlsImpl } from '@react-three/drei'
 import { useReducedMotion } from 'framer-motion'
 import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 import { maxCameraDistance, selectionPose, tutorialPose, type PanelLayout, type Pose, type Viewport } from '@/lib/cameraPoses'
@@ -19,6 +19,7 @@ import {
   stepArrivalFrame,
   type Spring3,
 } from '@/lib/ship/escort'
+import { FOCUS_MAX_DISTANCE, FOCUS_MIN_DISTANCE, focusPose } from '@/lib/ship/focus'
 import { length, sub } from '@/lib/ship/vec'
 import type { Repo } from '@/lib/types'
 import { predictStopTime } from '@/lib/universe/clock'
@@ -47,6 +48,8 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
   const controls = useRef<ComponentRef<typeof CameraControls>>(null)
   const [driving, setDriving] = useState(false)
   const selection = useUniverse((s) => s.selection)
+  /** Modo de foco na nave: a câmera voa até ela e orbita em volta (zoom com limites, sem arrastar o alvo). */
+  const shipFocus = selection.kind === 'ship'
   const step = useTutorial((s) => s.step)
   const guided = step !== null && step !== 'free'
   const layout: PanelLayout = useMediaQuery(MOBILE_QUERY) ? 'bottom' : 'side'
@@ -99,9 +102,36 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
   }, [camera])
   // Início do gesto do usuário na câmera (posição e alvo pedidos), para separar um arrasto de um clique.
   const gesture = useRef({ from: new Vector3(), fromTarget: new Vector3(), now: new Vector3(), active: false })
+  /** Enquadrar a nave assim que ela estacionar (o ShipRig escreve onde em `shipPose.focus`). */
+  const shipFocusRequest = useRef(false)
+
+  // Modo de foco: sem arrastar o alvo (botão direito, dois e três dedos só aproximam); o arrasto na própria nave a gira
+  // (useShipPlay) e não chega aqui. Fora dele, os botões de sempre.
+  useEffect(() => {
+    const c = controls.current
+    if (!c || !shipFocus) return
+    const { ACTION } = CameraControlsImpl
+    const mouse = { ...c.mouseButtons }
+    const touches = { ...c.touches }
+    c.mouseButtons.right = ACTION.NONE
+    c.touches.two = ACTION.TOUCH_DOLLY
+    c.touches.three = ACTION.NONE
+    return () => {
+      Object.assign(c.mouseButtons, mouse)
+      Object.assign(c.touches, touches)
+    }
+  }, [shipFocus])
 
   useEffect(() => {
     const { selection: sel, viewport: vp } = latest.current
+    if (sel.kind === 'ship') {
+      // quem leva a câmera até a nave é o useFrame, quando ela tiver estacionado
+      releaseDrive()
+      focusRequest.current = false
+      shipFocusRequest.current = true
+      return
+    }
+    shipFocusRequest.current = false
     // O tempo desacelera até parar ao focar: mira onde o planeta vai estar quando parar.
     const stop = predictStopTime(simClock)
     if (guided && step) {
@@ -126,6 +156,19 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
   useFrame(({ clock }, rawDt) => {
     const c = controls.current
     if (!c) return
+    if (shipFocus) {
+      // Modo de foco: um voo só até o três-quartos da nave estacionada (transição do CameraControls, instantânea com
+      // movimento reduzido); depois, o usuário orbita em volta dela.
+      if (drive.current) releaseDrive()
+      if (driving) setDriving(false)
+      const spot = shipPose.focus
+      if (shipFocusRequest.current && shipPose.mode === 'focus' && spot) {
+        shipFocusRequest.current = false
+        const pose = focusPose(spot.center, spot.front, latest.current.viewport)
+        void c.setLookAt(...pose.position, ...pose.target, !reduced)
+      }
+      return
+    }
     if (reduced || guided) {
       if (drive.current) releaseDrive()
       if (driving) setDriving(false)
@@ -217,8 +260,8 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
       ref={controls}
       makeDefault
       enabled={!guided && !driving && !sunDrag}
-      minDistance={2}
-      maxDistance={maxCameraDistance(system, viewport)}
+      minDistance={shipFocus ? FOCUS_MIN_DISTANCE : 2}
+      maxDistance={shipFocus ? FOCUS_MAX_DISTANCE : maxCameraDistance(system, viewport)}
       smoothTime={0.6}
       dollyToCursor={false}
       onControlStart={() => {

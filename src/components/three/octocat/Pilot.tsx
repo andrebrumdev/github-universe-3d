@@ -23,11 +23,13 @@ import {
   WHISKER_RADIUS,
   WHISKERS,
 } from '@/lib/ship/geometry'
+import { HEAD_SHAKE_SECONDS, headShakeAngle } from '@/lib/ship/dizzy'
 import { POINT_ANGLE, waveAngle } from '@/lib/ship/motion'
 import { applyImpulse, setRest, type VerletOptions } from '@/lib/ship/verlet'
 import { flightClock } from '@/store/frameClock'
 import { FlexRod, type InertiaFrame, PILOT_INERTIA, useInertiaProbe } from './flexRod'
-import { drawOctocatFace, FACE_TEX_H, FACE_TEX_W } from './octocatFace'
+import { drawOctocatFace, FACE_TEX_H, FACE_TEX_W, GAZE_AHEAD, type Gaze } from './octocatFace'
+import { PartProxy } from './PartProxy'
 
 export type ArmMode = 'rest' | 'wave' | 'point'
 
@@ -223,6 +225,13 @@ const SHAKE_IMPULSES: Vec3[] = [
   [-2.2, 1.8, -1.6],
   [2.2, 1.6, 1.8],
 ]
+/** Peteleco num tentáculo só (toque no modo de foco): bem mais forte que o "Sacudir", para ele dançar sozinho. */
+const WIGGLE_GAIN = 2.6
+/** Raio da área de toque da ponta de cada tentáculo, em raios da ponta (o mínimo em px vem do PartProxy). */
+const TIP_PROXY = 2.4
+/** O olhar anda em degraus (repintar o rosto custa um upload de textura): este tanto por unidade. */
+const GAZE_STEPS = 6
+const quantizeGaze = (v: number) => Math.round(Math.max(-1, Math.min(1, v)) * GAZE_STEPS) / GAZE_STEPS
 
 /** Tentáculos de uma instância do piloto: cópias das malhas de descanso, dobradas pela física. */
 function createTentacleRods() {
@@ -264,10 +273,10 @@ function createFaceTexture(): THREE.CanvasTexture {
   return texture
 }
 
-function paintFace(texture: THREE.CanvasTexture, expression: OctocatExpression, blinking: boolean): void {
+function paintFace(texture: THREE.CanvasTexture, expression: OctocatExpression, blinking: boolean, gaze: Readonly<Gaze>): void {
   const ctx = (texture.image as HTMLCanvasElement).getContext('2d')
   if (!ctx) return
-  drawOctocatFace(ctx, expression, blinking)
+  drawOctocatFace(ctx, expression, blinking, gaze)
   texture.needsUpdate = true
 }
 
@@ -279,6 +288,14 @@ interface PilotProps {
   shake?: number
   /** Referencial da inércia (ver useInertiaProbe): `world` no preview, onde a câmera orbita a nave parada. */
   inertiaFrame?: InertiaFrame
+  /** Para onde os olhos olham, lido a cada quadro (o modo de foco escreve nele); sem ele, para a frente. */
+  gaze?: { readonly current: Readonly<Gaze> }
+  /** Muda a cada peteleco num tentáculo (`index`, na ordem livre, manche, painel, pernas). */
+  wiggle?: { seq: number; index: number }
+  /** Áreas de toque das peças pequenas (cabeça, pontas dos tentáculos): só no modo de foco. */
+  proxies?: boolean
+  /** Muda a cada vez que ele volta a si depois de ficar tonto de tanto girar: balança a cabeça. */
+  headShake?: number
 }
 
 const Z_AXIS = new THREE.Vector3(0, 0, 1)
@@ -301,7 +318,17 @@ function poseFreeArm({ rod }: TentacleRods[number], angle: number): void {
   rod.rootTurn.setFromAxisAngle(Z_AXIS, angle)
 }
 
-export function Pilot({ expression, blinking, armMode, shake = 0, inertiaFrame = 'auto' }: PilotProps) {
+export function Pilot({
+  expression,
+  blinking,
+  armMode,
+  shake = 0,
+  inertiaFrame = 'auto',
+  gaze,
+  wiggle,
+  proxies = false,
+  headShake = 0,
+}: PilotProps) {
   const root = useRef<THREE.Group>(null)
   const tips = useRef<(THREE.Mesh | null)[]>([])
   const armAngle = useRef(0)
@@ -327,7 +354,36 @@ export function Pilot({ expression, blinking, armMode, shake = 0, inertiaFrame =
     tentacles.forEach(({ rod }, i) => applyImpulse(rod.chain, ...SHAKE_IMPULSES[i % SHAKE_IMPULSES.length]))
   }, [shake, reduced, tentacles])
 
+  const lastWiggle = useRef(wiggle?.seq ?? 0)
+  useEffect(() => {
+    if (!wiggle || wiggle.seq === lastWiggle.current) return
+    lastWiggle.current = wiggle.seq
+    const rod = tentacles[wiggle.index]?.rod
+    if (reduced || !rod) return
+    const [x, y, z] = SHAKE_IMPULSES[wiggle.index % SHAKE_IMPULSES.length]
+    applyImpulse(rod.chain, x * WIGGLE_GAIN, y * WIGGLE_GAIN, z * WIGGLE_GAIN)
+  }, [wiggle, reduced, tentacles])
+
+  const texture = useMemo(() => createFaceTexture(), [])
+  /** Olhar com que o rosto foi pintado por último (em degraus). */
+  const paintedGaze = useRef<Gaze>({ x: 0, y: 0 })
+  useEffect(() => paintFace(texture, expression, blinking, paintedGaze.current), [expression, blinking, texture])
+  useEffect(() => () => texture.dispose(), [texture])
+
+  const lastHeadShake = useRef(headShake)
+  const headShakeStart = useRef<number | null>(null)
+
   useFrame(({ clock }, delta) => {
+    // balançada de cabeça (voltando a si): o piloto inteiro gira em volta do eixo vertical e volta
+    if (headShake !== lastHeadShake.current) {
+      lastHeadShake.current = headShake
+      if (!reduced) headShakeStart.current = clock.elapsedTime
+    }
+    if (headShakeStart.current !== null && root.current) {
+      const t = clock.elapsedTime - headShakeStart.current
+      root.current.rotation.y = headShakeAngle(t)
+      if (t >= HEAD_SHAKE_SECONDS) headShakeStart.current = null
+    }
     // o mesmo passo suavizado com que a nave anda (store/frameClock); a amostra de inércia mede o deslocamento do
     // último render, que veio do passo anterior — com o delta cru, o tremido viraria tranco falso nos tentáculos
     const dt = flightClock.step(clock.elapsedTime, delta)
@@ -346,11 +402,18 @@ export function Pilot({ expression, blinking, armMode, shake = 0, inertiaFrame =
       const tip = tips.current[i]
       if (tip) tentacles[i].rod.tip(tip.position)
     }
+    // olhar em degraus: só repinta o rosto quando a íris muda de degrau
+    const look = gaze?.current ?? GAZE_AHEAD
+    const gx = quantizeGaze(look.x)
+    const gy = quantizeGaze(look.y)
+    const painted = paintedGaze.current
+    if (gx !== painted.x || gy !== painted.y) {
+      painted.x = gx
+      painted.y = gy
+      paintFace(texture, expression, blinking, painted)
+    }
   })
 
-  const texture = useMemo(() => createFaceTexture(), [])
-  useEffect(() => paintFace(texture, expression, blinking), [expression, blinking, texture])
-  useEffect(() => () => texture.dispose(), [texture])
 
   return (
     <group ref={root}>
@@ -359,36 +422,41 @@ export function Pilot({ expression, blinking, armMode, shake = 0, inertiaFrame =
         material={BODY_MATERIAL}
         position={[0, TORSO.base[1], 0]}
         scale={[TORSO.rx, TORSO.ry, TORSO.rz]}
+        userData={{ part: 'body' }}
       />
-      <mesh geometry={HEAD_GEOMETRY} material={BODY_MATERIAL} position={[0, HEAD.center[1], 0]} scale={[HEAD.rx, HEAD.ry, HEAD.rz]} />
-      {[1, -1].map((side) => (
-        <group key={side} position={[side * EAR.root[0], EAR.root[1], 0]} rotation={[0, 0, -side * EAR_TILT]}>
-          <mesh geometry={EAR_GEOMETRY} material={BODY_MATERIAL} scale={[EAR.radius, EAR_LENGTH, EAR.radius * EAR.depth]} />
-          <mesh geometry={INNER_EAR_GEOMETRY} material={INNER_EAR_MATERIAL} />
-        </group>
-      ))}
-      {/* rosto: textura desenhada (mancha pêssego, olhos, boca), sem flatShading; fora da mancha o canvas é
-          transparente e o alphaTest descarta. A própria textura como emissivo fraco mantém a pele clara
-          atrás do vidro e na parte de baixo, que pega menos luz */}
-      <mesh geometry={FACE_GEOMETRY}>
-        <meshStandardMaterial
-          map={texture}
-          emissiveMap={texture}
-          emissive="#ffffff"
-          emissiveIntensity={FACE_GLOW}
-          roughness={0.8}
-          alphaTest={0.5}
-          toneMapped={false}
-        />
-      </mesh>
-      {WHISKER_PARTS.map(({ position, quaternion, scale }, i) => (
-        <mesh key={i} geometry={WHISKER_GEOMETRY} material={WHISKER_MATERIAL} position={position} quaternion={quaternion} scale={scale} />
-      ))}
+      {/* cabeça, orelhas, rosto e bigodes: o toque em qualquer um é na cabeça (modo de foco) */}
+      <group userData={{ part: 'head' }}>
+        <mesh geometry={HEAD_GEOMETRY} material={BODY_MATERIAL} position={[0, HEAD.center[1], 0]} scale={[HEAD.rx, HEAD.ry, HEAD.rz]} />
+        {proxies && <PartProxy part="head" radius={HEAD.rx} position={[0, HEAD.center[1], 0]} />}
+        {[1, -1].map((side) => (
+          <group key={side} position={[side * EAR.root[0], EAR.root[1], 0]} rotation={[0, 0, -side * EAR_TILT]}>
+            <mesh geometry={EAR_GEOMETRY} material={BODY_MATERIAL} scale={[EAR.radius, EAR_LENGTH, EAR.radius * EAR.depth]} />
+            <mesh geometry={INNER_EAR_GEOMETRY} material={INNER_EAR_MATERIAL} />
+          </group>
+        ))}
+        {/* rosto: textura desenhada (mancha pêssego, olhos, boca), sem flatShading; fora da mancha o canvas é
+            transparente e o alphaTest descarta. A própria textura como emissivo fraco mantém a pele clara
+            atrás do vidro e na parte de baixo, que pega menos luz */}
+        <mesh geometry={FACE_GEOMETRY}>
+          <meshStandardMaterial
+            map={texture}
+            emissiveMap={texture}
+            emissive="#ffffff"
+            emissiveIntensity={FACE_GLOW}
+            roughness={0.8}
+            alphaTest={0.5}
+            toneMapped={false}
+          />
+        </mesh>
+        {WHISKER_PARTS.map(({ position, quaternion, scale }, i) => (
+          <mesh key={i} geometry={WHISKER_GEOMETRY} material={WHISKER_MATERIAL} position={position} quaternion={quaternion} scale={scale} />
+        ))}
+      </group>
 
       {/* tentáculos: o livre (acena), o enrolado na empunhadura do manche (que fica na nave), o do painel e as
           duas pernas. Malhas dobradas pela física a cada quadro; a ponta arredondada segue o fim da espinha */}
       {tentacles.map(({ tube, suckers, tipRadius, tip }, i) => (
-        <group key={i}>
+        <group key={i} userData={{ part: `tentacle:${i}` }}>
           <mesh geometry={tube} material={TENTACLE_MATERIAL} />
           <mesh geometry={suckers} material={SUCKER_MATERIAL} />
           <mesh
@@ -399,7 +467,9 @@ export function Pilot({ expression, blinking, armMode, shake = 0, inertiaFrame =
             material={BODY_MATERIAL}
             position={tip}
             scale={tipRadius}
-          />
+          >
+            {proxies && <PartProxy part={`tentacle:${i}`} radius={TIP_PROXY} />}
+          </mesh>
         </group>
       ))}
 

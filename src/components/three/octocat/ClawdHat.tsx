@@ -1,6 +1,10 @@
+import { useRef } from 'react'
+import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { EdgedBoxGeometry } from 'three-low-poly'
-import { HAT_BLOCKS, HAT_EYE_BLOCKS, type Block } from '@/lib/ship/geometry'
+import { CLAWD, HAT_BLOCKS, HAT_EYE_BLOCKS, type Block } from '@/lib/ship/geometry'
+import { CLAWD_HOP_SECONDS, clawdHop } from '@/lib/ship/play'
+import { PartProxy } from './PartProxy'
 
 /** Largura do chanfro (máxima): peças pequenas usam no máximo um quarto da menor dimensão. */
 const BEVEL = 0.02
@@ -50,12 +54,44 @@ const PARTS = [
   ...HAT_EYE_BLOCKS.map((block) => ({ block, geometry: eyeGeometry(block.size) })),
 ].map(({ block, geometry }) => ({ position: block.position, geometry, material: materialFor(block.color) }))
 
-export function ClawdHat() {
+/** Pés do Clawd (o fundo das perninhas, na cabeça): o pulinho amassa e estica a partir daqui. */
+const FEET_Y = Math.min(...HAT_BLOCKS.map(({ position, size }) => position[1] - size[1] / 2))
+const BODY_CENTER: [number, number, number] = [0, CLAWD.body.bottom + CLAWD.body.height / 2, 0]
+
+interface ClawdHatProps {
+  /** Muda a cada toque no Clawd (modo de foco): ele agacha, pula e amassa ao pousar nas 4 perninhas. */
+  hop?: number
+  /** Área de toque do Clawd (modo de foco). */
+  proxy?: boolean
+}
+
+export function ClawdHat({ hop = 0, proxy = false }: ClawdHatProps) {
+  const pivot = useRef<THREE.Group>(null)
+  const lastHop = useRef(hop)
+  const hopStart = useRef<number | null>(null)
+  useFrame(({ clock }) => {
+    if (hop !== lastHop.current) {
+      lastHop.current = hop
+      hopStart.current = clock.elapsedTime
+    }
+    const g = pivot.current
+    if (!g || hopStart.current === null) return
+    const t = clock.elapsedTime - hopStart.current
+    if (t >= CLAWD_HOP_SECONDS) hopStart.current = null
+    const { lift, squash } = clawdHop(t)
+    g.position.y = FEET_Y + lift
+    // o volume quase não muda: amassado, fica mais largo
+    const side = 1 / Math.sqrt(squash)
+    g.scale.set(side, squash, side)
+  })
   return (
-    <group>
-      {PARTS.map(({ position, geometry, material }, i) => (
-        <mesh key={i} geometry={geometry} material={material} position={position} />
-      ))}
+    <group ref={pivot} position={[0, FEET_Y, 0]} userData={{ part: 'clawd' }}>
+      <group position={[0, -FEET_Y, 0]}>
+        {PARTS.map(({ position, geometry, material }, i) => (
+          <mesh key={i} geometry={geometry} material={material} position={position} />
+        ))}
+        {proxy && <PartProxy part="clawd" radius={CLAWD.body.width / 2} position={BODY_CENTER} />}
+      </group>
     </group>
   )
 }

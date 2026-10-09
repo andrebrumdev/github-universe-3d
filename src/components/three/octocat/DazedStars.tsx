@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { StarGeometry } from 'three-low-poly'
-import { crashStarsAt } from '@/lib/crash/timeline'
+import { crashStarsAt, dazedStars } from '@/lib/crash/timeline'
 import { COLORS } from '@/lib/ship/geometry'
 import { crashTimeline } from '@/store/crash'
 
@@ -33,13 +33,17 @@ const view = { opacity: 0, angle: 0 }
 /**
  * Octocat tonto depois da trombada: estrelinhas amarelas girando em volta da cabeça (no referencial do piloto). Giram
  * DAZED_SPIN s e somem (ou depressa, se a trombada é interrompida), na linha do tempo da nave (`crashTimeline`).
+ * Tonto de tanto girar no modo de foco, as mesmas estrelinhas, contadas de `spinSince` (s desde que ficou tonto; −1:
+ * não está).
  */
-export function DazedStars() {
+export function DazedStars({ spinSince }: { spinSince?: { readonly current: number } }) {
   const ring = useRef<THREE.Group>(null)
   const stars = useRef<(THREE.Mesh | null)[]>([])
 
   useFrame(() => {
-    const { opacity, angle } = crashStarsAt(crashTimeline, view)
+    crashStarsAt(crashTimeline, view)
+    if (view.opacity === 0 && spinSince && spinSince.current >= 0) dazedStars(spinSince.current, view)
+    const { opacity, angle } = view
     STAR_MATERIAL.opacity = opacity
     if (ring.current) {
       ring.current.visible = opacity > 0

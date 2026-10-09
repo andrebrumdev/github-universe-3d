@@ -407,6 +407,8 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     ctx.sinceClick = t - ev.clickAt
     ctx.crash = happened.crash
     ctx.shipTraveling = traveling
+    // brincando com a nave em foco: o sol fica de olho (só lê o modo da nave)
+    ctx.shipPlay = shipPose.mode === 'focus'
     // raspão (cobre o estilingue): só pela distância, sem depender do sinal da nave
     ctx.closePass = isClosePass(traveling, toShip.length() / SUN_RADIUS)
     ctx.shipFarSide = toShip.angleTo(toCamera) > FAR_SIDE

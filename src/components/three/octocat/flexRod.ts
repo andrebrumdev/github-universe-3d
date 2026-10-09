@@ -304,8 +304,11 @@ export class InertiaProbe {
     this.options = options
   }
 
-  /** `reference`: a câmera (escolta) ou null (mundo). */
-  sample(object: THREE.Object3D, rawDt: number, reference: THREE.Object3D | null = null): VerletInput {
+  /**
+   * `reference`: a câmera (escolta) ou null (mundo). `angularBoost` multiplica o ganho e o teto da parte angular (o giro
+   * do usuário no modo de foco, ver `spinBoostFor`).
+   */
+  sample(object: THREE.Object3D, rawDt: number, reference: THREE.Object3D | null = null, angularBoost = 1): VerletInput {
     const { gain, maxLinear, angularGain, maxAngular, smoothing = 0.05, jump = 2, follow = ESCORT_FOLLOW } = this.options
     if (rawDt <= 0) return this.input
     const kind = reference ? 'camera' : 'world'
@@ -358,7 +361,7 @@ export class InertiaProbe {
     // linear: −a no referencial local (sem a escala do referencial), com ganho e saturação suave
     this.scratch.copy(this.accel).applyQuaternion(this.delta.copy(this.quaternion).invert()).multiplyScalar(-gain / unit)
     saturate(this.scratch, maxLinear).toArray(this.input.linear)
-    saturate(this.scratch.copy(this.alpha).multiplyScalar(angularGain), maxAngular).toArray(this.input.angular)
+    saturate(this.scratch.copy(this.alpha).multiplyScalar(angularGain * angularBoost), maxAngular * angularBoost).toArray(this.input.angular)
     return this.input
   }
 
@@ -392,6 +395,17 @@ export function inertiaFrameFor(mode: ShipMode): 'camera' | 'world' {
   return CAMERA_ANCHORED.has(mode) ? 'camera' : 'world'
 }
 
+/**
+ * No modo de foco o giro é o próprio brinquedo: o usuário gira a nave estacionada e os tentáculos e a antena precisam
+ * dançar com o embalo (e com a freada dele). A aceleração angular desse giro é pequena perto de uma viagem, e o teto de
+ * sempre a deixaria quase parada: ali a parte angular ganha este tanto (ganho e teto).
+ */
+export const FOCUS_SPIN_BOOST = 6
+
+export function spinBoostFor(mode: ShipMode): number {
+  return mode === 'focus' ? FOCUS_SPIN_BOOST : 1
+}
+
 /** Referencial da inércia: `auto` segue o modo da nave (shipPose); `world` sempre o mundo (preview). */
 export type InertiaFrame = 'auto' | 'world'
 
@@ -414,7 +428,8 @@ export function useInertiaProbe(options: InertiaOptions, frame: InertiaFrame = '
           last.target = shipPose.target
           probe.reset()
         }
-        return probe.sample(object, dt, frame === 'auto' && inertiaFrameFor(shipPose.mode) === 'camera' ? camera : null)
+        const reference = frame === 'auto' && inertiaFrameFor(shipPose.mode) === 'camera' ? camera : null
+        return probe.sample(object, dt, reference, frame === 'auto' ? spinBoostFor(shipPose.mode) : 1)
       },
       reset: () => probe.reset(),
     }

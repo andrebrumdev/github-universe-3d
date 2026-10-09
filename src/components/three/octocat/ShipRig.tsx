@@ -52,6 +52,8 @@ import {
   THREE_QUARTER_YAW,
   type ShipTarget,
 } from '@/lib/ship/escort'
+import { focusCenter, focusFront, focusParking, shipClick } from '@/lib/ship/focus'
+import { tapSlop } from '@/lib/ship/focusGesture'
 import { burnJolt, flameLevel, JOLT_SURGE, settleThrust } from '@/lib/ship/motion'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
 import { blendFramesPoint, frameFromPose, frameToLocal, frameToWorld, type CameraFrame } from '@/lib/ship/cameraFrame'
@@ -61,6 +63,7 @@ import { burnPhase, planTransferTo, travelBodies } from '@/lib/ship/transfer'
 import { newVisitWatch, projectDisc, visitLocal, visitPlacement, visitStep, type Disc, type VisitWatch } from '@/lib/ship/visit'
 import { travelPoint, travelTangent, travelVelocity, type TravelPath } from '@/lib/ship/travel'
 import type { Repo } from '@/lib/types'
+import { panelSelection } from '@/lib/interaction'
 import { reservedRects } from '@/lib/uiLayout'
 import { barycenterOffset } from '@/lib/universe/barycenter'
 import { predictStopTime } from '@/lib/universe/clock'
@@ -78,6 +81,7 @@ import { FireTrail, TrailWarmup } from './FireTrail'
 import { OctocatShip, type ArmMode } from './OctocatShip'
 import { RetroPuffs, type Nozzles } from './RetroPuffs'
 import { HEADLIGHT_PLACEMENTS, THRUSTER_ORIGIN, WINGS } from './shipParts'
+import { useShipPlay } from './useShipPlay'
 
 /** Taxa (1/s) com que a nave assenta no canto da escolta (vindo da volta ou de um resize). */
 const ESCORT_SETTLE = 8
@@ -126,6 +130,14 @@ const PUFF_JOLT = 0.45
 /** Tranco da trombada na tela: para trás, bem mais forte que um puff. */
 const CRASH_JOLT = 1.6
 
+/** Ritmo (1/s) com que a nave desliza da escolta (ou da visita) até onde estaciona no modo de foco. */
+const FOCUS_GLIDE = 3
+/** No modo de foco a câmera fica perto: o balão se apoia logo acima do Clawd, centrado. */
+const FOCUS_BUBBLE_UP = SHIP_WORLD_HEIGHT * 0.85
+/** Estouro da chama ao tocar no bocal (o nível assenta de volta sozinho) e o tranco dele, para a frente. */
+const FOCUS_BURST = 1.4
+const BURST_JOLT = 0.7
+
 const newFrame = (): CameraFrame => ({ position: [0, 0, 0], right: [1, 0, 0], up: [0, 1, 0], back: [0, 0, 1] })
 /** Escreve em `f` o referencial de uma câmera (posição + orientação), sem alocar. */
 function writeFrame(f: CameraFrame, position: THREE.Vector3, q: THREE.Quaternion, v: THREE.Vector3): CameraFrame {
@@ -166,8 +178,9 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   // O modo também muda fora do tick (viagem/chegada no efeito): compara com o que foi renderizado.
   const renderedMode = useRef<ShipMode>('entering')
   const [hovered, setHovered] = useState(false)
-  useCursor(hovered)
   const camera = useThree((s) => s.camera)
+  const getThree = useThree((s) => s.get)
+  const clock = useThree((s) => s.clock)
   const size = useThree((s) => s.size)
   const fov = (camera as THREE.PerspectiveCamera).fov
   const reduced = useReducedMotion() ?? false
@@ -175,11 +188,12 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   const selection = useUniverse((s) => s.selection)
   const bubble = useUniverse((s) => s.bubble)
   const step = useTutorial((s) => s.step)
-  const startTutorial = useTutorial((s) => s.start)
   const tutorialOpen = step !== null
   const presentationOpen = usePresentation((s) => s.state !== null)
   // O painel do planeta/perfil abre com a seleção (fora da apresentação, que tem o cartão dela).
-  const panelOpen = (selection.kind === 'planet' || selection.kind === 'moon' || selection.kind === 'profile') && !presentationOpen
+  const panelOpen = panelSelection(selection) && !presentationOpen
+  /** Modo de foco pedido (a seleção é a nave): estaciona e a câmera orbita em volta (lib/ship/focus). */
+  const focusWanted = selection.kind === 'ship'
   /** O que a nave na visita não pode cobrir, e uma chave para notar quando muda. */
   const visitUi = useMemo(() => {
     const reserved = reservedRects(size.width, size.height, { tutorial: tutorialOpen, presentation: presentationOpen, panel: panelOpen })
@@ -190,6 +204,19 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     latestVisitUi.current = visitUi
   })
   const visit = useRef<VisitSpot | null>(null)
+  /** Modo de foco: onde a nave estaciona (mundo) e a orientação, de frente para quem a chamou e nivelada. */
+  const focusSpot = useRef<{ position: THREE.Vector3; quaternion: THREE.Quaternion } | null>(null)
+  /** Giro do usuário no modo de foco (e o parafuso), entre a orientação da nave e o tranco das queimas. */
+  const spinGroup = useRef<THREE.Group>(null)
+  // Toque no bocal: a chama dá um estouro curto e a nave um tranco para a frente (tentáculos e antena balançam).
+  const onBurst = useCallback(() => {
+    thrustSmooth.current = FOCUS_BURST
+    joltStart.current = clock.elapsedTime
+    joltScale.current = BURST_JOLT
+    setBurnShake((n) => n + 1)
+  }, [clock])
+  const play = useShipPlay({ focused: mode === 'focus', reduced, root: group, onBurst })
+  useCursor(hovered, mode === 'focus' ? (play.dragging ? 'grabbing' : 'grab') : 'pointer')
   /** Câmera do quadro anterior (para saber se ela assentou). */
   const lastCamPos = useMemo(() => new THREE.Vector3(), [])
   const lastCamQuat = useMemo(() => new THREE.Quaternion(), [])
@@ -297,14 +324,44 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   useEffect(() => {
     if (!target) {
       const from = machine.current.mode
+      if (focusWanted) {
+        if (from === 'focus') return
+        // só parada (o clique já confere; aqui é a garantia): fora disso, desiste da seleção
+        if (from !== 'escort' && from !== 'visiting') {
+          useUniverse.getState().clearSelection()
+          return
+        }
+        // Estaciona no mundo, no eixo da visão, a meio caminho do que a câmera olha (lib/ship/focus); a câmera vai
+        // até ela no CameraRig, que lê `shipPose.focus`.
+        const eye = camera.position.toArray() as Vec3
+        const forward = scratch.set(0, 0, -1).applyQuaternion(camera.quaternion).toArray() as Vec3
+        const controls = getThree().controls as unknown as { getTarget?: (out: THREE.Vector3) => THREE.Vector3 } | null
+        const aim = controls?.getTarget?.(look)
+        const park = focusParking(eye, forward, aim ? aim.distanceTo(camera.position) : Infinity, (camera as THREE.PerspectiveCamera).near)
+        const front = focusFront(park, eye)
+        helper.position.set(...park)
+        helper.up.set(0, 1, 0)
+        helper.lookAt(look.set(park[0] + front[0], park[1], park[2] + front[2]))
+        focusSpot.current = { position: new THREE.Vector3(...park), quaternion: helper.quaternion.clone() }
+        shipPose.focus = { center: focusCenter(park), front }
+        machine.current = shipReducer(machine.current, { type: 'focus' })
+        visit.current = null
+        if (reduced) group.current?.position.set(...park)
+        shipPose.mode = machine.current.mode
+        shipPose.target = null
+        shipPose.userTravel = false
+        shipPose.velocity = [0, 0, 0]
+        return
+      }
+      const leaving = from === 'traveling' || from === 'visiting' || from === 'focus'
       let duration: number | undefined
-      // Só uma saída de verdade (viagem ou visita) planeja a volta: um efeito que roda de novo no meio dela (resize,
-      // passo do tutorial) não a interrompe.
-      if (from === 'traveling' || from === 'visiting') {
+      // Só uma saída de verdade (viagem, visita ou modo de foco) planeja a volta: um efeito que roda de novo no meio
+      // dela (resize, passo do tutorial) não a interrompe.
+      if (leaving) {
         returnPlan.current = null
         crashPlan.current = null
       }
-      if (!reduced && (from === 'traveling' || from === 'visiting')) {
+      if (!reduced && leaving) {
         // Volta: no referencial da câmera (atrasada) desta hora; sai pela tangente da órbita em volta do sol.
         writeFrame(returnFrame, camera.position, lagQuat, scratch)
         const p = shipPose.position
@@ -320,16 +377,19 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
           escort: base,
           side,
         }
-        // de vez em quando (raro), a volta vem rápido demais e bate na tela — mais fácil quanto maior o embalo dela
+        // de vez em quando (raro), a volta vem rápido demais e bate na tela — mais fácil quanto maior o embalo dela;
+        // saindo do modo de foco, nunca (nem conta)
+        const fromFocus = from === 'focus'
         const crash = shouldCrash(crashSession.rng, crashSession.history, {
           from: machine.current.target,
           tutorial: step !== null,
           presentation: usePresentation.getState().state !== null,
           reducedMotion: reduced,
+          fromFocus,
           momentum: returnMomentum(input),
           override: CRASH_OVERRIDE,
         })
-        crashSession.history = recordReturn(crashSession.history, crash)
+        if (!fromFocus) crashSession.history = recordReturn(crashSession.history, crash)
         if (crash) {
           crashPlan.current = planCrash(input)
           duration = crashTotal(crashPlan.current)
@@ -379,8 +439,10 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
       // A viagem termina no lugar da visita, no referencial da pose de foco, que já é a do instante em que o tempo
       // para (o alvo não anda mais depois da chegada).
       const destinationAt = () => destination
-      // Saindo da visita em primeiro plano (perto da lente): primeiro para longe da câmera, depois a transferência.
-      const lens = machine.current.mode === 'visiting' ? writeFrame(newFrame(), camera.position, lagQuat, scratch) : null
+      // Saindo da visita em primeiro plano ou do modo de foco (perto da lente): primeiro para longe da câmera, depois a
+      // transferência.
+      const parked = machine.current.mode === 'visiting' || machine.current.mode === 'focus'
+      const lens = parked ? writeFrame(newFrame(), camera.position, lagQuat, scratch) : null
       const path = planTransferTo(shipPose.position, destinationAt, {
         sun: barycenterOffset(system, stop),
         // Troca de destino em voo: parte com a velocidade atual (sem quina). Parada (escolta, visita): queima de partida.
@@ -394,7 +456,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     }
     shipPose.mode = machine.current.mode
     shipPose.target = machine.current.target
-  }, [target, system, camera, reduced, step, layout, size, repos, lagQuat, returnFrame, scratch])
+  }, [target, focusWanted, system, camera, getThree, reduced, step, layout, size, repos, lagQuat, returnFrame, scratch, helper, look])
 
   /** Disco do alvo na tela agora (px), escrito sempre no mesmo objeto (copie para guardar), ou null. */
   const discOut = useRef<Disc>({ x: 0, y: 0, r: 0 })
@@ -420,9 +482,9 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     if (!afterShip) setAfterShip(true)
     // passo suavizado, o mesmo da câmera: o delta do R3F treme e a nave andaria em passos desiguais na tela
     const dt = flightClock.step(clock.elapsedTime, rawDt)
-    // Escolta e visita não mudam de modo com o tempo: avança no lugar, sem alocar um estado novo por frame.
+    // Escolta, visita e foco não mudam de modo com o tempo: avança no lugar, sem alocar um estado novo por frame.
     let s = machine.current
-    if (s.mode === 'escort' || s.mode === 'visiting') s.elapsed += dt
+    if (s.mode === 'escort' || s.mode === 'visiting' || s.mode === 'focus') s.elapsed += dt
     else s = shipReducer(s, { type: 'tick', dt })
     if (s.mode !== renderedMode.current) {
       // Assentou no canto depois da volta: acena uma vez ("voltei").
@@ -438,6 +500,11 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
       setGreeting(false)
     }
     machine.current = s
+    // saiu do modo de foco (volta, viagem): esquece onde estacionou
+    if (s.mode !== 'focus' && focusSpot.current) {
+      focusSpot.current = null
+      shipPose.focus = null
+    }
 
     lagQuat.slerp(camera.quaternion, reduced ? 1 : 1 - Math.exp(-ESCORT_FOLLOW * dt))
 
@@ -560,16 +627,23 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
       for (let i = 0; i < 3; i++) v.local[i] += (v.targetLocal[i] - v.local[i]) * k
       const hand = v.watch.hand
       g.position.fromArray(blendFramesPoint(v.goal, frameNow, hand * hand * (3 - 2 * hand), v.local, posArr))
+    } else if (s.mode === 'focus' && focusSpot.current) {
+      // Modo de foco: desliza até onde estacionou, no mundo, e fica (a câmera orbita em volta dela).
+      hasLocal.current = false
+      g.position.lerp(focusSpot.current.position, reduced ? 1 : 1 - Math.exp(-FOCUS_GLIDE * dt))
     } else {
       hasLocal.current = false
       look.copy(goal).applyQuaternion(lagQuat).add(camera.position)
       const rate = s.mode === 'returning' ? 3 / RETURN_DURATION : 4
       g.position.lerp(look, reduced ? 1 : 1 - Math.exp(-rate * dt))
     }
-    // Nada da nave encosta no plano próximo, nem com a câmera chegando perto dela, em nenhum modo (também na viagem
-    // e na volta: a última garantia; a saída perto da lente já se planeja para longe dela).
-    keepAway(g.position.toArray(posArr), camera.position.toArray(camArr), MIN_SHIP_DISTANCE, posArr)
-    g.position.fromArray(posArr)
+    // Nada da nave encosta no plano próximo, nem com a câmera chegando perto dela (também na viagem e na volta: a
+    // última garantia; a saída perto da lente já se planeja para longe dela). No modo de foco, quem garante é o limite
+    // do zoom em volta dela: empurrar a nave estacionada faria a câmera correr atrás do próprio alvo.
+    if (s.mode !== 'focus') {
+      keepAway(g.position.toArray(posArr), camera.position.toArray(camArr), MIN_SHIP_DISTANCE, posArr)
+      g.position.fromArray(posArr)
+    }
 
     // Trombada: chegou à distância mínima da lente (fim do mergulho) — vidro trinca no ponto da nave na tela, a tela
     // treme, a nave dá um tranco para trás (tentáculos e antena levam o empurrão) e o Octocat fica tonto.
@@ -641,6 +715,10 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
         helper.rotateZ(wobble.roll)
         helper.rotateX(wobble.pitch)
       }
+    } else if (s.mode === 'focus' && focusSpot.current) {
+      // de frente para quem a chamou e nivelada; o giro do usuário fica no grupo de dentro (useShipPlay)
+      shipPose.bank = 0
+      helper.quaternion.copy(focusSpot.current.quaternion)
     } else {
       shipPose.bank = 0
       helper.up.copy(up)
@@ -653,8 +731,14 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     g.quaternion.slerp(targetQuat, reduced ? 1 : 1 - Math.exp(-6 * dt))
 
     // Apoio do balão (DOM, no OctocatSpeech): acima da nave, puxado para o centro da tela, projetado em pixels.
+    // No modo de foco a nave fica grande no meio da tela: o balão vai centrado, logo acima do Clawd.
     right.set(1, 0, 0).applyQuaternion(camera.quaternion)
-    speech.copy(g.position).addScaledVector(up, BUBBLE_UP).addScaledVector(right, -yawSide * BUBBLE_IN).project(camera)
+    const focusing = s.mode === 'focus'
+    speech
+      .copy(g.position)
+      .addScaledVector(up, focusing ? FOCUS_BUBBLE_UP : BUBBLE_UP)
+      .addScaledVector(right, focusing ? 0 : -yawSide * BUBBLE_IN)
+      .project(camera)
     shipPose.speechX = ((speech.x + 1) / 2) * size.width
     shipPose.speechY = ((1 - speech.y) / 2) * size.height
     shipPose.speechOnScreen = speech.z < 1 && Math.abs(speech.x) < 1.2 && Math.abs(speech.y) < 1.2
@@ -722,14 +806,19 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     }
     shipPose.mode = s.mode
     shipPose.target = s.target
+    // giro, parafuso e olhar do modo de foco (voltam à pose de frente fora dele)
+    play.update(dt, spinGroup.current)
   })
 
-  const expression: OctocatExpression = hovered
+  // No modo de foco a nave ocupa o meio da tela: o mouse em cima dela é o normal, não pede piscadela nem aceno.
+  const hoverWink = hovered && mode !== 'focus'
+  const expression: OctocatExpression = hoverWink
     ? 'wink'
-    : dizzy
+    : dizzy || play.dizzy
       ? 'dizzy'
       : (bubble?.line.expression ?? (mode === 'traveling' || knocking ? 'happy' : 'neutral'))
-  const armMode: ArmMode = hovered || knocking || greeting || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
+  const armMode: ArmMode =
+    hoverWink || knocking || greeting || play.waving || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
   // com movimento reduzido (sem voo), níveis fixos pela prop; com movimento, a nave lê `thrustSmooth` a cada quadro
   const thrusterLevel = mode === 'entering' ? 0.8 : 0.25
 
@@ -750,26 +839,47 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
         scale={SHIP_SCALE}
         onClick={(e) => {
           e.stopPropagation()
-          // a nave sai de baixo do cursor parado: sem isso, o piscar e o aceno ficam até o mouse mexer
+          // arrastar a câmera e soltar em cima da nave não é clique
+          if (e.delta > tapSlop(true)) return
+          // Entra no modo de foco (o tutorial agora só pelo "? Tutorial"); já nele, o toque é brincadeira (useShipPlay).
+          const action = shipClick({
+            focused: useUniverse.getState().selection.kind === 'ship',
+            shipMode: machine.current.mode,
+            tutorial: useTutorial.getState().step,
+            presenting: usePresentation.getState().state !== null,
+            crashActive: crashTimeline.since >= 0 && crashTimeline.cancelledAt < 0,
+          })
+          if (action === 'play') return
+          // o piscar e o aceno do mouse em cima não ficam até ele mexer
           setHovered(false)
-          startTutorial()
+          if (action === 'enter') useUniverse.getState().select({ kind: 'ship' })
+          else if (action === 'cancelCrash') crashCancel(crashTimeline)
         }}
+        onPointerDown={play.onPointerDown}
         onPointerOver={(e) => {
           e.stopPropagation()
           setHovered(true)
         }}
         onPointerOut={() => setHovered(false)}
       >
-        <group ref={jolt}>
-          <OctocatShip
-            expression={expression}
-            armMode={armMode}
-            thrusterLevel={thrusterLevel}
-            thrusterRef={reduced ? undefined : thrustSmooth}
-            floating={mode !== 'traveling'}
-            shake={burnShake}
-            dazed={starry}
-          />
+        <group ref={spinGroup}>
+          <group ref={jolt}>
+            <OctocatShip
+              expression={expression}
+              armMode={armMode}
+              thrusterLevel={thrusterLevel}
+              thrusterRef={reduced ? undefined : thrustSmooth}
+              floating={mode !== 'traveling'}
+              shake={burnShake}
+              dazed={starry || play.dizzy}
+              gaze={play.gaze}
+              wiggle={play.wiggle}
+              hop={play.hop}
+              proxies={mode === 'focus'}
+              spinDizzySince={play.dizzySince}
+              headShake={play.headShake}
+            />
+          </group>
         </group>
       </group>
     </>

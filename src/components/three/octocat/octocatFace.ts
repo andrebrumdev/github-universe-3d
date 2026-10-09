@@ -56,7 +56,7 @@ function line(ctx: CanvasRenderingContext2D, d: string, width: number, color: st
 }
 
 /** Olho aberto: branco esverdeado, íris marrom com brilho, traço de pálpebra por cima e cílio no canto de fora. */
-function openEye(ctx: CanvasRenderingContext2D, eye: Eye, shape: OpenEye, irisDx = 0): void {
+function openEye(ctx: CanvasRenderingContext2D, eye: Eye, shape: OpenEye, irisDx = 0, irisDy = 0): void {
   const side = outward(eye)
   withEye(ctx, eye, () => {
     const { rx, ry, iris } = shape
@@ -67,7 +67,7 @@ function openEye(ctx: CanvasRenderingContext2D, eye: Eye, shape: OpenEye, irisDx
 
     ctx.save()
     ctx.clip(sclera)
-    const [ix, iy] = [iris.dx + irisDx, iris.dy]
+    const [ix, iy] = [iris.dx + irisDx, iris.dy + irisDy]
     ctx.fillStyle = COLORS.iris
     ctx.beginPath()
     ctx.ellipse(ix, iy, iris.rx, iris.ry, 0, 0, Math.PI * 2)
@@ -183,15 +183,26 @@ function whiskers(ctx: CanvasRenderingContext2D): void {
   }
 }
 
+/** Para onde os olhos olham: −1..1 em x (para a direita da tela) e em y (para baixo); 0, 0 é para a frente. */
+export interface Gaze {
+  x: number
+  y: number
+}
+export const GAZE_AHEAD: Readonly<Gaze> = { x: 0, y: 0 }
+/** Quanto a íris anda (px do SVG) no olhar máximo: fica dentro do branco do olho. */
+export const GAZE_REACH = { x: 4.5, y: 5 } as const
+
 const SMILE = 'M182 218 Q200 226 218 218 Q217 243 200 244 Q183 243 182 218 Z'
 const SMILE_TONGUE = { cx: 200, cy: 241, rx: 10, ry: 6.5 }
 
-function drawExpression(ctx: CanvasRenderingContext2D, expression: OctocatExpression, blinking: boolean): void {
+function drawExpression(ctx: CanvasRenderingContext2D, expression: OctocatExpression, blinking: boolean, gaze: Readonly<Gaze>): void {
+  const gx = gaze.x * GAZE_REACH.x
+  const gy = gaze.y * GAZE_REACH.y
   switch (expression) {
     case 'neutral':
       for (const eye of [LEFT_EYE, RIGHT_EYE]) {
         if (blinking) closedEye(ctx, eye, false)
-        else openEye(ctx, eye, NORMAL_EYE)
+        else openEye(ctx, eye, NORMAL_EYE, gx, gy)
       }
       nose(ctx)
       openMouth(ctx, SMILE, SMILE_TONGUE)
@@ -206,7 +217,7 @@ function drawExpression(ctx: CanvasRenderingContext2D, expression: OctocatExpres
       dimples(ctx, 176, 224, 215)
       break
     case 'wink':
-      openEye(ctx, LEFT_EYE, NORMAL_EYE, 2)
+      openEye(ctx, LEFT_EYE, NORMAL_EYE, 2 + gx, gy)
       closedEye(ctx, RIGHT_EYE, true)
       blush(ctx, [1])
       nose(ctx)
@@ -216,8 +227,8 @@ function drawExpression(ctx: CanvasRenderingContext2D, expression: OctocatExpres
       break
     case 'surprised': {
       const wide: OpenEye = { rx: 14, ry: 19, iris: { dx: 0, dy: 3, rx: 4.5, ry: 6 } }
-      openEye(ctx, LEFT_EYE, wide)
-      openEye(ctx, RIGHT_EYE, wide)
+      openEye(ctx, LEFT_EYE, wide, gx, gy)
+      openEye(ctx, RIGHT_EYE, wide, gx, gy)
       nose(ctx)
       openMouth(ctx, 'M200 222 C208 222 210 230 210 234 C210 241 205 244 200 244 C195 244 190 241 190 234 C190 230 192 222 200 222 Z', null)
       break
@@ -250,9 +261,15 @@ function drawExpression(ctx: CanvasRenderingContext2D, expression: OctocatExpres
 
 /**
  * Desenha o rosto: limpa (transparente), pinta a mancha pêssego e os traços da expressão por cima.
- * `blinking` só vale para o neutro (olhos fechados por um instante).
+ * `blinking` só vale para o neutro (olhos fechados por um instante); `gaze` move a íris dos olhos abertos (neutro,
+ * piscadela, surpreso).
  */
-export function drawOctocatFace(ctx: CanvasRenderingContext2D, expression: OctocatExpression, blinking: boolean): void {
+export function drawOctocatFace(
+  ctx: CanvasRenderingContext2D,
+  expression: OctocatExpression,
+  blinking: boolean,
+  gaze: Readonly<Gaze> = GAZE_AHEAD,
+): void {
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.clearRect(0, 0, FACE_TEX_W, FACE_TEX_H)
   const s = FACE_TEX_W / BOX.w
@@ -262,7 +279,7 @@ export function drawOctocatFace(ctx: CanvasRenderingContext2D, expression: Octoc
   ctx.fillStyle = COLORS.skin
   ctx.fill(new Path2D(SKIN_PATH))
   whiskers(ctx)
-  drawExpression(ctx, expression, blinking)
+  drawExpression(ctx, expression, blinking, gaze)
 
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.globalAlpha = 1

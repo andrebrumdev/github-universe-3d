@@ -5,7 +5,8 @@ import { useTutorial } from '@/store/tutorial'
 
 export function TutorialButton() {
   const start = useTutorial((s) => s.start)
-  // Com o painel aberto (ou a folha da apresentação, no celular), sai do caminho; o tutorial segue no clique na nave.
+  // Com o painel aberto, no modo de foco na nave (ou a folha da apresentação, no celular), sai do caminho: o tutorial
+  // só abre por aqui (clicar na nave entra no modo de foco).
   const hidden = useFloatingButtonsHidden()
   if (hidden) return null
   return (

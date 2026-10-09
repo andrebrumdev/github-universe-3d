@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useIdle } from '@/hooks/useIdle'
 import { steerBubble } from '@/lib/bubblePlacement'
+import { panelSelection } from '@/lib/interaction'
 import { formatLine, LINE_DURATION_MS } from '@/lib/octocat/lines'
 import { backButtonRect, isSheetLayout, safeArea, sidePanelWidth, UI_GAP } from '@/lib/uiLayout'
 import { usePresentation } from '@/store/presentation'
@@ -41,9 +42,11 @@ export function OctocatSpeech({ profileName }: { profileName: string }) {
         // Dentro da tela e, com o painel lateral (ou o cartão da apresentação, na mesma coluna) aberto no desktop,
         // à esquerda dele (senão o painel corta o balão).
         const half = el.offsetWidth / 2
-        const selected = useUniverse.getState().selection.kind !== 'none'
+        const { selection } = useUniverse.getState()
+        // o "← Galáxia" aparece com qualquer seleção (também no modo de foco na nave); a coluna, só com o painel
+        const selected = selection.kind !== 'none'
         const presenting = usePresentation.getState().state !== null
-        const columnBusy = selected || presenting
+        const columnBusy = panelSelection(selection) || presenting
         const { innerWidth: W, innerHeight: H } = window
         const panelOpen = columnBusy && !isSheetLayout(W, H)
         const maxX = W - UI_GAP - half - (panelOpen ? sidePanelWidth(W) : safeArea.right)

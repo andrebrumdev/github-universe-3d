@@ -6,7 +6,7 @@ import { FrameClock } from '@/lib/ship/frameClock'
 import { COCKPIT, FREE_TENTACLE } from '@/lib/ship/geometry'
 import { hoverOffset } from '@/lib/ship/motion'
 import { applyImpulse, setRest } from '@/lib/ship/verlet'
-import { FlexRod, InertiaProbe, inertiaFrameFor, PILOT_INERTIA } from './flexRod'
+import { FlexRod, InertiaProbe, inertiaFrameFor, PILOT_INERTIA, spinBoostFor } from './flexRod'
 
 /** Tentáculo de teste: arco no plano xy, raiz na origem, varrido como os do piloto (hexágono afinando). */
 const POINTS: [number, number, number][] = Array.from({ length: 6 }, (_, i) => {
@@ -260,6 +260,37 @@ describe('referencial da inércia por modo', () => {
     expect(inertiaFrameFor('visiting')).toBe('camera')
     expect(inertiaFrameFor('traveling')).toBe('world')
     expect(inertiaFrameFor('returning')).toBe('world')
+  })
+
+  it('modo de foco: estacionada no mundo, contra o mundo (o giro do usuário balança tentáculos e antena)', () => {
+    expect(inertiaFrameFor('focus')).toBe('world')
+  })
+})
+
+describe('giro do usuário no modo de foco', () => {
+  /** Gira em y, acelerando a `alpha` rad/s², e devolve a aceleração angular sentida em y. */
+  function spinUp(boost: number, alpha = 60): number {
+    const sonda = new InertiaProbe(PILOT_INERTIA)
+    const object = new THREE.Object3D()
+    const dt = 1 / 60
+    for (let k = 0; k < 30; k++) {
+      object.rotation.y = 0.5 * alpha * (k * dt) ** 2
+      object.updateMatrixWorld()
+      sonda.sample(object, dt, null, boost)
+    }
+    return Math.abs(sonda.input.angular[1])
+  }
+
+  it('só no modo de foco a parte angular ganha força (fora dele, a de sempre)', () => {
+    expect(spinBoostFor('focus')).toBeGreaterThan(1)
+    for (const mode of ['entering', 'escort', 'traveling', 'visiting', 'returning'] as const) expect(spinBoostFor(mode)).toBe(1)
+  })
+
+  it('o mesmo giro, no modo de foco, balança bem mais, ainda com teto', () => {
+    const normal = spinUp(1)
+    const boosted = spinUp(spinBoostFor('focus'))
+    expect(boosted).toBeGreaterThan(3 * normal)
+    expect(boosted).toBeLessThan(PILOT_INERTIA.maxAngular * spinBoostFor('focus'))
   })
 })
 

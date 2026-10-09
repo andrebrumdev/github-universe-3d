@@ -10,6 +10,7 @@ import { PresentationButton } from '@/components/ui/PresentationButton'
 import { PresentationCard } from '@/components/ui/PresentationCard'
 import { ProfilePanel } from '@/components/ui/ProfilePanel'
 import { SceneBoundary } from '@/components/ui/SceneBoundary'
+import { ShipFocusHint } from '@/components/ui/ShipFocusHint'
 import { StaticFallback } from '@/components/ui/StaticFallback'
 import { Tutorial } from '@/components/ui/Tutorial'
 import { TutorialButton } from '@/components/ui/TutorialButton'
@@ -49,6 +50,7 @@ export function App() {
         <PlanetPanel universe={universe} />
         <ProfilePanel profile={universe.profile} />
         <OctocatSpeech profileName={universe.profile.name} />
+        <ShipFocusHint />
         {/* na ordem em que aparecem na tela (da esquerda para a direita) */}
         <PresentationButton universe={universe} />
         <TutorialButton />

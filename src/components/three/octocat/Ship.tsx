@@ -10,6 +10,7 @@ import { useBloom } from '@/store/bloom'
 import { flightClock } from '@/store/frameClock'
 import { FlexRod, type InertiaFrame, useInertiaProbe } from './flexRod'
 import { mergeParts, partMatrix } from './mergeParts'
+import { PartProxy } from './PartProxy'
 import {
   ANTENNA_GEOMETRY,
   ANTENNA_NODES,
@@ -145,17 +146,23 @@ const GRIPS_GEOMETRY = mergeParts(YOKE_GRIP_GEOMETRIES.map((geometry) => ({ geom
 const HEADLIGHTS_GEOMETRY = mergeParts(headlightFrames.map((matrix) => ({ geometry: HEADLIGHT_GEOMETRY, matrix })))
 const ENGINE_BANDS_GEOMETRY = mergeParts(ENGINE_BAND_GEOMETRIES.map((geometry) => ({ geometry })))
 
+/** Raio da área de toque do bocal (espaço da nave): a boca dele, um pouco maior. */
+const NOZZLE_PROXY = 0.55
+
 export function Ship({
   thrusterLevel: levelProp,
   thrusterRef,
   shake = 0,
   inertiaFrame = 'auto',
+  proxies = false,
 }: {
   thrusterLevel: number
   /** Quando existe, o nível vem dele a cada quadro (sem re-render); senão, da prop. */
   thrusterRef?: { readonly current: number }
   shake?: number
   inertiaFrame?: InertiaFrame
+  /** Área de toque do bocal (modo de foco). */
+  proxies?: boolean
 }) {
   const reducedMotion = useReducedMotion() ?? false
   const root = useRef<THREE.Group>(null)
@@ -258,7 +265,8 @@ export function Ship({
       <mesh geometry={GRIPS_GEOMETRY} material={GRIP_MATERIAL} />
       <mesh geometry={HEADLIGHTS_GEOMETRY} material={HEADLIGHT_MATERIAL} />
       <mesh geometry={ENGINE_BANDS_GEOMETRY} material={ringPulse.material} />
-      <mesh geometry={NOZZLE_GEOMETRY} material={NOZZLE_MATERIAL} />
+      <mesh geometry={NOZZLE_GEOMETRY} material={NOZZLE_MATERIAL} userData={{ part: 'nozzle' }} />
+      {proxies && <PartProxy part="nozzle" radius={NOZZLE_PROXY} position={THRUSTER_ORIGIN} />}
 
       {/* quadradinhos de contribuição na frente do aro (um material por cor) */}
       {SQUARE_PLACEMENTS.map(({ position, yaw }, i) => (
@@ -293,11 +301,12 @@ export function Ship({
       <mesh ref={antennaTip} geometry={ANTENNA_TIP_GEOMETRY} material={CREAM_MATERIAL} position={ANTENNA_TIP_POSITION} />
 
       {/* propulsor na boca do bocal */}
-      <mesh ref={flame} geometry={FLAME_GEOMETRY} material={flameMaterial} position={THRUSTER_ORIGIN} />
+      <mesh ref={flame} geometry={FLAME_GEOMETRY} material={flameMaterial} position={THRUSTER_ORIGIN} userData={{ part: 'nozzle' }} />
       <primitive object={thrusterHalo} position={THRUSTER_ORIGIN} />
 
       {/* cúpula de vidro por último: transparente, sem escrever profundidade; nada cruza a frente dela */}
-      <mesh geometry={CANOPY_GEOMETRY} material={GLASS_MATERIAL} />
+      {/* o toque atravessa o vidro (modo de foco): ver pickPart */}
+      <mesh geometry={CANOPY_GEOMETRY} material={GLASS_MATERIAL} userData={{ part: 'glass' }} />
     </group>
   )
 }

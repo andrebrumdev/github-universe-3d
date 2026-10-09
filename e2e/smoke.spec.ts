@@ -8,7 +8,7 @@ const KNOWN_NOISE = [
   /Automatic fallback to software WebGL has been deprecated/i,
 ]
 
-test('universo carrega, o sol abre o perfil e o Octocat reabre o tutorial', async ({ page }) => {
+test('universo carrega, o sol abre o perfil e o "? Tutorial" reabre o tutorial', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
   page.on('console', (m) => {
