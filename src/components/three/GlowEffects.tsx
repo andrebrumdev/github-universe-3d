@@ -26,15 +26,25 @@ export function PlanetGlowDriver() {
  * Montado, liga o visual "com bloom" (opacidades menores para órbitas, atmosferas e halo do sol); desmontado, volta.
  */
 export function GlowBloom() {
+  // O bloom é criado aqui (e não pelo <Bloom>) para nascer com a luminância mascarada: o sol não floresce.
+  // O remendo no shader do postprocessing lança se a lib mudar; aí fica sem bloom, em vez de derrubar a cena.
+  const bloom = useMemo(() => {
+    try {
+      return createGlowBloomEffect()
+    } catch (error) {
+      console.warn('[bloom] desligado: não deu para mascarar o sol no shader do postprocessing', error)
+      return null
+    }
+  }, [])
+  useEffect(() => () => bloom?.dispose(), [bloom])
+  const toneMapping = useMemo(() => (bloom ? new SunMaskToneMappingEffect() : null), [bloom])
+  useEffect(() => () => toneMapping?.dispose(), [toneMapping])
   useEffect(() => {
+    if (!bloom) return
     applyBloomLook(true)
     return () => applyBloomLook(false)
-  }, [])
-  const toneMapping = useMemo(() => new SunMaskToneMappingEffect(), [])
-  useEffect(() => () => toneMapping.dispose(), [toneMapping])
-  // O bloom é criado aqui (e não pelo <Bloom>) para nascer com a luminância mascarada: o sol não floresce.
-  const bloom = useMemo(() => createGlowBloomEffect(), [])
-  useEffect(() => () => bloom.dispose(), [bloom])
+  }, [bloom])
+  if (!bloom || !toneMapping) return null
   return (
     <EffectComposer multisampling={4}>
       <primitive object={bloom} />
