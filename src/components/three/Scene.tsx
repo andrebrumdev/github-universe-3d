@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Stats } from '@react-three/drei'
 import type { Universe } from '@/lib/types'
@@ -15,15 +15,18 @@ import { useSceneReady } from '@/store/sceneReady'
 import { preToneMapped } from './acesBackground'
 import { CameraRig } from './CameraRig'
 import { Comets } from './Comets'
-import { GlowBloom, PlanetGlowDriver } from './GlowEffects'
 import { ShipRig } from './octocat/ShipRig'
 import { OrbitLines } from './OrbitLines'
 import { Planet } from './Planet'
+import { PlanetGlowDriver } from './PlanetGlowDriver'
 import { RenderInfo } from './RenderInfo'
 import { SimClockDriver } from './SimClockDriver'
 import { Sun } from './Sun'
 import { Starfield } from './Starfield'
 import { Trojans } from './Trojans'
+
+/** O bloom (e a lib de pós-processamento) só baixa quando monta: celular e tablet nunca pagam por ele. */
+const GlowBloom = lazy(() => import('./GlowEffects').then((m) => ({ default: m.GlowBloom })))
 
 const SHOW_STATS = new URLSearchParams(window.location.search).has('perf')
 /** Igual ao fundo da página (index.css). */
@@ -97,7 +100,11 @@ export function Scene({ universe }: { universe: Universe }) {
       <Comets system={system} repos={universe.repos} />
       <CameraRig system={system} repos={universe.repos} />
       <ShipRig system={system} repos={universe.repos} />
-      {bloom && <GlowBloom />}
+      {bloom && (
+        <Suspense fallback={null}>
+          <GlowBloom />
+        </Suspense>
+      )}
       {SHOW_STATS && <Stats />}
       {SHOW_STATS && <RenderInfo />}
     </Canvas>
