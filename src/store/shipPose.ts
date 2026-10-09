@@ -35,6 +35,11 @@ export interface ShipPose {
   speechOnScreen: boolean
   /** Disco (px) do alvo na tela, de que o balão da fala desvia (`on` false: nenhum). */
   speechAvoid: { on: boolean; x: number; y: number; r: number }
+  /**
+   * Modo de foco (lib/ship/focus): centro de onde a nave estacionou e a direção (no plano) da frente dela. O CameraRig
+   * enquadra daqui e orbita em volta do centro. null fora do modo.
+   */
+  focus: { center: Vec3; front: Vec3 } | null
 }
 
 /** Estado inicial: fora do raio do sol (o ShipRig põe a nave no ponto de entrada ao montar). */
@@ -55,6 +60,7 @@ export const INITIAL_SHIP_POSE: Readonly<ShipPose> = {
   speechY: 0,
   speechOnScreen: false,
   speechAvoid: { on: false, x: 0, y: 0, r: 0 },
+  focus: null,
 }
 
 /** Mutável de propósito: escrito pela nave a cada frame, lido pela câmera e pelo balão da fala. */

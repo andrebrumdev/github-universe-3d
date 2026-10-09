@@ -177,24 +177,38 @@ export interface OpenCards {
   presentation?: boolean
   /** Painel do planeta/perfil e o "← Galáxia", que aparecem juntos (a nave na visita evita os dois). */
   panel?: boolean
+  /** Modo de foco na nave: o "← Galáxia" e a dica no pé da tela, sem painel. */
+  ship?: boolean
+}
+
+/** Dica do modo de foco na nave: centrada no pé da tela (no celular, em até duas linhas). */
+export const SHIP_HINT = { bottom: 16, maxWidth: 440, height: 36, phoneHeight: 56, inset: 16 } as const
+
+export function shipHintZone(width: number, height: number): Rect {
+  const { bottom, maxWidth, inset } = SHIP_HINT
+  const h = isSheetLayout(width, height) ? SHIP_HINT.phoneHeight : SHIP_HINT.height
+  const w = Math.min(maxWidth, width - 2 * inset - safeArea.left - safeArea.right)
+  return { x: (width - w) / 2, y: height - bottom - safeArea.bottom - h, w, h }
 }
 
 /**
  * Com o painel (planeta, lua, sol) aberto, os botões "? Tutorial" e "▶ Apresentação" somem em qualquer largura: no
  * celular a folha ocupa o lugar deles, e da tela larga para cima eles cairiam em cima da coluna do painel. O
- * "← Galáxia" e o ✕ cuidam da navegação. O cartão da apresentação também os tira no celular (no desktop ele fica acima
- * da linha dos botões). `phone` = layout de folha (o MOBILE_QUERY).
+ * "← Galáxia" e o ✕ cuidam da navegação. No modo de foco na nave também somem (o "← Galáxia" e o Esc saem dele). O
+ * cartão da apresentação também os tira no celular (no desktop ele fica acima da linha dos botões). `phone` = layout de
+ * folha (o MOBILE_QUERY).
  */
 export function floatingButtonsHidden(phone: boolean, open: OpenCards = {}): boolean {
-  return Boolean(open.panel || (phone && open.presentation))
+  return Boolean(open.panel || open.ship || (phone && open.presentation))
 }
 
 /** O que a nave da escolta não pode cobrir: os dois botões, quando aparecem; cada cartão, quando está na tela. */
 export function reservedRects(width: number, height: number, open: OpenCards = {}): Rect[] {
   const rects = floatingButtonsHidden(isSheetLayout(width, height), open) ? [] : [tutorialButtonRect(width, height), presentationButtonRect(width, height)]
-  // O cartão do tutorial cede ao painel (some enquanto ele está aberto: ver `tutorialCardVisible`).
-  if (open.tutorial && !open.panel) rects.push(tutorialCardZone(width, height))
+  // O cartão do tutorial cede ao painel e ao modo de foco (some enquanto eles estão abertos: ver `tutorialCardVisible`).
+  if (open.tutorial && !open.panel && !open.ship) rects.push(tutorialCardZone(width, height))
   if (open.presentation) rects.push(presentationCardZone(width, height))
   if (open.panel) rects.push(sidePanelZone(width, height), backButtonRect())
+  if (open.ship) rects.push(backButtonRect(), shipHintZone(width, height))
   return rects
 }

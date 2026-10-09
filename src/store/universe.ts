@@ -31,6 +31,8 @@ interface UniverseState {
   emitGuide: (event: GuideEvent) => void
   /** Fala livre no balão do Octocat (`{name}` vira o primeiro nome do perfil). */
   say: (text: string, expression?: OctocatExpression) => void
+  /** Fala da brincadeira no modo de foco na nave (sempre sai, com a expressão da reação). */
+  play: (text: string, expression: OctocatExpression) => void
   dismissBubble: (seq: number) => void
 }
 
@@ -62,6 +64,10 @@ export const useUniverse = create<UniverseState>()((set, get) => ({
   say: (text, expression = 'happy') => {
     const seq = get().seq + 1
     set({ bubble: { line: { id: 'presentation', text, once: false, expression }, seq }, seq })
+  },
+  play: (text, expression) => {
+    const seq = get().seq + 1
+    set({ bubble: { line: { id: 'play', text, once: false, expression }, seq }, seq })
   },
   dismissBubble: (s) => {
     if (get().bubble?.seq === s) set({ bubble: null })

@@ -8,6 +8,7 @@ import {
   presentationCardZone,
   reservedRects,
   setSafeArea,
+  shipHintZone,
   sidePanelWidth,
   sidePanelZone,
   TOUCH_TARGET,
@@ -29,6 +30,10 @@ describe('floatingButtonsHidden', () => {
     expect(floatingButtonsHidden(true, { presentation: true })).toBe(true)
     expect(floatingButtonsHidden(false, { presentation: true })).toBe(false)
   })
+  it('no modo de foco na nave, os botões somem em qualquer largura', () => {
+    expect(floatingButtonsHidden(true, { ship: true })).toBe(true)
+    expect(floatingButtonsHidden(false, { ship: true })).toBe(true)
+  })
   it('sem painel nem apresentação (só o tutorial, ou nada): os botões ficam', () => {
     for (const phone of [true, false]) {
       expect(floatingButtonsHidden(phone, {})).toBe(false)
@@ -47,6 +52,18 @@ describe('reservedRects', () => {
   it('sem nada aberto: os dois botões ficam reservados; desktop com o painel: só a coluna e o "← Galáxia"', () => {
     expect(reservedRects(...PHONE)).toEqual([tutorialButtonRect(...PHONE), presentationButtonRect(...PHONE)])
     expect(reservedRects(...DESKTOP, { panel: true })).toEqual([sidePanelZone(...DESKTOP), backButtonRect()])
+  })
+  it('modo de foco na nave: só o "← Galáxia" e a dica no pé da tela (sem botões, sem painel)', () => {
+    for (const screen of [PHONE, DESKTOP]) {
+      expect(reservedRects(...screen, { ship: true })).toEqual([backButtonRect(), shipHintZone(...screen)])
+      expect(reservedRects(...screen, { ship: true, tutorial: true })).not.toContainEqual(tutorialCardZone(...screen))
+    }
+  })
+  it('a dica do modo de foco fica centrada no pé da tela, acima da área segura', () => {
+    const zone = shipHintZone(...PHONE)
+    expect(zone.x + zone.w / 2).toBeCloseTo(PHONE[0] / 2, 6)
+    expect(zone.y + zone.h).toBeLessThanOrEqual(PHONE[1])
+    expect(zone.w).toBeLessThanOrEqual(PHONE[0])
   })
   it('o cartão do tutorial cede ao painel: com os dois abertos, a zona dele não conta', () => {
     for (const screen of [PHONE, DESKTOP]) {

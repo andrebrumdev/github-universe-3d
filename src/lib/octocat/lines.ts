@@ -4,8 +4,8 @@ import type { OctocatExpression } from './expression'
 export type { OctocatExpression }
 
 export interface OctocatLine {
-  /** Evento do guia, ou 'presentation' para as falas livres do modo apresentação. */
-  id: GuideEvent | 'presentation'
+  /** Evento do guia, 'presentation' para as falas livres do modo apresentação, 'play' para as do modo de foco na nave. */
+  id: GuideEvent | 'presentation' | 'play'
   /** `{name}` vira o primeiro nome do perfil. */
   text: string
   once: boolean
@@ -31,6 +31,29 @@ export const LONG_IDLE_MS = 60_000
 export function pickLine(event: GuideEvent, seen: ReadonlySet<string>): OctocatLine | null {
   const line = LINES[event]
   return line.once && seen.has(line.id) ? null : line
+}
+
+/**
+ * Falas curtas do modo de foco na nave, por peça tocada: cabeça (play), tentáculo (giggle), Clawd, bocal (engine) e
+ * casco (ship); o parafuso do toque duplo (roll) e o Octocat tonto de tanto girar (dizzy). Sorteadas sem repetir a última do grupo (`pickPlayLine`).
+ */
+export const PLAY_LINES = {
+  play: ['Ei! Isso faz cócegas!', 'Quer dar uma volta?', 'Gostou da minha nave?', 'Oi! Tô aqui dentro!', 'Cuidado com o vidro!'],
+  giggle: ['Hihihi!', 'Ai, cócegas não!', 'Hahaha, para!', 'Esse tentáculo é sensível!'],
+  clawd: ['Segura firme, Clawd!', 'O Clawd adora pular!', 'Opa, cuidado aí em cima!'],
+  engine: ['Vrum vrum!', 'Motor quentinho!', 'Pronto pra decolar!'],
+  ship: ['Gostou da minha nave?', 'Lataria novinha!', 'Pode girar à vontade!'],
+  roll: ['Uhuuu!', 'Parafuso!', 'Iupiii!'],
+  dizzy: ['Para, para… tô tonto!', 'O universo tá girando…', 'Acho que vou vomitar estrelas'],
+} as const satisfies Record<string, readonly string[]>
+
+export type PlayLineGroup = keyof typeof PLAY_LINES
+
+/** Uma fala do grupo, sorteada por `rng`, nunca igual a `last` (a última dita). */
+export function pickPlayLine(group: PlayLineGroup, last: string | null, rng: () => number): string {
+  const all: readonly string[] = PLAY_LINES[group]
+  const pool = last === null ? all : all.filter((text) => text !== last)
+  return pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))]
 }
 
 export function firstName(full: string): string {

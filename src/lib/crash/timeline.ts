@@ -3,6 +3,7 @@
  * clarão (60 ms), tela tremendo (~300 ms), vidro trincado que se conserta sozinho, estrelinhas girando em volta da
  * cabeça do Octocat e, depois que elas somem, a fala.
  */
+import type { ShipMode } from '../ship/shipMachine'
 
 /** Clarão branco: um só, curto e fraco (bem abaixo de qualquer limite de flash: 1 por trombada). */
 export const FLASH_SECONDS = 0.06
@@ -173,8 +174,8 @@ export function crashDizzy(tl: CrashTimeline): boolean {
 }
 
 export interface CrashSituation {
-  /** Modo da nave (ver shipMachine). */
-  mode: 'entering' | 'escort' | 'traveling' | 'visiting' | 'returning'
+  /** Modo da nave (ver shipMachine; o modo de foco também interrompe). */
+  mode: ShipMode
   /** Algo selecionado (planeta, lua, perfil). */
   selection: boolean
   tutorial: boolean

@@ -14,6 +14,7 @@ import type { SunExpression } from './sunMachine'
  * | clique no sol / painel do perfil aberto          | quem vê   | surpreso (≥1,2 s), depois feliz (orgulhoso) |
  * | nave saindo ou viajando                          | nave      | sério; de olho se ela está bem de lado      |
  * | estilingue perto do sol / nave passando raspando | nave      | surpreso                                    |
+ * | alguém brincando com a nave em foco              | nave      | de olho                                     |
  * | planeta selecionado ou em foco                   | o planeta | admirando                                   |
  * | nave chega num planeta                           | planeta   | admirando (rápido), depois de olho na nave  |
  * | cometa perto do periélio                         | cometa    | surpreso, depois de olho                    |
@@ -46,6 +47,8 @@ export interface MoodContext {
   shipTraveling: boolean
   /** A nave está bem de lado para quem vê (o sol a acompanha de olho). */
   shipFarSide: boolean
+  /** A nave está no modo de foco (alguém girando e brincando com ela): só leitura, o sol fica de olho. */
+  shipPlay: boolean
   /** s desde que a nave chegou num planeta, e qual (null: nenhuma chegada). */
   sinceArrival: number
   arrivalPlanet: string | null
@@ -77,6 +80,7 @@ export const CALM: MoodContext = {
   closePass: false,
   shipTraveling: false,
   shipFarSide: false,
+  shipPlay: false,
   sinceArrival: Infinity,
   arrivalPlanet: null,
   focusPlanet: null,
@@ -123,6 +127,7 @@ export function moodFor(c: MoodContext): Mood {
   if (c.shipTraveling) return at(c.shipFarSide ? 'watching' : 'serious', 'ship', RANK.ship)
   if (c.arrivalPlanet && c.sinceArrival < ARRIVAL_ADMIRE) return at('admiring', 'planet', RANK.ship, c.arrivalPlanet)
   if (c.arrivalPlanet && c.sinceArrival < ARRIVAL_WATCH) return at('watching', 'ship', RANK.ship)
+  if (c.shipPlay) return at('watching', 'ship', RANK.ship)
   if (c.focusPlanet) return at('admiring', 'planet', RANK.focus, c.focusPlanet)
   if (c.profileOpen) return at('happy', 'viewer', RANK.focus)
   if (c.cometNear) return at(c.sinceCometNear < COMET_SURPRISE ? 'surprised' : 'watching', 'comet', RANK.comet)
@@ -188,6 +193,7 @@ export const MOOD_TABLE: readonly MoodRow[] = [
   { label: 'Nave viajando', context: { ...AWAKE, shipTraveling: true }, expression: 'serious', target: 'ship' },
   { label: 'Nave viajando bem de lado', context: { ...AWAKE, shipTraveling: true, shipFarSide: true }, expression: 'watching', target: 'ship' },
   { label: 'Estilingue / nave raspando', context: { ...AWAKE, shipTraveling: true, closePass: true }, expression: 'surprised', target: 'ship' },
+  { label: 'Brincando com a nave em foco', context: { ...AWAKE, shipPlay: true }, expression: 'watching', target: 'ship' },
   { label: 'Planeta selecionado ou em foco', context: { ...AWAKE, focusPlanet: 'planeta' }, expression: 'admiring', target: 'planet' },
   { label: 'Nave chegou num planeta', context: { ...AWAKE, sinceArrival: 0.5, arrivalPlanet: 'planeta' }, expression: 'admiring', target: 'planet' },
   { label: 'Nave chegou (depois)', context: { ...AWAKE, sinceArrival: 2.5, arrivalPlanet: 'planeta' }, expression: 'watching', target: 'ship' },

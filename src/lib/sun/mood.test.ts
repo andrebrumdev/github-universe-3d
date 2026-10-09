@@ -53,6 +53,13 @@ describe('moodFor: cada linha da tabela de humores', () => {
     expect(mood({ shipTraveling: true, shipFarSide: true })).toMatchObject({ expression: 'watching', target: 'ship' })
   })
 
+  it('alguém brincando com a nave em foco: de olho nela (só lê o sinal; um evento mais alto passa na frente)', () => {
+    expect(mood({ shipPlay: true })).toMatchObject({ expression: 'watching', target: 'ship' })
+    expect(mood({ shipPlay: true, idleFor: IDLE_SLEEP + 5 })).toMatchObject({ expression: 'watching', target: 'ship' })
+    expect(mood({ shipPlay: true, hover: true })).toMatchObject({ expression: 'happy', target: 'mouse' })
+    expect(mood({ shipPlay: true, sinceClick: 0.1 })).toMatchObject({ expression: 'surprised', target: 'viewer' })
+  })
+
   it('estilingue perto do sol / nave passando raspando: surpreso olhando a nave', () => {
     expect(mood({ shipTraveling: true, closePass: true })).toMatchObject({ expression: 'surprised', target: 'ship' })
   })
@@ -148,6 +155,7 @@ function randomContext(rng: () => number): MoodContext {
     closePass: rng() < 0.15,
     shipTraveling: rng() < 0.3,
     shipFarSide: rng() < 0.5,
+    shipPlay: rng() < 0.2,
     sinceArrival: pick([0.2, 2, 10]),
     arrivalPlanet: pick([null, 'api']),
     focusPlanet: pick([null, null, 'web']),

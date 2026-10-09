@@ -1,7 +1,8 @@
 import type { ShipTarget } from './escort'
 import type { TravelPath } from './travel'
 
-export type ShipMode = 'entering' | 'escort' | 'traveling' | 'visiting' | 'returning'
+/** `focus`: estacionada no mundo para o usuário girar e brincar (modo de foco, ver focus.ts). */
+export type ShipMode = 'entering' | 'escort' | 'traveling' | 'visiting' | 'returning' | 'focus'
 
 export interface ShipState {
   mode: ShipMode
@@ -19,6 +20,8 @@ export type ShipEvent =
   | { type: 'arrive'; target: ShipTarget }
   /** Volta para a escolta; `duration` é a da volta planejada (ver returnFlight). */
   | { type: 'release'; duration?: number }
+  /** Estaciona para o modo de foco (só parada: da escolta ou da visita). */
+  | { type: 'focus' }
 
 export const ENTER_DURATION = 2
 export const RETURN_DURATION = 1.2
@@ -30,8 +33,10 @@ export function shipReducer(s: ShipState, e: ShipEvent): ShipState {
       return { mode: 'traveling', elapsed: 0, path: e.path, target: e.target }
     case 'arrive':
       return { mode: 'visiting', elapsed: 0, path: null, target: e.target }
+    case 'focus':
+      return s.mode === 'escort' || s.mode === 'visiting' ? { mode: 'focus', elapsed: 0, path: null, target: null } : s
     case 'release':
-      return s.mode === 'traveling' || s.mode === 'visiting'
+      return s.mode === 'traveling' || s.mode === 'visiting' || s.mode === 'focus'
         ? { mode: 'returning', elapsed: 0, path: null, target: null, returnDuration: e.duration ?? RETURN_DURATION }
         : s
     case 'tick': {

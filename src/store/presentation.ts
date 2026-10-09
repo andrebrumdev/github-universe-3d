@@ -107,10 +107,12 @@ useUniverse.subscribe((state, prev) => {
 
 /**
  * Clique no vazio do canvas: fora da apresentação, volta à galáxia; durante ela, não faz nada (um clique perdido
- * para focar a janela não derruba quem está assistindo).
+ * para focar a janela não derruba quem está assistindo). No modo de foco na nave também não: brincando, um toque que
+ * erra a nave por pouco não pode jogar a câmera de volta (sai pelo "← Galáxia" ou pelo Esc).
  */
 export function missCanvas(): void {
-  if (!usePresentation.getState().state) useUniverse.getState().clearSelection()
+  if (usePresentation.getState().state || useUniverse.getState().selection.kind === 'ship') return
+  useUniverse.getState().clearSelection()
 }
 
 // Abrir o tutorial encerra a apresentação (o tutorial já limpa a seleção ao começar).
