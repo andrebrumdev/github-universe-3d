@@ -13,13 +13,13 @@
  * A frente da nave segue a velocidade e, na chegada, gira para quem vê, em três-quartos, como na escolta.
  */
 import type { Vec3 } from '../universe/orbits'
-import { burnPhaseAt, type BurnPhase, type BurnWindows } from './burn'
+import { burnPhaseAt, PUFF_MAX_SECONDS, PUFF_MIN_SECONDS, puffSchedule, type BurnPhase, type BurnWindows } from './burn'
 import { blendFramesPoint, type CameraFrame } from './cameraFrame'
 import { MIN_SHIP_DISTANCE, THREE_QUARTER_YAW } from './escort'
 import { add, cross, dot, length, normalize, scale, sub } from './vec'
 
-export const RETURN_MIN_SECONDS = 1.2
-export const RETURN_MAX_SECONDS = 2
+export const RETURN_MIN_SECONDS = 2.4
+export const RETURN_MAX_SECONDS = 4.5
 /** Nível do propulsor na escolta (o mesmo do ShipRig parado): o fim da queima de chegada assenta nele. */
 export const ESCORT_THRUST = 0.25
 
@@ -44,7 +44,7 @@ const smoothstep = (a: number, b: number, x: number) => {
 
 /** Duração da volta (s): cresce com a distância até a lente, entre RETURN_MIN e RETURN_MAX. */
 export function returnDuration(distance: number): number {
-  return clamp(RETURN_MIN_SECONDS + distance / 60, RETURN_MIN_SECONDS, RETURN_MAX_SECONDS)
+  return clamp(RETURN_MIN_SECONDS + distance / 30, RETURN_MIN_SECONDS, RETURN_MAX_SECONDS)
 }
 
 export interface ReturnInput {
@@ -253,10 +253,13 @@ export function returnHeading(plan: ReturnPlan, t: number): Vec3 {
 
 /**
  * Janelas das queimas da volta, como numa transferência: a partida é o puxão para longe do planeta (até T_PULL), a
- * planagem é a passagem por trás da câmera, e a chegada é a entrada pelo lado até assentar no canto (de T_SIDE ao fim).
+ * planagem é a passagem por trás da câmera, e a chegada é a entrada pelo lado (de T_SIDE ao fim), freando com o puff
+ * de ré até parar um pouco depois do canto (T_OVER) e assentar nele.
  */
 export function returnBurns(plan: ReturnPlan): BurnWindows {
-  return { departure: T_PULL * plan.duration, arrival: T_SIDE * plan.duration }
+  const T = plan.duration
+  const puff = clamp((T_OVER - T_SIDE) * T, PUFF_MIN_SECONDS, PUFF_MAX_SECONDS)
+  return { departure: T_PULL * T, arrival: T_SIDE * T, puffs: puffSchedule(T_SIDE * T, T_SIDE * T + puff) }
 }
 
 /** Fase do motor na volta (mesma forma de todo voo: ver `burnPhaseAt`). */

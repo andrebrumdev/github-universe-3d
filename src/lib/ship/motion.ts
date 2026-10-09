@@ -25,16 +25,38 @@ export function thrusterScale(t: number, level: number): number {
 }
 
 /**
- * Nível do propulsor nas queimas da viagem (ver `burnPhase` em transfer.ts): no auge, acima do 1 da viagem antiga
- * (chama máxima e longa); na planagem, só uma chama-piloto tremulando.
+ * Nível do propulsor nos voos (ver `burnPhaseAt` em burn.ts): na partida, forte e acima do 1 da viagem antiga (chama
+ * longa, discos de choque claros), com um pico curto na ignição; na planagem e na frenagem, uma chama-piloto pequena
+ * e firme, tremulando de leve — nunca apaga (quem freia é o puff de ré).
  */
-export const BURN_THRUST = 1.2
-export const COAST_THRUST = 0.05
+export const BURN_THRUST = 1.25
+export const COAST_THRUST = 0.4
+/** O nível vai para o React em degraus deste tamanho (cada degrau é uma renderização). */
+export const THRUST_STEP = 0.05
+/** Ritmo (1/s) com que a chama assenta no nível de quem fica parado (visita, escolta, entrada). */
+const SETTLE_RATE = 4
 
-/** Intensidade da queima (0..1) → nível do propulsor. */
-export function burnThrust(intensity: number): number {
-  const k = Math.min(1, Math.max(0, intensity))
-  return COAST_THRUST + (BURN_THRUST - COAST_THRUST) * k
+/**
+ * Próximo nível da chama, parada: aproxima `target` aos poucos (sem estalo depois da chegada, quando a chama-piloto do
+ * voo vira a da visita), no máximo THRUST_STEP por quadro, e assenta nele quando chega perto.
+ */
+export function settleThrust(current: number, target: number, dt: number): number {
+  const step = (target - current) * (1 - Math.exp(-SETTLE_RATE * dt))
+  const next = current + Math.max(-THRUST_STEP, Math.min(THRUST_STEP, step))
+  return Math.abs(target - next) < 0.01 ? target : next
+}
+
+/** Pico da ignição, somado ao nível da partida, e o tempo (s) até o máximo dele. */
+export const IGNITION_SPIKE = 0.35
+const IGNITION_RISE = 0.06
+
+/** Nível do propulsor pela fase do motor e pelo instante do voo `t` (s desde a partida: o pico da ignição). */
+export function flameLevel(burn: { phase: 'departure' | 'coast' | 'arrival'; intensity: number }, t: number): number {
+  const k = Math.min(1, Math.max(0, burn.intensity))
+  const base = COAST_THRUST + (BURN_THRUST - COAST_THRUST) * k
+  if (burn.phase !== 'departure' || !(t > 0)) return base
+  const u = t / IGNITION_RISE
+  return base + IGNITION_SPIKE * u * Math.exp(1 - u)
 }
 
 /** Tranco ao acender uma queima: avanço (unidades do modelo da nave) do primeiro pico; quanto dura (s). */

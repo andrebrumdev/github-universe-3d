@@ -3,8 +3,10 @@ import {
   BLINK_EVERY,
   BURN_THRUST,
   burnJolt,
-  burnThrust,
   COAST_THRUST,
+  flameLevel,
+  settleThrust,
+  THRUST_STEP,
   hoverOffset,
   isBlinking,
   JOLT_SECONDS,
@@ -47,16 +49,29 @@ describe('movimento do Octocat', () => {
     expect(times.filter(isBlinking).length / times.length).toBeLessThan(0.1)
   })
 
-  it('nível do propulsor pela queima: chama-piloto na planagem, máximo (acima da viagem antiga) no auge', () => {
-    expect(burnThrust(0)).toBe(COAST_THRUST)
-    expect(COAST_THRUST).toBeLessThanOrEqual(0.06)
-    expect(burnThrust(1)).toBe(BURN_THRUST)
-    expect(BURN_THRUST).toBeGreaterThan(1)
-    expect(burnThrust(-3)).toBe(COAST_THRUST)
-    expect(burnThrust(7)).toBe(BURN_THRUST)
-    for (let i = 1; i <= 20; i++) expect(burnThrust(i / 20)).toBeGreaterThan(burnThrust((i - 1) / 20))
-    // a chegada termina no nível parado (a visita): sem estalo
-    expect(Math.abs(burnThrust(ARRIVAL_TAIL) - ESCORT_THRUST)).toBeLessThan(0.02)
+  it('chama por fase: pico na ignição acima da queima forte, chama-piloto pequena (e visível) na planagem e na frenagem', () => {
+    const dep = (t: number) => flameLevel({ phase: 'departure', intensity: 1 }, t)
+    const spike = Math.max(...Array.from({ length: 30 }, (_, i) => dep(i / 100)))
+    const hold = dep(0.6)
+    expect(hold).toBeCloseTo(BURN_THRUST, 2)
+    expect(spike).toBeGreaterThan(hold + 0.2)
+    // o pico é curto: em ~0,2 s ele já passou do máximo, e logo some
+    const peakAt = Array.from({ length: 30 }, (_, i) => i / 100).reduce((a, t) => (dep(t) > dep(a) ? t : a), 0)
+    expect(peakAt).toBeLessThan(0.15)
+    expect(dep(0.5) - hold).toBeLessThan(0.05)
+    expect(dep(0)).toBeCloseTo(BURN_THRUST, 5)
+    const coast = flameLevel({ phase: 'coast', intensity: 0 }, 3)
+    expect(coast).toBe(COAST_THRUST)
+    // nunca apaga: a chama-piloto se vê da câmera de trás, bem menor que a partida
+    expect(COAST_THRUST).toBeGreaterThanOrEqual(0.35)
+    expect(COAST_THRUST).toBeLessThanOrEqual(0.45)
+    expect(hold).toBeGreaterThan(2.5 * coast)
+    // na frenagem o motor principal fica na chama-piloto (quem freia são os puffs)
+    expect(flameLevel({ phase: 'arrival', intensity: 0 }, 6)).toBe(COAST_THRUST)
+    // no fim do voo ainda é a chama-piloto; o assentamento no nível parado é com settleThrust (sem estalo)
+    expect(flameLevel({ phase: 'arrival', intensity: ARRIVAL_TAIL }, 7)).toBe(COAST_THRUST)
+    expect(flameLevel({ phase: 'departure', intensity: 5 }, 9)).toBe(BURN_THRUST)
+    expect(flameLevel({ phase: 'coast', intensity: -1 }, 1)).toBe(COAST_THRUST)
   })
 
   it('tranco da queima: começa em zero, limitado, amortece e some', () => {
@@ -74,5 +89,24 @@ describe('movimento do Octocat', () => {
     // contínuo (sem estalo no fim)
     for (let i = 1; i < values.length; i++) expect(Math.abs(values[i] - values[i - 1])).toBeLessThan(0.1 * JOLT_SURGE)
     expect(Math.abs(burnJolt(JOLT_SECONDS - 1e-3))).toBeLessThan(0.02 * JOLT_SURGE)
+  })
+
+  it('parada, a chama assenta no nível dela aos poucos (em degraus de THRUST_STEP, sem passar do alvo)', () => {
+    let level = COAST_THRUST
+    const seen: number[] = []
+    for (let i = 0; i < 120; i++) {
+      const next = settleThrust(level, ESCORT_THRUST, 1 / 60)
+      expect(next).toBeLessThanOrEqual(level)
+      expect(next).toBeGreaterThanOrEqual(ESCORT_THRUST - 1e-9)
+      expect(level - next).toBeLessThanOrEqual(THRUST_STEP + 1e-9)
+      seen.push(next)
+      level = next
+    }
+    expect(level).toBeCloseTo(ESCORT_THRUST, 9)
+    // leva um instante (não salta), e acaba em menos de 1 s
+    expect(seen.filter((v) => v > ESCORT_THRUST + 1e-9).length).toBeGreaterThan(8)
+    expect(seen.filter((v) => v > ESCORT_THRUST + 1e-9).length).toBeLessThan(60)
+    expect(settleThrust(0.25, 0.8, 1 / 60)).toBeGreaterThan(0.25)
+    expect(settleThrust(0.5, 0.5, 1 / 60)).toBe(0.5)
   })
 })

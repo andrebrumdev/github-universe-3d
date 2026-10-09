@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { COLORS } from '@/lib/ship/geometry'
+import { BURN_THRUST, COAST_THRUST } from '@/lib/ship/motion'
 import { BLOOM_LOOK } from '@/store/bloom'
 import {
   createThrusterMaterial,
   createThrusterParams,
   THRUSTER_COLORS,
   thrusterHaloOpacity,
+  thrusterHaloSize,
   thrusterParams,
   updateThrusterMaterial,
 } from './thrusterMaterial'
@@ -86,13 +88,26 @@ describe('thrusterParams', () => {
     expect(thrusterParams(1, 1).diamonds).toBeGreaterThan(0.9)
   })
 
-  it('a chama da escolta (0,25) ainda passa do lábio do bocal; a da viagem é um rastro longo (3×)', () => {
+  it('escolta, viagem e queimas no tamanho de sempre (escolta passa do lábio, viagem é um rastro longo)', () => {
     expect(thrusterParams(0.25, 0.25).length).toBeGreaterThan(0.5)
     expect(thrusterParams(0.25, 0.25).length).toBeLessThan(0.6)
     expect(thrusterParams(0.8, 0.8).length).toBeCloseTo(2.046)
     expect(thrusterParams(1, 1).length).toBeCloseTo(3)
     // a tremulação mexe o comprimento, mas menos que o thrusterScale (±23%)
     expect(thrusterParams(1, 1.2).length).toBeCloseTo(3.3)
+    expect(thrusterParams(1, 1).width).toBe(1)
+    expect(thrusterParams(1.25, 1.25).width).toBe(1)
+    expect(thrusterParams(0.25, 0.25).width).toBe(1)
+  })
+
+  it('a chama-piloto da planagem é bem maior e um pouco mais larga, mas ~40% da partida', () => {
+    const coast = thrusterParams(COAST_THRUST, COAST_THRUST)
+    const burn = thrusterParams(BURN_THRUST, BURN_THRUST)
+    expect(coast.length / burn.length).toBeGreaterThan(0.35)
+    expect(coast.length / burn.length).toBeLessThan(0.45)
+    expect(coast.length).toBeGreaterThan(2.5 * thrusterParams(0.25, 0.25).length)
+    expect(coast.width).toBeGreaterThan(1.1)
+    expect(coast.width).toBeLessThan(1.35)
   })
 
   it('flicker vira razão em torno de 1 (thrusterScale / nível), limitada', () => {
@@ -123,11 +138,16 @@ describe('thrusterParams sem alocar', () => {
 })
 
 describe('halo do bocal com o visual do bloom', () => {
-  it('com bloom o halo fica mais fraco (aditivo no buffer HDR); sem bloom, como antes (0,8 × tremulação)', () => {
+  it('com bloom o halo fica mais fraco (aditivo no buffer HDR); sem bloom, aceso já na chama-piloto', () => {
     expect(BLOOM_LOOK.plain.thrusterHalo).toBe(1)
     expect(BLOOM_LOOK.bloom.thrusterHalo).toBeLessThan(BLOOM_LOOK.plain.thrusterHalo)
     expect(thrusterHaloOpacity(1, false)).toBeCloseTo(0.8)
     expect(thrusterHaloOpacity(1, true)).toBeCloseTo(0.8 * BLOOM_LOOK.bloom.thrusterHalo)
     expect(thrusterHaloOpacity(0, true)).toBe(0)
+    // a chama-piloto tem um brilho maior e mais aceso, que se vê de trás; o resto como antes
+    expect(thrusterHaloOpacity(COAST_THRUST, false, COAST_THRUST)).toBeGreaterThan(0.8 * COAST_THRUST + 0.15)
+    expect(thrusterHaloSize(COAST_THRUST)).toBeGreaterThan(1.5)
+    expect(thrusterHaloSize(BURN_THRUST)).toBe(1.1)
+    expect(thrusterHaloSize(0.25)).toBe(1.1)
   })
 })

@@ -9,6 +9,7 @@ import { selectionPose, showcasePlanet, tutorialPose, type PanelLayout } from '@
 import { selectedPlanet } from '@/lib/interaction'
 import type { OctocatExpression } from '@/lib/octocat/expression'
 import {
+  arrivalBlendWeight,
   bankAngle,
   ESCORT_FOLLOW,
   escortFraming,
@@ -27,11 +28,11 @@ import {
   THREE_QUARTER_YAW,
   type ShipTarget,
 } from '@/lib/ship/escort'
-import { burnJolt, burnThrust, JOLT_SURGE, MAX_FRAME_DT } from '@/lib/ship/motion'
+import { burnJolt, flameLevel, JOLT_SURGE, MAX_FRAME_DT, settleThrust, THRUST_STEP } from '@/lib/ship/motion'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
 import { blendFramesPoint, frameFromPose, frameToLocal, frameToWorld, type CameraFrame } from '@/lib/ship/cameraFrame'
-import { planReturn, returnBlend, returnFaceWeight, returnBurnPhase, returnHeading, returnPoint, type ReturnPlan } from '@/lib/ship/returnFlight'
-import type { BurnPhaseName } from '@/lib/ship/burn'
+import { activePuff } from '@/lib/ship/burn'
+import { planReturn, returnBlend, returnBurnPhase, returnBurns, returnFaceWeight, returnHeading, returnPoint, type ReturnPlan } from '@/lib/ship/returnFlight'
 import { burnPhase, planTransferTo, travelBodies } from '@/lib/ship/transfer'
 import { newVisitWatch, projectDisc, visitLocal, visitPlacement, visitStep, type Disc, type VisitWatch } from '@/lib/ship/visit'
 import { travelPoint, travelTangent, travelVelocity, type TravelPath } from '@/lib/ship/travel'
@@ -48,7 +49,8 @@ import { useUniverse } from '@/store/universe'
 import { Contrails, type WingTips } from './Contrails'
 import { FireTrail, TrailWarmup } from './FireTrail'
 import { OctocatShip, type ArmMode } from './OctocatShip'
-import { THRUSTER_ORIGIN, WINGS } from './shipParts'
+import { RetroPuffs, type Nozzles } from './RetroPuffs'
+import { HEADLIGHT_PLACEMENTS, THRUSTER_ORIGIN, WINGS } from './shipParts'
 
 /** Taxa (1/s) com que a nave assenta no canto da escolta (vindo da volta ou de um resize). */
 const ESCORT_SETTLE = 8
@@ -84,12 +86,16 @@ interface VisitSpot {
 const ASSIST_BANK = 1.8
 /** Aceno de "voltei" ao assentar no canto depois da volta (s). */
 const GREET_SECONDS = 1.6
-/** O nível do propulsor na volta e nas queimas vai para o React em degraus (cada degrau é uma renderização). */
-const THRUST_STEP = 0.05
 /** Pontas das asas (espaço do modelo): a luzinha de trás de cada asa, a mais perto da ponta. */
 const WING_TIPS: WingTips = WINGS.map(({ lights }) => lights[lights.length - 1].position)
+/** Bicos de ré (espaço do modelo): na frente do casco, um pouco para fora de cada farol. */
+const RETRO_NOZZLES: Nozzles = HEADLIGHT_PLACEMENTS.map(({ position: [x, y, z] }) => [x + Math.sign(x) * 0.28, y - 0.02, z - 0.06] as const)
 /** Arfagem (rad) no primeiro pico do tranco de uma queima: o nariz sobe um pouco com o empurrão. */
 const JOLT_PITCH = 0.06
+/** Escala dos puffs na volta para a escolta (perto da lente). */
+const RETURN_PUFF_SCALE = 0.35
+/** Tranco de um puff de força média (a força relativa ao puff médio multiplica isto). */
+const PUFF_JOLT = 0.45
 
 const newFrame = (): CameraFrame => ({ position: [0, 0, 0], right: [1, 0, 0], up: [0, 1, 0], back: [0, 0, 1] })
 /** Escreve em `f` o referencial de uma câmera (posição + orientação), sem alocar. */
@@ -115,10 +121,14 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   const frameNow = useMemo(() => newFrame(), [])
   const [thrust, setThrust] = useState(0.25)
   const thrustRef = useRef(0.25)
+  /** Nível contínuo da chama (o React recebe em degraus de THRUST_STEP). */
+  const thrustSmooth = useRef(0.25)
   const greetUntil = useRef(-1)
   /** Queima em curso (voo e fase), para notar quando uma nova acende: tranco na nave, sacudida no Verlet. */
-  const lastBurn = useRef<{ flight: TravelPath | ReturnPlan | null; phase: BurnPhaseName | null }>({ flight: null, phase: null })
+  const lastBurn = useRef<{ flight: TravelPath | ReturnPlan | null; puff: number }>({ flight: null, puff: -1 })
   const joltStart = useRef(-Infinity)
+  /** Sinal e força do tranco em curso: +1 na partida (para a frente), negativo nos puffs de ré. */
+  const joltScale = useRef(1)
   const jolt = useRef<THREE.Group>(null)
   const [burnShake, setBurnShake] = useState(0)
   // O vapor das asas lê a nave do quadro: monta depois do 1º quadro daqui, para o useFrame
@@ -316,6 +326,19 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     shipPose.target = machine.current.target
   }, [target, system, camera, reduced, step, layout, size, repos, lagQuat, returnFrame, scratch])
 
+  /** Disco do alvo na tela agora (px), ou null (sem alvo, ou atrás da câmera). */
+  const targetDisc = (target: ShipTarget | null): Disc | null => {
+    const anchor = target ? targetAnchor(target, system, simClock.time) : null
+    if (!anchor) return null
+    const { width, height } = size
+    scratch.fromArray(anchor.position).applyMatrix4(camera.matrixWorldInverse)
+    const depth = -scratch.z
+    if (depth <= 0) return null
+    scratch.fromArray(anchor.position).project(camera)
+    const tanY = Math.tan((fov * Math.PI) / 360)
+    return { x: ((scratch.x + 1) / 2) * width, y: ((1 - scratch.y) / 2) * height, r: (anchor.radius / depth / tanY) * (height / 2) }
+  }
+
   useFrame(({ clock }, rawDt) => {
     const g = group.current
     if (!g) return
@@ -422,16 +445,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
       const turn = dt > 0 ? camera.quaternion.angleTo(lastCamQuat) / dt : 0
       // o alvo na tela agora, comparado com o de quando o lugar foi escolhido
       const ui = latestVisitUi.current
-      const anchor = s.target ? targetAnchor(s.target, system, simClock.time) : null
-      let disc: Disc | null = null
-      if (anchor) {
-        const { width, height } = size
-        scratch.fromArray(anchor.position).applyMatrix4(camera.matrixWorldInverse)
-        const depth = -scratch.z
-        scratch.fromArray(anchor.position).project(camera)
-        const tanY = Math.tan((fov * Math.PI) / 360)
-        if (depth > 0) disc = { x: ((scratch.x + 1) / 2) * width, y: ((1 - scratch.y) / 2) * height, r: (anchor.radius / depth / tanY) * (height / 2) }
-      }
+      const disc = targetDisc(s.target)
       const step = visitStep(v.watch, {
         far,
         cameraSpeed: speed,
@@ -478,9 +492,11 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     if (tangent) {
       helper.up.set(0, 1, 0)
       helper.lookAt(look.set(...tangent).add(g.position))
-      helper.rotateZ(bankAngle(lastTangent.current, tangent, dt) * bank)
+      shipPose.bank = bankAngle(lastTangent.current, tangent, dt) * bank
+      helper.rotateZ(shipPose.bank)
       lastTangent.current = tangent
     } else if (heading) {
+      shipPose.bank = 0
       // Volta: segue a frente planejada, inclinando nas curvas; ao chegar, o "para cima" passa a ser o da câmera
       // (como na escolta) e a inclinação some: termina em três-quartos, de frente para quem vê.
       helper.up.set(0, 1, 0).lerp(up, facing).normalize()
@@ -488,6 +504,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
       helper.rotateZ(bankAngle(lastTangent.current, heading, dt) * (1 - facing))
       lastTangent.current = heading
     } else {
+      shipPose.bank = 0
       helper.up.copy(up)
       helper.lookAt(camera.position)
       // Na visita, em três-quartos com o nariz para o alvo (o Octocat aponta para ele); na escolta, para o centro.
@@ -510,28 +527,47 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     else shipPose.velocity.fill(0)
     shipPose.slingshot = slingshot
     // Todo voo (viagem, troca de destino, salto da apresentação, tutorial, volta) tem as mesmas fases de motor:
-    // queima forte na partida, motor desligado na planagem, queima de chegada (ver lib/ship/burn).
-    const flight = s.mode === 'traveling' && s.path ? s.path : plan && !reduced ? plan : null
-    const burn = s.mode === 'traveling' && s.path ? burnPhase(s.path, s.elapsed) : plan && !reduced ? returnBurnPhase(plan, s.elapsed) : null
+    // queima forte na partida, chama-piloto na planagem e, na chegada, a frenagem com os puffs de ré (lib/ship/burn).
+    const traveling = s.mode === 'traveling' && s.path
+    const flight = traveling ? s.path : plan && !reduced ? plan : null
+    const burn = traveling ? burnPhase(s.path!, s.elapsed) : plan && !reduced ? returnBurnPhase(plan, s.elapsed) : null
+    const puffs = traveling ? s.path!.burns.puffs : plan && !reduced ? returnBurns(plan).puffs : null
+    // chegando, a câmera de perseguição já vai para o enquadramento final (CameraRig)
+    shipPose.arrival = traveling ? arrivalBlendWeight(s.elapsed, s.path!.duration, s.path!.burns.arrival) : 0
+    const puffIndex = puffs ? activePuff(puffs, s.elapsed) : -1
     const last = lastBurn.current
-    if (burn && burn.phase !== 'coast' && (last.flight !== flight || last.phase !== burn.phase)) {
-      // uma queima acendeu: a nave dá um tranco e a antena e os tentáculos levam o empurrão
+    if (last.flight !== flight) last.puff = -1
+    if (burn && burn.phase === 'departure' && last.flight !== flight) {
+      // a queima de partida acendeu: a nave dá um tranco e a antena e os tentáculos levam o empurrão
       joltStart.current = clock.elapsedTime
+      joltScale.current = 1
       setBurnShake((n) => n + 1)
     }
+    if (puffs && puffIndex >= 0 && puffIndex !== last.puff) {
+      // um puff de ré: tranco para trás (proporcional à força) e os tentáculos e a antena vão para a frente
+      joltStart.current = clock.elapsedTime
+      joltScale.current = -PUFF_JOLT * puffs[puffIndex].strength * puffs.length
+      setBurnShake((n) => n + 1)
+      shipPose.puff.seq++
+      shipPose.puff.strength = puffs[puffIndex].strength * puffs.length
+      shipPose.puff.duration = puffs[puffIndex].duration
+      // na volta a nave freia perto da lente: puffs menores, para não encherem a tela
+      shipPose.puff.scale = traveling ? 1 : RETURN_PUFF_SCALE
+    }
+    if (puffIndex >= 0) last.puff = puffIndex
     last.flight = flight
-    last.phase = burn?.phase ?? null
     shipPose.engine = burn ? burn.intensity : 1
     shipPose.coasting = burn?.phase === 'coast'
-    if (burn) {
-      const level = Math.round(burnThrust(burn.intensity) / THRUST_STEP) * THRUST_STEP
-      if (level !== thrustRef.current) {
-        thrustRef.current = level
-        setThrust(level)
-      }
+    // voando, o nível vem da fase do motor; parada, assenta aos poucos no nível dela (sem estalo depois da chegada)
+    const rest = s.mode === 'entering' ? 0.8 : 0.25
+    thrustSmooth.current = burn ? flameLevel(burn, s.elapsed) : settleThrust(thrustSmooth.current, rest, dt)
+    const level = Math.round(thrustSmooth.current / THRUST_STEP) * THRUST_STEP
+    if (level !== thrustRef.current) {
+      thrustRef.current = level
+      setThrust(level)
     }
     // tranco da queima, no grupo de dentro (a posição da nave no caminho não muda)
-    const surge = reduced ? 0 : burnJolt(clock.elapsedTime - joltStart.current)
+    const surge = reduced ? 0 : joltScale.current * burnJolt(clock.elapsedTime - joltStart.current)
     if (jolt.current) {
       jolt.current.position.z = surge
       jolt.current.rotation.x = (-JOLT_PITCH * surge) / JOLT_SURGE
@@ -544,8 +580,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     ? 'wink'
     : (bubble?.line.expression ?? (mode === 'traveling' || knocking ? 'happy' : 'neutral'))
   const armMode: ArmMode = hovered || knocking || greeting || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
-  // na viagem e na volta o nível vem do quadro (queimas e planagem), em degraus
-  const thrusterLevel = mode === 'traveling' || (mode === 'returning' && !reduced) ? thrust : mode === 'entering' ? 0.8 : 0.25
+  // com movimento, o nível vem do quadro (fases do motor no voo, assentando parada), em degraus
+  const thrusterLevel = !reduced ? thrust : mode === 'entering' ? 0.8 : 0.25
 
   return (
     <>
@@ -555,6 +591,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
       {!reduced && <TrailWarmup />}
       {/* vapor das pontas das asas na planagem (motor desligado) */}
       {!reduced && afterShip && <Contrails ship={group} tips={WING_TIPS} />}
+      {/* puffs de ré da frenagem na chegada */}
+      {!reduced && afterShip && <RetroPuffs ship={group} nozzles={RETRO_NOZZLES} />}
       <group
         ref={group}
         scale={SHIP_SCALE}

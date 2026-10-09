@@ -8,8 +8,11 @@ import type { Universe } from './types'
 export const STOP_SECONDS = 9
 /** Quantos repos a apresentação percorre, no máximo (os do topo do ranking). */
 export const MAX_PRESENTED_REPOS = 10
-/** Se a nave não chegar nesse tempo (s) — alvo que não virou planeta, por exemplo —, a parada começa mesmo assim. */
-export const ARRIVAL_TIMEOUT = 12
+/**
+ * Se a nave não chegar nesse tempo (s) — alvo que não virou planeta, por exemplo —, a parada começa mesmo assim.
+ * Passa da viagem mais longa (MAX_TRAVEL_SECONDS, em velocidade de cruzeiro).
+ */
+export const ARRIVAL_TIMEOUT = 16
 /** Maior passo (s) por quadro do relógio da nave (ShipRig): a espera pela chegada conta no mesmo relógio. */
 export const SHIP_MAX_DT = MAX_FRAME_DT
 

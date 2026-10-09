@@ -39,10 +39,22 @@ import { planetMass } from '../universe/barycenter'
 import { SCALE_RATE, type ClockState } from '../universe/clock'
 import { planetPosition, type OrbitSystem, type Vec3 } from '../universe/orbits'
 import { LAUNCH_MARGIN, minSunDistance, SUN_SAFE_DISTANCE, travelDuration, type GravityAssist, type TravelPath } from './travel'
-import { burnPhaseAt, type BurnPhase } from './burn'
+import { brakeFactor, brakeIntegral, burnPhaseAt, puffSchedule, type BurnPhase, type Puff } from './burn'
 import type { CameraFrame } from './cameraFrame'
 import { add, cross, dot, length, normalize, scale, sub } from './vec'
 
+/**
+ * Quanto da 2ª lei de Kepler fica no relógio (1 = Kepler puro, 0 = velocidade constante): a nave ainda acelera perto
+ * do sol, mas o pico fica abaixo de PEAK_SPEED_RATIO × a média da viagem.
+ */
+export const KEPLER_WEIGHT = 0.6
+/** Teto do pico de velocidade de uma viagem sem estilingue, em múltiplos da velocidade média. */
+export const PEAK_SPEED_RATIO = 2.3
+/** Janela da frenagem (s): a duração do puff de ré, no máximo MAX_BRAKE_FRACTION da viagem. */
+export const BRAKE_SECONDS = 0.7
+const MAX_BRAKE_FRACTION = 0.3
+/** Janela da frenagem (s) de uma viagem de `duration` s. */
+const brakeWindowFor = (duration: number) => Math.min(BRAKE_SECONDS, MAX_BRAKE_FRACTION * duration)
 /** Fração da viagem gasta em cada queima (partida e chegada): a aceleração fica só nas pontas. */
 export const BURN_FRACTION = 0.18
 /** Duração (s) da correção que costura a velocidade de um trecho à do vizinho (troca de destino, estilingue). */
@@ -282,10 +294,39 @@ class PolarArc {
     return out
   }
 
-  /** Integrando da 2ª lei de Kepler (área varrida por unidade de s, a menos de constante). */
-  areal(s: number): number {
+  private readonly scratch: Vec3 = [0, 0, 0]
+  /** Ritmo tabelado em PACE_SAMPLES + 1 pontos (feito na primeira consulta): o relógio consulta muito por quadro. */
+  private paceTable: Float64Array | null = null
+
+  /** Ritmo exato (ver `pace`). */
+  private paceExact(s: number): number {
     const r = this.radial.r(s)
-    return r * r
+    const d = this.derivative(s, this.scratch)
+    const speed = Math.hypot(d[0], d[1], d[2]) + 1e-9
+    return speed ** (1 - KEPLER_WEIGHT) * (r * r) ** KEPLER_WEIGHT
+  }
+
+  /**
+   * Ritmo do relógio (dt/ds, a menos de constante): a 2ª lei de Kepler (dt ∝ r²·ds, área varrida constante)
+   * amaciada por KEPLER_WEIGHT em direção à velocidade constante (dt ∝ |P′|·ds). A velocidade fica ∝ (|P′|/r²)^κ:
+   * ainda acelera perto do sol, com teto. Tabelado e interpolado por Catmull-Rom (C¹): barato por quadro, e o
+   * relógio integra e deriva a mesma função, então posição e velocidade continuam coerentes.
+   */
+  pace(s: number): number {
+    let table = this.paceTable
+    if (!table) {
+      table = new Float64Array(PACE_SAMPLES + 1)
+      for (let i = 0; i <= PACE_SAMPLES; i++) table[i] = this.paceExact(i / PACE_SAMPLES)
+      this.paceTable = table
+    }
+    const x = clamp(s, 0, 1) * PACE_SAMPLES
+    const i = Math.min(PACE_SAMPLES - 1, Math.floor(x))
+    const u = x - i
+    const p0 = table[Math.max(0, i - 1)]
+    const p1 = table[i]
+    const p2 = table[i + 1]
+    const p3 = table[Math.min(PACE_SAMPLES, i + 2)]
+    return p1 + 0.5 * u * (p2 - p0 + u * (2 * p0 - 5 * p1 + 4 * p2 - p3 + u * (3 * (p1 - p2) + p3 - p0)))
   }
 }
 
@@ -301,6 +342,9 @@ function arcLength(arc: { point(s: number, out?: Vec3): Vec3 }, n = 96): number 
 }
 
 // ————— tempo: 2ª lei de Kepler e queimas —————
+
+/** Pontos da tabela do ritmo do relógio por arco. */
+const PACE_SAMPLES = 128
 
 const GL_X = [-0.9602898564975363, -0.7966664774136267, -0.525532409916329, -0.1834346424956498, 0.1834346424956498, 0.525532409916329, 0.7966664774136267, 0.9602898564975363]
 const GL_W = [0.1012285362903763, 0.2223810344533745, 0.3137066458778873, 0.362683783378362, 0.362683783378362, 0.3137066458778873, 0.2223810344533745, 0.1012285362903763]
@@ -383,18 +427,25 @@ const smoothstep = (y: number) => y * y * (3 - 2 * y)
 const smoothRamp = (y: number) => y * y * y - (y * y * y * y) / 2
 
 /**
- * Tempo normalizado x ∈ [0, 1] → tempo de Kepler τ ∈ [0, 1]: ritmo constante, com rampa suave (queima) só nas
- * pontas pedidas. Sem rampa numa ponta, a nave passa por ela em cruzeiro (costura com o vizinho).
+ * Tempo normalizado x ∈ [0, 1] → tempo de Kepler τ ∈ [0, 1]: ritmo constante, com a queima de partida (rampa suave)
+ * no começo e a frenagem dos puffs no fim (a velocidade cai em degraus, um por puff: ver `brakeFactor`), só nas pontas
+ * pedidas. Sem rampa numa ponta, a nave passa por ela em cruzeiro (costura com o vizinho).
  */
 class Burn {
   private readonly c: number
   private readonly easeStart: boolean
-  private readonly easeEnd: boolean
+  /** Puffs da frenagem, em tempo normalizado (vazio: sem frenagem). */
+  private readonly brake: readonly Puff[]
+  /** Começo da frenagem (x). */
+  private readonly xb: number
 
-  constructor(easeStart: boolean, easeEnd: boolean) {
+  constructor(easeStart: boolean, brake: readonly Puff[] = []) {
     this.easeStart = easeStart
-    this.easeEnd = easeEnd
-    this.c = 1 / (1 - (BURN_FRACTION * (Number(easeStart) + Number(easeEnd))) / 2)
+    this.brake = brake
+    this.xb = brake.length ? brake[0].time : 1
+    const b = easeStart ? BURN_FRACTION : 0
+    // τ(xb) pelos dois lados: c·(b/2 + xb − b) = 1 − c·∫ freio
+    this.c = 1 / (b / 2 + this.xb - b + (brake.length ? brakeIntegral(brake, this.xb, 1) : 0))
   }
 
   tau(x: number): number {
@@ -402,7 +453,7 @@ class Burn {
     const c = this.c
     if (x <= 0) return 0
     if (x >= 1) return 1
-    if (this.easeEnd && x > 1 - b) return 1 - c * b * smoothRamp((1 - x) / b)
+    if (x > this.xb) return 1 - c * brakeIntegral(this.brake, x, 1)
     if (this.easeStart && x < b) return c * b * smoothRamp(x / b)
     return this.easeStart ? (c * b) / 2 + c * (x - b) : c * x
   }
@@ -413,7 +464,7 @@ class Burn {
     if (x < 0 || x > 1) return 0
     let k = this.c
     if (this.easeStart && x < b) k *= smoothstep(x / b)
-    if (this.easeEnd && x > 1 - b) k *= smoothstep((1 - x) / b)
+    if (x > this.xb) k *= brakeFactor(this.brake, x)
     return k
   }
 }
@@ -425,6 +476,8 @@ interface Segment {
   /** Queima no começo / no fim do trecho (s); 0 = passa planando (costura com o vizinho, sobrevoo). */
   readonly startBurn: number
   readonly endBurn: number
+  /** Puffs da frenagem no fim do trecho (s desde o começo dele). */
+  readonly puffs: readonly Puff[]
   point(t: number, out: Vec3): Vec3
   velocity(t: number, out: Vec3): Vec3
 }
@@ -454,12 +507,21 @@ class ArcSegment implements Segment {
   readonly duration: number
   readonly startBurn: number
   readonly endBurn: number
+  /** Puffs da frenagem (s desde o começo do trecho). */
+  readonly puffs: readonly Puff[]
 
-  constructor(arc: PolarArc, duration: number, ease: { start: boolean; end: boolean }, match: Match = {}) {
+  /** `ease.brake`: janela da frenagem (s) quando o trecho é só o fim da viagem (o último depois do estilingue). */
+  constructor(arc: PolarArc, duration: number, ease: { start: boolean; end: boolean; brake?: number }, match: Match = {}) {
     this.arc = arc
     this.duration = duration
-    this.clock = new ArealClock((s) => arc.areal(s), arc.breaks)
-    this.burn = new Burn(ease.start, ease.end)
+    this.clock = new ArealClock((s) => arc.pace(s), arc.breaks)
+    // frenagem: o puff de ré, numa janela de BRAKE_SECONDS (no máximo MAX_BRAKE_FRACTION do trecho)
+    const brakeWindow = ease.end ? Math.min(ease.brake ?? brakeWindowFor(duration), 0.85 * duration) : 0
+    this.puffs = ease.end ? puffSchedule(duration - brakeWindow, duration) : []
+    this.burn = new Burn(
+      ease.start,
+      this.puffs.map((p) => ({ time: p.time / duration, duration: p.duration / duration, strength: p.strength })),
+    )
     this.tb = Math.min(match.blend ?? BLEND_SECONDS, 0.45 * duration)
     this.tbStart = Math.min(match.blendStart ?? this.tb, (match.end ? 0.45 : 0.75) * duration)
     this.dStart = match.start ? sub(match.start, this.baseVelocity(0, [0, 0, 0])) : null
@@ -467,7 +529,7 @@ class ArcSegment implements Segment {
     // Partida parada: a rampa da queima. Partida em voo (troca de destino): a correção que leva a velocidade atual à
     // do arco novo é a queima. A correção do fim só costura com o sobrevoo (de graça, motor desligado).
     this.startBurn = ease.start ? BURN_FRACTION * duration : match.start ? this.tbStart : 0
-    this.endBurn = ease.end ? BURN_FRACTION * duration : 0
+    this.endBurn = brakeWindow
   }
 
   private param(t: number): [number, number] {
@@ -544,6 +606,7 @@ class HyperbolaSegment implements Segment {
   /** Sobrevoo: só gravidade, motor desligado. */
   readonly startBurn = 0
   readonly endBurn = 0
+  readonly puffs: readonly Puff[] = []
 
   constructor(center: Vec3, P: Vec3, Q: Vec3, a: number, e: number, fw: number, duration: number) {
     this.center = center
@@ -595,11 +658,12 @@ function compose(segments: Segment[], assist: GravityAssist | null, duration?: n
   }
   // as queimas são só as das pontas da viagem; as janelas nunca se cruzam
   const departure = Math.min(segments[0].startBurn, total)
-  const arrival = Math.max(total - segments[segments.length - 1].endBurn, departure)
+  const last = segments[segments.length - 1]
+  const arrival = Math.max(total - last.endBurn, departure)
   return {
     duration: total,
     assist,
-    burns: { departure, arrival },
+    burns: { departure, arrival, puffs: last.puffs.map((p) => ({ ...p, time: p.time + total - last.duration })) },
     point(t, out = [0, 0, 0]) {
       const c = clamp(t, 0, total)
       const i = find(c)
@@ -844,7 +908,8 @@ function planetFlyby(plan: Plan, bodies: readonly TravelBody[], exclude: string 
   const hyper = new HyperbolaSegment(B, P, Q, a, e, fw, tH)
   const startA = startOf(plan, arcA, tA)
   const legA = new ArcSegment(arcA, tA, { start: !plan.v0, end: false }, { start: startA.v0, blendStart: startA.blendStart, end: hyper.velocity(0, [0, 0, 0]) })
-  const legB = new ArcSegment(arcB, tB, { start: false, end: true }, { start: hyper.velocity(tH, [0, 0, 0]) })
+  // a frenagem é a da viagem toda, no último trecho
+  const legB = new ArcSegment(arcB, tB, { start: false, end: true, brake: brakeWindowFor(total) }, { start: hyper.velocity(tH, [0, 0, 0]) })
   const assist: GravityAssist = { body: body.name, center: B, periapsis: rp, deflection: delta, start: tA, peak: tA + tH / 2, end: tA + tH }
   const path = compose([legA, hyper, legB], assist, total)
 
@@ -889,7 +954,7 @@ export function planTransfer(rawFrom: Vec3, rawTo: Vec3, options: TransferOption
  */
 export function planTransferTo(rawFrom: Vec3, destinationAt: (seconds: number) => Vec3, options: TransferOptions = {}): TravelPath {
   let path = planTransfer(rawFrom, destinationAt(travelDuration(dist(rawFrom, destinationAt(0)))), options)
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 6; i++) {
     const next = planTransfer(rawFrom, destinationAt(path.duration), options)
     const settled = Math.abs(next.duration - path.duration) < 1e-3
     path = next

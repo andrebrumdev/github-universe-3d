@@ -3,6 +3,7 @@ import type { Vec3 } from '../universe/orbits'
 import { planTransfer } from './transfer'
 import {
   LAUNCH_MARGIN,
+  CRUISE_SPEED,
   MAX_TRAVEL_SECONDS,
   MIN_TRAVEL_SECONDS,
   minSunDistance,
@@ -44,10 +45,27 @@ describe('planTransfer (o caminho da viagem)', () => {
 })
 
 describe('tempo de viagem', () => {
-  it('cresce com a distância e fica entre 1,5 e 3 s', () => {
+  it('vem do comprimento do caminho em velocidade de cruzeiro, entre o mínimo e o máximo', () => {
     expect(travelDuration(0)).toBe(MIN_TRAVEL_SECONDS)
-    expect(travelDuration(30)).toBeGreaterThan(travelDuration(10))
-    expect(travelDuration(1000)).toBe(MAX_TRAVEL_SECONDS)
+    expect(travelDuration(1e4)).toBe(MAX_TRAVEL_SECONDS)
+    expect(MIN_TRAVEL_SECONDS).toBeGreaterThanOrEqual(2)
+    expect(MAX_TRAVEL_SECONDS).toBeGreaterThanOrEqual(7)
+    expect(MAX_TRAVEL_SECONDS).toBeLessThanOrEqual(8)
+    // dentro dos limites, o dobro do caminho leva o tempo de cruzeiro a mais (a queima é fixa)
+    expect(travelDuration(120) - travelDuration(60)).toBeCloseTo(60 / CRUISE_SPEED)
+    for (let d = 0; d < 400; d += 5) expect(travelDuration(d + 5)).toBeGreaterThanOrEqual(travelDuration(d))
+  })
+
+  it('de dentro para fora no perfil de exemplo (anéis de ~15 e ~72) leva de 3,5 a 5 s', () => {
+    // (aqui o anel cresce o ângulo para −z, o sentido contrário ao das órbitas: o sentido delas é o ângulo negativo)
+    for (const angle of [0.8, 1.6, 2.6]) {
+      const path = planTransfer(ring(15, 0), ring(72, -angle))
+      expect(path.duration).toBeGreaterThanOrEqual(3)
+      expect(path.duration).toBeLessThanOrEqual(5.5)
+    }
+    const mid = planTransfer(ring(15, 0), ring(72, -2.2)).duration
+    expect(mid).toBeGreaterThanOrEqual(3.5)
+    expect(mid).toBeLessThanOrEqual(5)
   })
 
   it('travelPoint trava nas pontas', () => {

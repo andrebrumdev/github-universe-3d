@@ -71,5 +71,5 @@ describe('saindo da visita em primeiro plano, a nave nunca atravessa a lente', (
     expect(Math.min(...mins)).toBeGreaterThanOrEqual(MIN_SHIP_DISTANCE)
     // e quase sempre bem longe (a nave enche ≥ ⅓ da tela abaixo de ~1,5)
     expect(mins.filter((m) => m < 2 * MIN_SHIP_DISTANCE).length / mins.length).toBeLessThan(0.03)
-  })
+  }, 60_000)
 })

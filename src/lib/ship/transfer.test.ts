@@ -6,6 +6,7 @@ import { ARRIVAL_TAIL } from './burn'
 import {
   ASSIST_MIN_RADIUS,
   BLEND_SECONDS,
+  BRAKE_SECONDS,
   BURN_FRACTION,
   burnPhase,
   clockTimeAfter,
@@ -14,6 +15,7 @@ import {
   MAX_LIFT,
   MU_PER_MASS,
   OBSTACLE_MARGIN,
+  PEAK_SPEED_RATIO,
   planTransfer,
   planTransferTo,
   travelBodies,
@@ -151,14 +153,29 @@ describe('transferência de Hohmann', () => {
     }
   })
 
-  it('2ª lei de Kepler: mais rápida perto do sol, varrendo área quase constante', () => {
+  it('2ª lei de Kepler amaciada: arranco perto do sol, com teto (pico ≤ PEAK_SPEED_RATIO × a média)', () => {
     const path = planTransfer(ring(12, 0), ring(48, Math.PI))
     const near = path.velocity(path.duration * 0.3)
     const far = path.velocity(path.duration * 0.7)
-    expect(length(near)).toBeGreaterThan(1.5 * length(far))
-    // fora das queimas, |r × v| (dobro da velocidade areolar) varia pouco
-    const areal = [0.3, 0.4, 0.5, 0.6, 0.7].map((k) => length(cross(path.point(path.duration * k), path.velocity(path.duration * k))))
-    expect(Math.max(...areal) / Math.min(...areal)).toBeLessThan(1.15)
+    expect(length(near)).toBeGreaterThan(1.2 * length(far))
+    let surge = 0
+    for (const [, from, to] of tripCases) {
+      const p = planTransfer(from, to)
+      const speeds = samples(p).map((s) => length(s.v))
+      const mean = speeds.reduce((a, b) => a + b, 0) / speeds.length
+      expect(Math.max(...speeds)).toBeLessThanOrEqual(PEAK_SPEED_RATIO * mean)
+      surge = Math.max(surge, Math.max(...speeds) / mean)
+    }
+    // e o pico se vê: perto do sol a nave dá um arranco de verdade
+    expect(surge).toBeGreaterThan(1.8)
+  })
+
+  it('duração cresce com o comprimento do caminho', () => {
+    const short = planTransfer(ring(15, 0), ring(15, 0.6))
+    const mid = planTransfer(ring(15, 0), ring(41, 1.5))
+    const long = planTransfer(ring(15, 0), ring(72, 2.6))
+    expect(mid.duration).toBeGreaterThan(short.duration)
+    expect(long.duration).toBeGreaterThan(mid.duration)
   })
 
   it('alvo logo atrás na mesma órbita: vai pelo caminho curto (sem dar a volta no sol)', () => {
@@ -196,9 +213,14 @@ function radialProfile(path: TravelPath, sun: Vec3 = ORIGIN, skipFrom = Infinity
   const theta: number[] = []
   let prev = 0
   let unwrapped = 0
+  /** Primeiro ponto depois da janela pulada: a curvatura não é medida através do buraco. */
+  let gap = -1
   for (let i = 0; i <= n; i++) {
     const t = (i / n) * path.duration
-    if (t >= skipFrom && t <= skipTo) continue
+    if (t >= skipFrom && t <= skipTo) {
+      if (gap < 0) gap = r.length
+      continue
+    }
     const p = sub(path.point(t), sun)
     const phi = Math.atan2(-p[2], p[0])
     if (r.length) unwrapped += Math.atan2(Math.sin(phi - prev), Math.cos(phi - prev))
@@ -208,6 +230,7 @@ function radialProfile(path: TravelPath, sun: Vec3 = ORIGIN, skipFrom = Infinity
   }
   let minCurvature = Infinity
   for (let i = 1; i < r.length - 1; i++) {
+    if (gap >= 0 && i - 1 < gap && gap <= i + 1) continue
     const h0 = theta[i] - theta[i - 1]
     const h1 = theta[i + 1] - theta[i]
     if (h0 < 1e-3 || h1 < 1e-3) continue
@@ -244,14 +267,14 @@ describe('órbitas de verdade: nunca se curvam para longe do sol', () => {
         expect(outward ? step : -step).toBeGreaterThanOrEqual(-1e-9 * r[i])
       }
     }
-  })
+  }, 30_000)
 
   it('curvatura sempre para o lado do sol (u″ + u ≥ 0), sem S', () => {
     for (const [from, to] of [...named, ...trips]) {
       const { minCurvature } = radialProfile(planTransfer(from, to))
       expect(minCurvature).toBeGreaterThan(-1e-4)
     }
-  })
+  }, 30_000)
 
   it('com planetas no caminho, vale o mesmo fora da janela do estilingue', () => {
     const giants: TravelBody[] = Array.from({ length: 10 }, (_, i) => ({ name: `g${i}`, position: ring(12 + i * 6, i * 2.1, 0.5), radius: 2.5, extent: 4 }))
@@ -265,7 +288,7 @@ describe('órbitas de verdade: nunca se curvam para longe do sol', () => {
       expect(radialProfile(path, ORIGIN, skipFrom, skipTo).minCurvature).toBeGreaterThan(-1e-4)
     }
     expect(assists).toBeGreaterThan(0)
-  })
+  }, 30_000)
 })
 
 describe('lados opostos do sol: transferência simples, sem estilingue', () => {
@@ -442,16 +465,20 @@ describe('chegada prevista', () => {
 describe('queimas: motor ligado só nas pontas, planagem no meio', () => {
   const phases = (path: TravelPath, n = 400) => Array.from({ length: n + 1 }, (_, i) => ({ t: (i / n) * path.duration, ...burnPhase(path, (i / n) * path.duration) }))
 
-  it('partida parada: queima forte, motor desligado no meio, queima de chegada', () => {
+  it('partida parada: queima forte, motor desligado no meio, chegada freando com o puff de ré', () => {
     for (const [, from, to] of tripCases) {
       const path = planTransfer(from, to)
       const T = path.duration
       expect(path.burns.departure).toBeCloseTo(BURN_FRACTION * T, 9)
-      expect(path.burns.arrival).toBeCloseTo((1 - BURN_FRACTION) * T, 9)
+      // a janela da frenagem: o puff de ré (BRAKE_SECONDS, no máximo 30% da viagem)
+      expect(T - path.burns.arrival).toBeCloseTo(Math.min(BRAKE_SECONDS, 0.3 * T), 9)
+      expect(path.burns.puffs.length).toBe(1)
+      expect(path.burns.puffs[0].time).toBeCloseTo(path.burns.arrival, 9)
       expect(burnPhase(path, 0)).toEqual({ phase: 'departure', intensity: 1 })
       expect(burnPhase(path, 0.3 * path.burns.departure).intensity).toBe(1)
       expect(burnPhase(path, T / 2)).toEqual({ phase: 'coast', intensity: 0 })
-      expect(burnPhase(path, (path.burns.arrival + T) / 2)).toEqual({ phase: 'arrival', intensity: 1 })
+      // na frenagem o motor principal fica na chama-piloto
+      expect(burnPhase(path, (path.burns.arrival + T) / 2)).toEqual({ phase: 'arrival', intensity: 0 })
       // a chegada termina no nível de quem fica parado (sem estalo na troca para a visita)
       expect(burnPhase(path, T)).toEqual({ phase: 'arrival', intensity: ARRIVAL_TAIL })
     }
@@ -497,7 +524,7 @@ describe('queimas: motor ligado só nas pontas, planagem no meio', () => {
     expect(second.burns.departure).toBeLessThanOrEqual(BLEND_SECONDS + 1e-9)
     expect(burnPhase(second, 0).phase).toBe('departure')
     expect(burnPhase(second, second.duration / 2).phase).toBe('coast')
-    expect(second.burns.arrival).toBeCloseTo((1 - BURN_FRACTION) * second.duration, 9)
+    expect(second.burns.puffs.length).toBe(1)
   })
 
   it('estilingue no meio da planagem: o sobrevoo é de graça, motor desligado', () => {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildSampleUniverse } from './github/sample'
+import { RETURN_MAX_SECONDS } from './ship/returnFlight'
+import { MAX_TRAVEL_SECONDS } from './ship/travel'
 import {
   ARRIVAL_TIMEOUT,
   autostartDecision,
@@ -176,6 +178,11 @@ describe('watchArrival (rede de segurança se a nave nunca chegar)', () => {
     expect(overdue).toBe(false)
     for (let t = 0; t < 1; t += 0.05) overdue ||= watchArrival(w, 0, 0.05)
     expect(overdue).toBe(true)
+  })
+
+  it('a espera passa da viagem mais longa (com a volta), para não cortar um voo lento', () => {
+    expect(ARRIVAL_TIMEOUT).toBeGreaterThan(MAX_TRAVEL_SECONDS + 2)
+    expect(ARRIVAL_TIMEOUT).toBeGreaterThan(RETURN_MAX_SECONDS + 2)
   })
 
   it('trocar de parada zera a espera', () => {

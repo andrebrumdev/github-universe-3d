@@ -240,12 +240,64 @@ export function keepAway(pos: Vec3, center: Vec3, minDist: number, out?: Vec3): 
   return target
 }
 
-/** Câmera de perseguição: atrás e acima da nave, olhando um pouco à frente dela. */
+/** Câmera de perseguição: quanto atrás da nave (no sentido da viagem), quanto acima, e para onde olha à frente. */
+export const CHASE_BACK = 5.5
+export const CHASE_HEIGHT = 1.5
+export const CHASE_LOOK_AHEAD = 7
+export const CHASE_LOOK_LIFT = 0.5
+
+/**
+ * Câmera que segue a viagem por trás: atrás da nave pela tangente do caminho e um pouco acima, olhando para um ponto à
+ * frente dela (mostra para onde ela vai) e um pouco acima, o que deixa a nave um pouco abaixo do centro da tela — a
+ * chama, virada para a lente, aparece como um cone claro atrás do bocal, e o vapor das asas vem na direção da câmera.
+ */
 export function chasePose(position: Vec3, tangent: Vec3): Pose {
   return {
-    position: add(add(position, scale(tangent, -6)), [0, 2.2, 0]),
-    target: add(position, scale(tangent, 2)),
+    position: add(add(position, scale(tangent, -CHASE_BACK)), [0, CHASE_HEIGHT, 0]),
+    target: add(add(position, scale(tangent, CHASE_LOOK_AHEAD)), [0, CHASE_LOOK_LIFT, 0]),
   }
+}
+
+/** Quanto da inclinação da nave a câmera acompanha, e o teto (rad, ~8°). */
+export const CHASE_ROLL_SHARE = 0.25
+export const MAX_CHASE_ROLL = (8 * Math.PI) / 180
+
+/** Inclinação lateral da câmera (rad) pela inclinação da nave: só uma parte dela, com teto. */
+export function chaseRoll(shipBank: number): number {
+  return Math.max(-MAX_CHASE_ROLL, Math.min(MAX_CHASE_ROLL, CHASE_ROLL_SHARE * shipBank))
+}
+
+/**
+ * "Para cima" estável da câmera de perseguição: o para-cima do mundo tirada a parte na direção de visão `forward`
+ * (unitária) — num trecho quase vertical, o anterior (`prev`) projetado, para nunca virar —, girado `roll` rad em
+ * volta da direção de visão. Com `out`, escreve nele.
+ */
+export function chaseUp(forward: Vec3, prev: Vec3, roll: number, out: Vec3 = [0, 1, 0]): Vec3 {
+  const f = forward
+  let ux = -f[0] * f[1]
+  let uy = 1 - f[1] * f[1]
+  let uz = -f[2] * f[1]
+  if (uy < 0.04) {
+    // quase vertical: o anterior, projetado no plano da tela
+    const d = prev[0] * f[0] + prev[1] * f[1] + prev[2] * f[2]
+    ux = prev[0] - d * f[0]
+    uy = prev[1] - d * f[1]
+    uz = prev[2] - d * f[2]
+  }
+  const l = Math.hypot(ux, uy, uz) || 1
+  ux /= l
+  uy /= l
+  uz /= l
+  // Rodrigues em torno de f (u ⟂ f): u·cos + (f × u)·sin
+  const c = Math.cos(roll)
+  const sn = Math.sin(roll)
+  const cx = f[1] * uz - f[2] * uy
+  const cy = f[2] * ux - f[0] * uz
+  const cz = f[0] * uy - f[1] * ux
+  out[0] = ux * c + cx * sn
+  out[1] = uy * c + cy * sn
+  out[2] = uz * c + cz * sn
+  return out
 }
 
 export const MAX_BANK = 0.6
@@ -258,8 +310,11 @@ export function bankAngle(prev: Vec3, next: Vec3, dt: number): number {
   return Math.max(-MAX_BANK, Math.min(MAX_BANK, -0.25 * (turn / dt)))
 }
 
-/** Rigidez (rad/s) da mola que puxa a câmera atrás da nave em viagem. */
-export const CHASE_SPRING = 4
+/**
+ * Rigidez (rad/s) da mola que puxa a câmera atrás da nave em viagem: macia, para ela vir um instante depois (atrasa
+ * na partida e alcança no cruzeiro, com a antecipação de `springLead`).
+ */
+export const CHASE_SPRING = 5
 /** Rigidez da mola que leva a câmera da perseguição (ou de onde estiver) até a pose final. */
 export const FOCUS_SPRING = 2.5
 
@@ -288,7 +343,7 @@ export function springStep(s: Spring3, goal: Vec3, omega: number, dt: number): S
 }
 
 /** Maior antecipação da perseguição (unidades): uma distância de perseguição e pouco. */
-export const MAX_CHASE_LEAD = 8
+export const MAX_CHASE_LEAD = 12
 
 /**
  * Antecipação para a mola seguir um alvo em movimento: mira à frente na velocidade do alvo,
@@ -299,4 +354,45 @@ export function springLead(goal: Vec3, goalVelocity: Vec3, omega: number, maxLea
   const lead = scale(goalVelocity, 2 / omega)
   const l = length(lead)
   return add(goal, l > maxLead ? scale(lead, maxLead / l) : lead)
+}
+
+/**
+ * A câmera começa a ir para o enquadramento final nos últimos ARRIVAL_BLEND_SECONDS da viagem (no máximo
+ * ARRIVAL_BLEND_FRACTION dela, num salto curto), ou no começo da chegada (o puff de ré), o que vier antes.
+ */
+export const ARRIVAL_BLEND_FRACTION = 0.3
+export const ARRIVAL_BLEND_SECONDS = 2.5
+/** Taxa (1/s) com que o peso volta para a perseguição numa troca de destino no meio da mistura. */
+const BLEND_RELEASE = 4
+
+const smootherstep = (x: number) => {
+  const u = Math.min(1, Math.max(0, x))
+  return u * u * u * (u * (u * 6 - 15) + 10)
+}
+
+/**
+ * Peso (0..1) da pose de destino na câmera de perseguição, no instante `t` (s) de uma viagem de `duration` s cuja
+ * chegada (frenagem) começa em `arrivalStart`: 0 até a janela, sobe em smootherstep e é 1 com a nave parada.
+ */
+export function arrivalBlendWeight(t: number, duration: number, arrivalStart: number): number {
+  const start = Math.min(arrivalStart, duration - Math.min(ARRIVAL_BLEND_SECONDS, ARRIVAL_BLEND_FRACTION * duration))
+  if (!(duration > start)) return t >= duration ? 1 : 0
+  return smootherstep((t - start) / (duration - start))
+}
+
+/** Pose entre a de perseguição (`a`, peso 0) e a de destino (`b`, peso 1), posição e alvo. */
+export function blendPose(a: Pose, b: Pose, w: number): Pose {
+  const mix = (p: Vec3, q: Vec3): Vec3 => [p[0] + (q[0] - p[0]) * w, p[1] + (q[1] - p[1]) * w, p[2] + (q[2] - p[2]) * w]
+  if (w <= 0) return { position: [...a.position], target: [...a.target] }
+  if (w >= 1) return { position: [...b.position], target: [...b.target] }
+  return { position: mix(a.position, b.position), target: mix(a.target, b.target) }
+}
+
+/**
+ * Peso usado pela câmera: subindo, segue o pedido na hora (a curva já é suave); descendo (troca de destino no meio
+ * da mistura, o peso pedido volta a 0), solta devagar de volta para a perseguição, sem salto.
+ */
+export function easeArrivalBlend(current: number, target: number, dt: number): number {
+  if (target >= current) return target
+  return current + (target - current) * (1 - Math.exp(-BLEND_RELEASE * dt))
 }

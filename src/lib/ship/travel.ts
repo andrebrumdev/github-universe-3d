@@ -3,8 +3,15 @@ import type { BurnWindows } from './burn'
 import { length, normalize } from './vec'
 
 export const SUN_SAFE_DISTANCE = SUN_RADIUS + 2
-export const MIN_TRAVEL_SECONDS = 1.5
-export const MAX_TRAVEL_SECONDS = 3
+/**
+ * Velocidade de cruzeiro (unidades/s) — o botão da rapidez das viagens: a duração sai do comprimento do caminho nela.
+ * Afinada no perfil de exemplo (anéis de ~15, ~41 e ~72): de dentro para fora leva ~3,5 a 5 s.
+ */
+export const CRUISE_SPEED = 27
+/** Tempo a mais das duas queimas (a nave sai e chega parada, mais devagar que em cruzeiro). */
+export const BURN_SECONDS = 0.8
+export const MIN_TRAVEL_SECONDS = 2
+export const MAX_TRAVEL_SECONDS = 8
 /** Folga além do raio seguro para onde é empurrada uma saída de dentro do sol. */
 export const LAUNCH_MARGIN = 0.5
 
@@ -44,9 +51,12 @@ export interface TravelPath {
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
 
-/** Duração da viagem (s) pelo comprimento do caminho: cresce com ele, entre MIN e MAX. */
+/**
+ * Duração da viagem (s) pelo comprimento do caminho (`distance`, o comprimento do arco amostrado, calculado uma vez
+ * por plano): em CRUISE_SPEED, mais as queimas, entre MIN e MAX. Viagens mais longas levam mais tempo.
+ */
 export function travelDuration(distance: number): number {
-  return clamp(MIN_TRAVEL_SECONDS + distance / 40, MIN_TRAVEL_SECONDS, MAX_TRAVEL_SECONDS)
+  return clamp(distance / CRUISE_SPEED + BURN_SECONDS, MIN_TRAVEL_SECONDS, MAX_TRAVEL_SECONDS)
 }
 
 export function travelPoint(path: TravelPath, elapsed: number, out?: Vec3): Vec3 {

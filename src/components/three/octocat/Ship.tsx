@@ -53,6 +53,7 @@ import {
   createThrusterMaterial,
   createThrusterParams,
   thrusterHaloOpacity,
+  thrusterHaloSize,
   thrusterParams,
   updateThrusterMaterial,
 } from './thrusterMaterial'
@@ -214,11 +215,15 @@ export function Ship({
     const params = thrusterParams(thrusterLevel, s, flameParams)
     updateThrusterMaterial(flameMaterial, params, reducedMotion ? 0 : delta)
     if (flame.current) {
-      flame.current.scale.set(1, 1, Math.max(params.length, 0.001))
+      // um pouco mais larga na chama-piloto (a forma, o gradiente e o fresnel ficam: o shader usa a posição antes da escala)
+      flame.current.scale.set(params.width, params.width, Math.max(params.length, 0.001))
       flame.current.visible = params.visible
     }
     // halo mais fraco com bloom; lido no quadro (getState), sem assinar o store nem alocar
-    thrusterHalo.setOpacity(thrusterHaloOpacity(s, useBloom.getState().active))
+    thrusterHalo.setOpacity(thrusterHaloOpacity(s, useBloom.getState().active, thrusterLevel))
+    // e maior na chama-piloto da planagem (vista de trás ela é quase só um disco: o halo é o que a faz ler)
+    const haloSize = thrusterHaloSize(thrusterLevel)
+    thrusterHalo.scale.set(haloSize, haloSize, 1)
   })
 
   // Brilhos (sprites aditivos): um por farol e um na boca do bocal.
