@@ -230,11 +230,28 @@ export function buildOrbits(planets: { name: string; radius: number; extent?: nu
   return { rings, orbits }
 }
 
-/** Equação de Kepler M = E − e·sin E, por Newton a partir de E₀ = M + e·sin M (converge rápido para e ≤ 0,3). */
+/**
+ * Equação de Kepler M = E − e·sin E, robusta até e = 0,95 (cometas). M é levado a [−π, π]; Newton parte de
+ * E₀ = M + 0,85·e·sign(sin M) (Danby), que converge também perto do periélio com e alto, e fica preso ao intervalo
+ * [M − e, M + e] (onde está a raiz, porque |E − M| = e·|sin E| ≤ e): um passo que sai dele vira bissecção.
+ */
 export function solveKepler(M: number, e: number): number {
-  let E = M + e * Math.sin(M)
-  for (let i = 0; i < 6; i++) E -= (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E))
-  return E
+  const turns = Math.round(M / (2 * Math.PI)) * 2 * Math.PI
+  const m = M - turns
+  let lo = m - e
+  let hi = m + e
+  let E = e < 0.3 ? m + e * Math.sin(m) : m + 0.85 * e * Math.sign(Math.sin(m))
+  for (let i = 0; i < 50; i++) {
+    const f = E - e * Math.sin(E) - m
+    if (f > 0) hi = E
+    else lo = E
+    let next = E - f / (1 - e * Math.cos(E))
+    if (!(next > lo && next < hi)) next = (lo + hi) / 2
+    const done = Math.abs(next - E) < 1e-14
+    E = next
+    if (done) break
+  }
+  return E + turns
 }
 
 /** Elementos keplerianos que bastam para posicionar um corpo (anel, lua, cometa). */
