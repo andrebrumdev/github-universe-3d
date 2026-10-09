@@ -7,9 +7,25 @@ export const MAX_TRAVEL_SECONDS = 3
 /** Folga além do raio seguro para onde é empurrada uma saída de dentro do sol. */
 export const LAUNCH_MARGIN = 0.5
 
+/** Estilingue gravitacional de uma viagem (no máximo um): a UI reage a ele (inclinação, fala do Octocat). */
+export interface GravityAssist {
+  /** 'sun' ou o nome do planeta. */
+  body: string
+  /** Centro do corpo durante o sobrevoo. */
+  center: Vec3
+  /** Menor distância ao centro do corpo (periápside). */
+  periapsis: number
+  /** Quanto a direção da nave gira no sobrevoo (rad). */
+  deflection: number
+  /** Instantes (s, desde a partida) da entrada na janela do sobrevoo, da passagem mais perto e da saída. */
+  start: number
+  peak: number
+  end: number
+}
+
 /**
  * Caminho da viagem, parametrizado pelo tempo real (s) desde a partida. Construído em `transfer.ts`
- * (transferência de Hohmann).
+ * (transferência de Hohmann, com estilingue opcional).
  */
 export interface TravelPath {
   duration: number
@@ -17,6 +33,7 @@ export interface TravelPath {
   point(t: number, out?: Vec3): Vec3
   /** Velocidade analítica (unidades/s) no instante t; zero fora de [0, duration]. Com `out`, escreve nele. */
   velocity(t: number, out?: Vec3): Vec3
+  assist: GravityAssist | null
 }
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))

@@ -4,7 +4,8 @@ export type UniverseSelection =
   | { kind: 'planet'; name: string }
   | { kind: 'moon'; planet: string; language: string }
 
-export type GuideEvent = 'sun' | 'planet' | 'moon' | 'firstZoom' | 'idle' | 'longIdle'
+/** `slingshot`: a nave fez um estilingue gravitacional na viagem (emitido pela nave, não pela seleção). */
+export type GuideEvent = 'sun' | 'planet' | 'moon' | 'firstZoom' | 'idle' | 'longIdle' | 'slingshot'
 
 export function selectedPlanet(sel: UniverseSelection): string | null {
   if (sel.kind === 'planet') return sel.name

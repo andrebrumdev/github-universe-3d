@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest'
+import { planetMass, SUN_MASS } from '../universe/barycenter'
 import { advanceClock } from '../universe/clock'
 import { buildOrbits, planetPosition, type Vec3 } from '../universe/orbits'
 import {
+  ASSIST_MIN_RADIUS,
   BURN_FRACTION,
   clockTimeAfter,
+  flybyDeflection,
+  FLYBY_MARGIN,
   MAX_LIFT,
+  MU_PER_MASS,
   OBSTACLE_MARGIN,
   planTransfer,
   planTransferTo,
+  SUN_FLYBY_PERIAPSIS,
   travelBodies,
   type TravelBody,
 } from './transfer'
@@ -201,6 +207,101 @@ describe('planeta no caminho', () => {
     expect(minDistance(path, small.position)).toBeGreaterThanOrEqual(small.radius + OBSTACLE_MARGIN)
     expect(dist(path.point(path.duration), to)).toBeLessThan(1e-9)
     expect(minDistance(path, ORIGIN)).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
+  })
+})
+
+describe('estilingue gravitacional', () => {
+  it('deflexão cresce com a massa e cai com a distância', () => {
+    const mu = (r: number) => MU_PER_MASS * planetMass(r)
+    expect(flybyDeflection(6, 20, mu(3))).toBeGreaterThan(flybyDeflection(6, 20, mu(2)))
+    expect(flybyDeflection(6, 20, mu(3))).toBeGreaterThan(flybyDeflection(9, 20, mu(3)))
+    expect(flybyDeflection(6, 20, mu(3))).toBeCloseTo(2 * Math.asin(1 / (1 + (6 * 400) / mu(3))))
+  })
+
+  it('massa do sol entra na mesma escala dos planetas', () => {
+    expect(flybyDeflection(SUN_FLYBY_PERIAPSIS, 20, MU_PER_MASS * SUN_MASS)).toBeGreaterThan(flybyDeflection(6, 20, MU_PER_MASS * planetMass(3)))
+  })
+
+  describe('pelo sol (destino do outro lado)', () => {
+    const from = ring(13, 0.2, 0.5)
+    const to = ring(14, 0.2 + Math.PI * 0.97, -0.5)
+    const path = planTransfer(from, to)
+
+    it('mergulha em volta do sol sem entrar no raio seguro', () => {
+      expect(path.assist?.body).toBe('sun')
+      expect(path.assist!.periapsis).toBeGreaterThanOrEqual(SUN_FLYBY_PERIAPSIS - 1e-9)
+      expect(minDistance(path, ORIGIN)).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
+      expect(minDistance(path, ORIGIN)).toBeLessThan(Math.min(length(from), length(to)) - 2)
+    })
+
+    it('acelera perto do sol', () => {
+      const { start, peak } = path.assist!
+      expect(start).toBeLessThan(peak)
+      // parabólico: v ∝ 1/√r, da entrada da janela (meio caminho até o periélio) ao periélio
+      expect(length(path.velocity(peak))).toBeGreaterThan(1.15 * length(path.velocity(start)))
+    })
+
+    it('liga as pontas, contínuo e com velocidade analítica', () => {
+      expect(dist(path.point(0), from)).toBeLessThan(1e-9)
+      expect(dist(path.point(path.duration), to)).toBeLessThan(1e-9)
+      expectContinuous(path)
+      expectVelocityMatchesFiniteDifferences(path)
+    })
+
+    it('não acontece quando o destino é o próprio sol', () => {
+      expect(planTransfer(ring(14, 0), ring(5.5, Math.PI, 1.5)).assist).toBeNull()
+    })
+  })
+
+  describe('por um planeta grande no caminho', () => {
+    const from = ring(12, 0)
+    const to = ring(60, Math.PI)
+    const direct = planTransfer(from, to)
+    // planeta grande bem em cima do caminho direto (no meio dele)
+    const giant: TravelBody = { name: 'gigante', position: direct.point(direct.duration * 0.5), radius: 2.8, extent: 4.5 }
+    const path = planTransfer(from, to, { bodies: [giant] })
+
+    it('contorna o planeta numa hipérbole sem encostar nele', () => {
+      expect(direct.assist).toBeNull()
+      expect(minDistance(direct, giant.position)).toBeLessThan(giant.extent)
+      expect(path.assist?.body).toBe('gigante')
+      expect(path.assist!.periapsis).toBeGreaterThanOrEqual(giant.extent + FLYBY_MARGIN - 1e-9)
+      expect(minDistance(path, giant.position)).toBeGreaterThanOrEqual(giant.extent + FLYBY_MARGIN / 2)
+      expect(path.assist!.deflection).toBeGreaterThan(0.1)
+    })
+
+    it('acelera no periápside', () => {
+      const { start, peak, end } = path.assist!
+      expect(start).toBeLessThan(peak)
+      expect(peak).toBeLessThan(end)
+      expect(length(path.velocity(peak))).toBeGreaterThan(1.1 * length(path.velocity(start)))
+    })
+
+    it('trechos costurados com C1, seguro do sol, pontas certas', () => {
+      expect(dist(path.point(0), from)).toBeLessThan(1e-9)
+      expect(dist(path.point(path.duration), to)).toBeLessThan(1e-9)
+      for (const t of [path.assist!.start, path.assist!.end]) {
+        expect(dist(path.point(t - 1e-7), path.point(t + 1e-7))).toBeLessThan(1e-4)
+        expect(length(sub(path.velocity(t - 1e-9), path.velocity(t + 1e-9)))).toBeLessThan(1e-4 * length(path.velocity(t)))
+      }
+      expect(minDistance(path, ORIGIN)).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
+      expectContinuous(path)
+      expectVelocityMatchesFiniteDifferences(path)
+      expect(path.duration).toBeLessThanOrEqual(MAX_TRAVEL_SECONDS)
+    })
+
+    it('só um por viagem e só com planeta grande, nunca o próprio destino', () => {
+      const small = { ...giant, name: 'pequeno', radius: ASSIST_MIN_RADIUS - 0.1 }
+      expect(planTransfer(from, to, { bodies: [small] }).assist).toBeNull()
+      expect(planTransfer(from, to, { bodies: [giant], exclude: 'gigante' }).assist).toBeNull()
+      const twin = { ...giant, name: 'gêmeo', position: direct.point(direct.duration * 0.3) }
+      expect(planTransfer(from, to, { bodies: [giant, twin] }).assist).not.toBeNull()
+    })
+
+    it('planeta longe do caminho não desvia nada', () => {
+      const far = { ...giant, position: [0, 0, 80] as Vec3 }
+      expect(planTransfer(from, to, { bodies: [far] }).assist).toBeNull()
+    })
   })
 })
 

@@ -19,6 +19,7 @@ export const LINES: Record<GuideEvent, OctocatLine> = {
   firstZoom: { id: 'firstZoom', text: 'Uau, dá pra ver bem mais de perto!', once: true, expression: 'surprised' },
   idle: { id: 'idle', text: 'Oi, tá aí?', once: true, expression: 'wink' },
   longIdle: { id: 'longIdle', text: 'Ei, se precisar de ajuda, é comigo!', once: true, expression: 'happy' },
+  slingshot: { id: 'slingshot', text: 'Estilingue gravitacional!', once: true, expression: 'surprised' },
 }
 
 export const LINE_DURATION_MS = 4000

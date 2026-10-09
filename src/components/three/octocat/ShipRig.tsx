@@ -29,7 +29,7 @@ import {
 } from '@/lib/ship/escort'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
 import { clockTimeAfter, planTransferTo, travelBodies } from '@/lib/ship/transfer'
-import { travelPoint, travelTangent, travelVelocity } from '@/lib/ship/travel'
+import { travelPoint, travelTangent, travelVelocity, type TravelPath } from '@/lib/ship/travel'
 import type { Repo } from '@/lib/types'
 import { reservedRects } from '@/lib/uiLayout'
 import { barycenterOffset } from '@/lib/universe/barycenter'
@@ -62,6 +62,8 @@ const enterRise = (local: Vec3, fov: number) => -local[2] * Math.tan((fov * Math
 const VISIT_SIDE = { side: 1, bottom: 0.35 } as const
 /** Largura do rastro (o Trail do drei usa 0,1 × width em unidades do mundo): ~ o diâmetro do bocal. */
 const TRAIL_WIDTH = 1.6
+/** No estilingue a curva é fechada e rápida: a nave inclina bem mais que numa curva comum. */
+const ASSIST_BANK = 1.8
 
 // `profileName` segue na assinatura (o Scene passa); o balão visível agora é DOM, no OctocatSpeech.
 export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[]; profileName: string }) {
@@ -70,6 +72,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
   const machine = useRef<ShipState>({ ...INITIAL_SHIP })
   const trailHead = useRef<THREE.Mesh>(null)
   const lastTangent = useRef<Vec3>([0, 0, 1])
+  /** Viagem cujo estilingue já foi anunciado (a fala sai uma vez, ao entrar no sobrevoo). */
+  const announced = useRef<TravelPath | null>(null)
   const [mode, setMode] = useState<ShipMode>('entering')
   // O modo também muda fora do tick (viagem/chegada no efeito): compara com o que foi renderizado.
   const renderedMode = useRef<ShipMode>('entering')
@@ -199,6 +203,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
         // Troca de destino em voo: parte com a velocidade atual (sem quina). Parada (escolta, visita): queima de partida.
         velocity: machine.current.mode === 'traveling' ? shipPose.velocity : null,
         bodies: travelBodies(system, stop),
+        exclude: target.kind === 'planet' ? target.name : null,
       })
       machine.current = shipReducer(machine.current, { type: 'travel', target, path })
       shipPose.velocity = travelVelocity(path, 0)
@@ -238,11 +243,21 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     }
     goal.fromArray(knockOffset(escort.base, knock, goalArr))
     let tangent: Vec3 | null = null
+    let bank = 1
 
     if (s.mode === 'traveling' && s.path) {
       hasLocal.current = false
       g.position.fromArray(travelPoint(s.path, s.elapsed, posArr))
       tangent = travelTangent(s.path, s.elapsed)
+      // Estilingue: inclina forte no sobrevoo e o Octocat comemora (uma vez; nunca por cima da narração da apresentação).
+      const assist = s.path.assist
+      if (assist && s.elapsed >= assist.start && s.elapsed <= assist.end) {
+        bank = ASSIST_BANK
+        if (announced.current !== s.path) {
+          announced.current = s.path
+          if (shipPose.userTravel && !usePresentation.getState().state) useUniverse.getState().emitGuide('slingshot')
+        }
+      }
     } else if (s.mode === 'entering' && !reduced) {
       // Desce de fora da imagem até o canto, no referencial da câmera.
       const k = Math.min(1, s.elapsed / ENTER_DURATION)
@@ -283,7 +298,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     if (tangent) {
       helper.up.set(0, 1, 0)
       helper.lookAt(look.set(...tangent).add(g.position))
-      helper.rotateZ(bankAngle(lastTangent.current, tangent, dt))
+      helper.rotateZ(bankAngle(lastTangent.current, tangent, dt) * bank)
       lastTangent.current = tangent
     } else {
       helper.up.copy(up)
