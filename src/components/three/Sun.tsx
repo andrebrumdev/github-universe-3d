@@ -29,6 +29,7 @@ import { shipPose } from '@/store/shipPose'
 import { simClock } from '@/store/simClock'
 import { useTutorial } from '@/store/tutorial'
 import { useUniverse } from '@/store/universe'
+import { HitProxy } from './HitProxy'
 import { drawSunFace, SUN_TEX_H, SUN_TEX_W } from './sunFace'
 import {
   createGlowGeometry,
@@ -79,7 +80,10 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   const spring = useRef<FaceSpring>(FACE_AT_REST)
   const [mode, setMode] = useState<SunMode>('idle')
   const [blink, setBlink] = useState(false)
-  const [hovered, setHovered] = useState(false)
+  // O rosto e a área de toque em volta (HitProxy) marcam o hover cada um no seu.
+  const [faceHovered, setFaceHovered] = useState(false)
+  const [proxyHovered, setProxyHovered] = useState(false)
+  const hovered = faceHovered || proxyHovered
   const gaze = useRef<GazeState>(GAZE_AT_START)
   const [admiring, setAdmiring] = useState(false)
   const admiringNow = useRef(false)
@@ -309,6 +313,16 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
 
   return (
     <group ref={center}>
+      {/* na visão geral do celular o sol tem ~10 px: a área de toque tem no mínimo ~44 px de diâmetro */}
+      <HitProxy
+        radius={SUN_RADIUS}
+        onClick={handleClick}
+        onPointerOver={(e) => {
+          e.stopPropagation()
+          setProxyHovered(true)
+        }}
+        onPointerOut={() => setProxyHovered(false)}
+      />
       <group ref={body}>
         <pointLight ref={light} decay={0} intensity={2.2} color="#FFF1C9" />
         <group ref={bounce}>
@@ -320,9 +334,9 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
               onClick={handleClick}
               onPointerOver={(e) => {
                 e.stopPropagation()
-                setHovered(true)
+                setFaceHovered(true)
               }}
-              onPointerOut={() => setHovered(false)}
+              onPointerOut={() => setFaceHovered(false)}
             />
             <mesh geometry={glowGeometry} material={glowMaterial} raycast={NO_RAYCAST} />
           </group>

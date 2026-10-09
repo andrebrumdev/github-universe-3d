@@ -17,6 +17,7 @@ import {
   PLANET_GEOMETRY_LO,
 } from './geometries'
 import { cellFromUv } from './grid'
+import { HitProxy } from './HitProxy'
 import { Moon } from './Moon'
 import { PlanetHoverCard } from './PlanetHoverCard'
 import { usePlanetMaterial } from './usePlanetMaterial'
@@ -26,7 +27,10 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
   const precession = useRef<THREE.Group>(null)
   const tilt = useRef<THREE.Group>(null)
   const surface = useRef<THREE.Mesh>(null)
-  const [hovered, setHovered] = useState(false)
+  // A superfície e a área de toque em volta (HitProxy) marcam o hover cada uma no seu: um sai enquanto o outro entra.
+  const [surfaceHovered, setSurfaceHovered] = useState(false)
+  const [proxyHovered, setProxyHovered] = useState(false)
+  const hovered = surfaceHovered || proxyHovered
   useCursor(hovered)
   const material = usePlanetMaterial(repo.activity.weeks)
   const spin = useMemo(() => planetSpin(repo.name), [repo.name])
@@ -79,6 +83,19 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
   return (
     <group ref={root}>
       {hovered && !isSelected && canHover && <PlanetHoverCard repo={repo} radius={orbit.radius} />}
+      {/* de longe o planeta tem ~10 px: a área de toque tem no mínimo ~44 px de diâmetro, sem mudar o que se vê */}
+      <HitProxy
+        radius={orbit.radius}
+        onClick={(e) => {
+          e.stopPropagation()
+          select({ kind: 'planet', name: repo.name })
+        }}
+        onPointerOver={(e) => {
+          e.stopPropagation()
+          setProxyHovered(true)
+        }}
+        onPointerOut={() => setProxyHovered(false)}
+      />
       <group ref={precession}>
         <group ref={tilt} rotation={[0, 0, spin.obliquity]}>
           <mesh
@@ -92,10 +109,10 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
             }}
             onPointerOver={(e) => {
               e.stopPropagation()
-              setHovered(true)
+              setSurfaceHovered(true)
             }}
             onPointerOut={() => {
-              setHovered(false)
+              setSurfaceHovered(false)
               setHoveredCell(null)
             }}
             onPointerMove={handleMove}
