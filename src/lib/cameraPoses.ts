@@ -18,15 +18,24 @@ export interface Viewport {
 
 export const DEFAULT_VIEWPORT: Viewport = { aspect: 16 / 10, fov: 50 }
 
+/** Elevação da câmera da visão geral: posição (0, OVERVIEW_RISE·d, d), olhando para o sol. */
+const OVERVIEW_RISE = 0.6
+
 export function overviewPose(system: OrbitSystem, viewport: Viewport = DEFAULT_VIEWPORT): Pose {
   const outer = system.rings[system.rings.length - 1]
   const reach = outer ? outer.a * (1 + outer.e) + outer.maxRadius : 12
-  const vertical = reach * 1.5 + 10
+  // Com a precessão do periélio, o afélio passa pelo lado da câmera: o ponto mais baixo na tela é (0, −h, reach),
+  // com h a maior altura de um anel inclinado (mais o alcance do corpo). Ele cabe se o ângulo abaixo do horizonte
+  // não passar de elevação + meio fov: (RISE·d + h) / (d − reach) ≤ tan(elevação + fov/2).
+  const height = system.rings.reduce((h, r) => Math.max(h, r.a * (1 + r.e) * Math.abs(Math.sin(r.inclination)) + r.maxRadius), 0)
+  const T = Math.tan(Math.atan(OVERVIEW_RISE) + (viewport.fov * Math.PI) / 360)
+  const nearFit = (T * reach + height) / (T - OVERVIEW_RISE) + 2
+  const vertical = Math.max(reach * 1.5 + 10, nearFit)
   // A câmera fica em x = 0: a extensão do anel em X vira a extensão horizontal da tela.
   const halfTan = Math.tan((viewport.fov * Math.PI) / 360) * viewport.aspect
   const fitH = (reach * 1.1) / halfTan
   const d = Math.max(vertical, fitH)
-  return { position: [0, d * 0.6, d], target: [0, 0, 0] }
+  return { position: [0, d * OVERVIEW_RISE, d], target: [0, 0, 0] }
 }
 
 export function maxCameraDistance(system: OrbitSystem, viewport: Viewport = DEFAULT_VIEWPORT): number {

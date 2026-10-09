@@ -5,7 +5,7 @@ import type * as THREE from 'three'
 import { selectedPlanet } from '@/lib/interaction'
 import type { Repo } from '@/lib/types'
 import { cellDate } from '@/lib/universe/activity'
-import { planetPosition, type PlanetOrbit, type Ring } from '@/lib/universe/orbits'
+import { planetPosition, type PlanetOrbit, type Ring, type Vec3 } from '@/lib/universe/orbits'
 import { axisAngles, moonOrbits, planetSpin } from '@/lib/universe/planets'
 import { simClock } from '@/store/simClock'
 import { useUniverse } from '@/store/universe'
@@ -36,10 +36,13 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
   const canHover = useMemo(() => typeof window !== 'undefined' && !window.matchMedia('(hover: none)').matches, [])
   const isReal = repo.activity.source === 'real'
 
+  const pos = useMemo<Vec3>(() => [0, 0, 0], [])
+
   useFrame(() => {
     const t = simClock.time
-    const [x, y, z] = planetPosition(ring, orbit, t)
-    root.current?.position.set(x, y, z)
+    // já com a precessão do periélio do anel; sem alocar por frame
+    planetPosition(ring, orbit, t, pos)
+    root.current?.position.set(pos[0], pos[1], pos[2])
     // Ângulos de Euler, do grupo de fora para o de dentro:
     // precessão ψ (y do sistema) → obliquidade θ com nutação (z) → rotação própria φ (y local, o eixo).
     const angles = axisAngles(spin, t)

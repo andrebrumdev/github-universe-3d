@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { bodyExtent, MAX_MOONS, MAX_PLANET_RADIUS, MIN_PLANET_RADIUS } from './planets'
 import {
+  apsidalAngle,
+  APSIDAL_TURN_PERIODS,
   buildOrbits,
   MAX_ECCENTRICITY,
   MAX_INCLINATION,
   MIN_ECCENTRICITY,
   MIN_INCLINATION,
+  orbitNormal,
   orbitPosition,
   orbitPath,
+  periapsisAt,
   planetPosition,
   type Ring,
   RING_GAP,
@@ -32,9 +36,19 @@ const ring = (over: Partial<Ring> = {}): Ring => ({
   node: 0.7,
   periapsis: 1.3,
   period: 60,
+  apsidalRate: 0,
   maxRadius: 1,
   ...over,
 })
+
+/** Rotação de Rodrigues de v em torno do eixo unitário k. */
+const rotate = (v: Vec3, k: Vec3, ang: number): Vec3 => {
+  const c = Math.cos(ang)
+  const s = Math.sin(ang)
+  const d = k[0] * v[0] + k[1] * v[1] + k[2] * v[2]
+  const x: Vec3 = [k[1] * v[2] - k[2] * v[1], k[2] * v[0] - k[0] * v[2], k[0] * v[1] - k[1] * v[0]]
+  return [0, 1, 2].map((j) => v[j] * c + x[j] * s + k[j] * d * (1 - c)) as Vec3
+}
 
 describe('solveKepler', () => {
   it('resolve M = E − e·sin E com erro desprezível', () => {
@@ -54,17 +68,58 @@ describe('posição na órbita', () => {
     expect(len(orbitPosition(r, Math.PI))).toBeCloseTo(r.a * (1 + r.e), 9)
   })
 
-  it('volta ao mesmo ponto depois de um período', () => {
-    const r = ring()
+  it('volta ao mesmo ponto depois de um período (sem precessão) e à mesma distância do sol (com precessão)', () => {
     const orbit = { name: 'p', ring: 0, radius: 1, extent: 1, phase: 0.4 }
-    const p0 = planetPosition(r, orbit, 12.3)
-    const p1 = planetPosition(r, orbit, 12.3 + r.period)
-    expect(dist(p0, p1)).toBeLessThan(1e-9)
+    const still = ring()
+    expect(dist(planetPosition(still, orbit, 12.3), planetPosition(still, orbit, 12.3 + still.period))).toBeLessThan(1e-9)
+    const r = ring({ apsidalRate: 0.01 })
+    expect(len(planetPosition(r, orbit, 12.3 + r.period))).toBeCloseTo(len(planetPosition(r, orbit, 12.3)), 9)
+  })
+
+  it('com `out`, escreve no vetor dado em vez de alocar', () => {
+    const r = ring({ apsidalRate: 0.02 })
+    const orbit = { name: 'p', ring: 0, radius: 1, extent: 1, phase: 0.4 }
+    const out: Vec3 = [0, 0, 0]
+    expect(planetPosition(r, orbit, 7, out)).toBe(out)
+    expect(out).toEqual(planetPosition(r, orbit, 7))
   })
 
   it('órbita sem inclinação fica no plano y = 0', () => {
     const r = ring({ inclination: 0 })
     for (let M = 0; M < 6; M += 0.5) expect(Math.abs(orbitPosition(r, M)[1])).toBeLessThan(1e-12)
+  })
+})
+
+describe('precessão do periélio', () => {
+  it('ω avança com o tempo: o periélio no instante t é o da elipse com ω + dω/dt·t', () => {
+    const r = ring({ apsidalRate: 0.03 })
+    const orbit = { name: 'p', ring: 0, radius: 1, extent: 1, phase: 0 }
+    // fase 0 e t = um período: o planeta está no periélio, que girou 0,03·60 rad
+    const at = planetPosition(r, orbit, r.period)
+    expect(dist(at, orbitPosition({ ...r, periapsis: r.periapsis + 0.03 * r.period }, 0))).toBeLessThan(1e-9)
+    expect(periapsisAt(r, 10)).toBeCloseTo(r.periapsis + 0.3, 12)
+  })
+
+  it('a elipse gira em torno da normal do plano orbital (é o que o OrbitLines faz, sem refazer a geometria)', () => {
+    const r = ring({ e: 0.2, inclination: -0.2, node: 2.1, apsidalRate: 0.04 })
+    const n = orbitNormal(r)
+    expect(len(n)).toBeCloseTo(1, 12)
+    // a normal é perpendicular a todos os pontos da órbita (o sol fica no plano)
+    for (const p of orbitPath(r, 0, 24)) expect(Math.abs(p[0] * n[0] + p[1] * n[1] + p[2] * n[2])).toBeLessThan(1e-9)
+    const t = 17
+    const base = orbitPath(r, 0, 32)
+    const moved = orbitPath(r, t, 32)
+    for (let i = 0; i < base.length; i++) expect(dist(rotate(base[i], n, apsidalAngle(r, t)), moved[i])).toBeLessThan(1e-9)
+  })
+
+  it('uma volta completa em 20 períodos do próprio anel: os internos giram mais rápido (como Mercúrio)', () => {
+    const { rings } = buildOrbits(Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: 1.2 })))
+    for (const r of rings) {
+      expect(r.apsidalRate).toBeGreaterThan(0)
+      expect((2 * Math.PI) / r.apsidalRate).toBeCloseTo(APSIDAL_TURN_PERIODS * r.period, 6)
+    }
+    for (let k = 1; k < rings.length; k++) expect(rings[k].apsidalRate).toBeLessThan(rings[k - 1].apsidalRate)
+    expect(APSIDAL_TURN_PERIODS).toBe(20)
   })
 })
 
@@ -133,11 +188,13 @@ describe('buildOrbits', () => {
     expect(outer.a * (1 + outer.e) + outer.maxRadius).toBeLessThan(REACH_LIMIT)
   })
 
-  it('orbitPath desenha a elipse: periélio a(1−e) e afélio a(1+e)', () => {
-    const r = ring({ e: 0.2, inclination: 0.24 })
-    const radii = orbitPath(r).map(len)
-    expect(Math.min(...radii)).toBeCloseTo(r.a * (1 - r.e), 6)
-    expect(Math.max(...radii)).toBeCloseTo(r.a * (1 + r.e), 6)
+  it('orbitPath desenha a elipse: periélio a(1−e) e afélio a(1+e), em qualquer instante da precessão', () => {
+    const r = ring({ e: 0.2, inclination: 0.24, apsidalRate: 0.05 })
+    for (const t of [0, 13, 70]) {
+      const radii = orbitPath(r, t).map(len)
+      expect(Math.min(...radii)).toBeCloseTo(r.a * (1 - r.e), 6)
+      expect(Math.max(...radii)).toBeCloseTo(r.a * (1 + r.e), 6)
+    }
   })
 
   const maxWithMoons = bodyExtent(MAX_PLANET_RADIUS, MAX_MOONS)

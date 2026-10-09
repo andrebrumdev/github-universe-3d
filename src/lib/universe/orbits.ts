@@ -16,6 +16,8 @@ export interface Ring {
   periapsis: number
   /** segundos de simulação por volta */
   period: number
+  /** precessão do periélio dω/dt, rad por segundo de simulação (ver `APSIDAL_TURN_PERIODS`) */
+  apsidalRate: number
   /** maior alcance (planeta + luas, ver `bodyExtent`) entre os planetas do anel */
   maxRadius: number
 }
@@ -47,6 +49,12 @@ export const MIN_INCLINATION = (4 * Math.PI) / 180
 export const MAX_INCLINATION = (14 * Math.PI) / 180
 const SUN_CLEARANCE = 3
 export const RING_GAP = 1.2
+/**
+ * Precessão do periélio: cada anel dá uma volta completa em ω a cada APSIDAL_TURN_PERIODS dos próprios períodos.
+ * O externo leva ~20 voltas dele; os internos, de período curto, giram mais rápido (como Mercúrio).
+ * Periélio e afélio não mudam de distância, e todos os planetas de um anel giram juntos: o espaçamento continua valendo.
+ */
+export const APSIDAL_TURN_PERIODS = 20
 
 export function ringCapacity(k: number): number {
   return 3 + 2 * k
@@ -102,7 +110,8 @@ export function buildOrbits(planets: { name: string; radius: number; extent?: nu
     const a = Math.max(minPeri / (1 - e), sameRing)
     const period = rings.length ? INNER_PERIOD * Math.pow(a / rings[0].a, 1.5) : INNER_PERIOD
 
-    rings.push({ index: k, a, e, inclination, node, periapsis, period, maxRadius })
+    const apsidalRate = (2 * Math.PI) / (APSIDAL_TURN_PERIODS * period)
+    rings.push({ index: k, a, e, inclination, node, periapsis, period, apsidalRate, maxRadius })
     members.forEach((m, i) =>
       orbits.push({ name: m.name, ring: k, radius: m.radius, extent: m.extent, phase: (i / n) * Math.PI * 2 + k * 0.7 }),
     )
@@ -121,9 +130,12 @@ export function solveKepler(M: number, e: number): number {
 /** Elementos keplerianos que bastam para posicionar um corpo (anel, lua, cometa). */
 export type OrbitElements = Pick<Ring, 'a' | 'e' | 'inclination' | 'node' | 'periapsis'>
 
-/** Com `out`, escreve nele (para o laço por frame não alocar) e o devolve. */
-export function positionFromE(ring: OrbitElements, E: number, out?: Vec3): Vec3 {
-  const { a, e, node, inclination, periapsis } = ring
+/**
+ * Com `out`, escreve nele (para o laço por frame não alocar) e o devolve.
+ * `periapsis` substitui o ω dos elementos (a precessão passa o ω do instante).
+ */
+export function positionFromE(ring: OrbitElements, E: number, out?: Vec3, periapsis = ring.periapsis): Vec3 {
+  const { a, e, node, inclination } = ring
   const xp = a * (Math.cos(E) - e)
   const yp = a * Math.sqrt(1 - e * e) * Math.sin(E)
   const cO = Math.cos(node), sO = Math.sin(node)
@@ -145,10 +157,31 @@ export function orbitPosition(ring: OrbitElements, M: number, out?: Vec3): Vec3 
   return positionFromE(ring, solveKepler(M, ring.e), out)
 }
 
-export function planetPosition(ring: Ring, orbit: PlanetOrbit, t: number): Vec3 {
-  return orbitPosition(ring, orbit.phase + (2 * Math.PI * t) / ring.period)
+/** Quanto o periélio do anel girou (rad) até o instante t. */
+export function apsidalAngle(ring: Pick<Ring, 'apsidalRate'>, t: number): number {
+  return ring.apsidalRate * t
 }
 
-export function orbitPath(ring: Ring, segments = 160): Vec3[] {
-  return Array.from({ length: segments + 1 }, (_, i) => positionFromE(ring, (i / segments) * Math.PI * 2))
+/** ω no instante t (precessão do periélio). */
+export function periapsisAt(ring: Pick<Ring, 'periapsis' | 'apsidalRate'>, t: number): number {
+  return ring.periapsis + apsidalAngle(ring, t)
+}
+
+/** Normal unitária do plano orbital (no referencial do Three.js, y para cima): o eixo em torno do qual o periélio gira. */
+export function orbitNormal(ring: OrbitElements): Vec3 {
+  const si = Math.sin(ring.inclination)
+  // 3ª coluna da rotação 3-1-3: (sin Ω sin i, −cos Ω sin i, cos i), com Z para cima → [X, Z, −Y].
+  return [Math.sin(ring.node) * si, Math.cos(ring.inclination), Math.cos(ring.node) * si]
+}
+
+/** Posição do planeta no instante t; com `out`, escreve nele em vez de alocar. */
+export function planetPosition(ring: Ring, orbit: PlanetOrbit, t: number, out?: Vec3): Vec3 {
+  const M = orbit.phase + (2 * Math.PI * t) / ring.period
+  return positionFromE(ring, solveKepler(M, ring.e), out, periapsisAt(ring, t))
+}
+
+/** A elipse do anel no instante t (com o periélio já girado pela precessão). */
+export function orbitPath(ring: Ring, t = 0, segments = 160): Vec3[] {
+  const omega = periapsisAt(ring, t)
+  return Array.from({ length: segments + 1 }, (_, i) => positionFromE(ring, (i / segments) * Math.PI * 2, undefined, omega))
 }

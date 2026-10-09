@@ -52,8 +52,10 @@ function worstScreenExtent(sys: OrbitSystem, viewport: { aspect: number; fov: nu
   const tanY = Math.tan((viewport.fov * Math.PI) / 360)
   const tanX = tanY * viewport.aspect
   let worst = 0
+  // a precessão gira cada elipse no próprio plano: o enquadramento vale em qualquer fase dela
   for (const ring of sys.rings) {
-    for (const p of orbitPath(ring, 96)) {
+    for (const t of [0, 0.25, 0.5, 0.75].map((f) => (f * 2 * Math.PI) / ring.apsidalRate))
+    for (const p of orbitPath(ring, t, 96)) {
       const v = sub(p, eye)
       const depth = dot(v, f)
       // esfera de raio maxRadius em volta do ponto: o pior caso na tela é o centro deslocado de r para fora
@@ -135,9 +137,10 @@ describe('overviewPose com proporção de tela', () => {
     expect(maxCameraDistance(system, portrait)).toBeGreaterThan(dist)
   })
 
-  it('em tela de desktop, a pose é a de sempre', () => {
-    const d = reach * 1.5 + 10
-    expect(overviewPose(system, DEFAULT_VIEWPORT).position).toEqual([0, d * 0.6, d])
+  it('em tela de desktop, quem manda é o encaixe vertical (não depende da proporção) e nunca fica mais perto que antes', () => {
+    const [x, y, d] = overviewPose(system, DEFAULT_VIEWPORT).position
+    expect([x, y]).toEqual([0, d * 0.6])
+    expect(d).toBeGreaterThanOrEqual(reach * 1.5 + 10)
     expect(overviewPose(system, { aspect: 1.78, fov: 50 }).position).toEqual([0, d * 0.6, d])
   })
 
