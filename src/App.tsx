@@ -4,6 +4,7 @@ import { BackButton } from '@/components/ui/BackButton'
 import { CrashOverlay } from '@/components/ui/CrashOverlay'
 import { FourthWall } from '@/components/ui/FourthWall'
 import { LoadError } from '@/components/ui/LoadError'
+import { NoClickButton } from '@/components/ui/NoClickButton'
 import { Loader } from '@/components/ui/Loader'
 import { PanelArrivalHint } from '@/components/ui/PanelArrivalHint'
 import { OctocatSpeech } from '@/components/ui/OctocatSpeech'
@@ -60,6 +61,8 @@ export function App() {
         {/* na ordem em que aparecem na tela (da esquerda para a direita) */}
         <PresentationButton universe={universe} />
         <TutorialButton />
+        {/* easter egg: foge do mouse; pego, o Octocat faz um show */}
+        <NoClickButton />
         <Tutorial profileName={universe.profile.name} />
         <PresentationCard universe={universe} />
       </main>

@@ -22,6 +22,8 @@ import { OrbitLines } from './OrbitLines'
 import { Planet } from './Planet'
 import { PlanetGlowDriver } from './PlanetGlowDriver'
 import { RenderInfo } from './RenderInfo'
+import { ShowConfetti } from './ShowConfetti'
+import { ShowDriver } from './ShowDriver'
 import { SimClockDriver } from './SimClockDriver'
 import { Sun } from './Sun'
 import { Starfield } from './Starfield'
@@ -139,8 +141,10 @@ export function Scene({ universe }: { universe: Universe }) {
       <Comets system={system} repos={universe.repos} />
       <CameraRig system={system} repos={universe.repos} />
       <ShipRig system={system} repos={universe.repos} />
-      {/* easter egg: fachos do sol-globo e chuva de estrelas do modo disco */}
+      {/* easter eggs: fachos e chuva do disco, e o show do botão "Não clique aqui" */}
       <DiscoEffects system={system} starRadius={starRadius} />
+      <ShowDriver />
+      <ShowConfetti />
       {/* programas dos efeitos de voo compilados na montagem (e quando o bloom liga), não no primeiro voo */}
       <FlightWarmup />
       {bloom && (

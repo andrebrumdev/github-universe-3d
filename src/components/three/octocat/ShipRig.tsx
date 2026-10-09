@@ -234,8 +234,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     setBurnShake((n) => n + 1)
   }, [clock])
   const play = useShipPlay({ focused: mode === 'focus', reduced, root: group, onBurst })
-  // easter egg (store/disco): a dancinha do modo disco
-  const easter = useEasterShip({ reduced })
+  // easter eggs (store/show e store/disco): o show do botão "Não clique aqui" e a dancinha do modo disco
+  const easter = useEasterShip({ onBurst, reduced })
   useCursor(hovered, mode === 'focus' ? (play.dragging ? 'grabbing' : 'grab') : 'pointer')
   /** Câmera do quadro anterior (para saber se ela assentou). */
   const lastCamPos = useMemo(() => new THREE.Vector3(), [])
@@ -917,7 +917,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
         ? 'surprised'
         : (bubble?.line.expression ?? (sleep.on ? 'sleepy' : mode === 'traveling' || knocking ? 'happy' : 'neutral'))
   const armMode: ArmMode =
-    hoverWink || knocking || greeting || play.waving || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
+    hoverWink || knocking || greeting || play.waving || easter.waving || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
   // com movimento reduzido (sem voo), níveis fixos pela prop; com movimento, a nave lê `thrustSmooth` a cada quadro
   const thrusterLevel = mode === 'entering' ? 0.8 : 0.25
 
@@ -973,7 +973,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
               dazed={starry || play.dizzy || (zoomDizzy && zoomDizzyCue.motion && !reduced)}
               gaze={play.gaze}
               wiggle={play.wiggle}
-              hop={play.hop}
+              hop={play.hop + easter.hop}
               proxies={mode === 'focus'}
               spinDizzySince={starsSince}
               headShake={play.headShake}

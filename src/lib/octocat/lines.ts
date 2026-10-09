@@ -66,9 +66,11 @@ export function formatLine(text: string, name: string): string {
 }
 
 /**
- * Easter eggs da quarta parede (bloco à parte): o modo disco do Konami Code.
+ * Easter eggs da quarta parede (bloco à parte): o modo disco do Konami Code e o show do botão "Não clique aqui".
  * `disco` alterna a cada festa (a primeira e as seguintes).
  */
 export const EASTER_LINES = {
   disco: ['Modo disco ativado! Solta o som, universo!', 'De novo? Bora, que a pista é nossa!'],
+  showStart: 'Eu disse pra não clicar! …mas já que você insistiu: ta‑dã!',
+  showThanks: 'Obrigado, obrigado, sem autógrafos.',
 } as const
