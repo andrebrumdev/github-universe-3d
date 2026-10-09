@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { browArch, browBar, BUBBLE, EYE, FACE_CENTER, hasLidCap, hasPupils, hasSparkle, LID, MOUTH_Y, PUPIL, PUPIL_REACH, pupilLook, sideEyes, VIAJANDO } from './face'
+import { browArch, browBar, BUBBLE, EYE, FACE_CENTER, faceKey, hasEyes, hasLidCap, hasPupils, hasSparkle, LID, MOUTH_Y, PUPIL, PUPIL_REACH, pupilLook, sideEyes, VIAJANDO } from './face'
 import { SUN_EXPRESSIONS } from './sunMachine'
 import { SUN_LOOK } from './sunMachine'
 import type { SunExpression } from './sunMachine'
@@ -154,13 +154,28 @@ describe('viajando e de olho', () => {
     expect(LID.cover).toBeLessThanOrEqual(0.4)
   })
 
+  it('só o sério tem sobrancelha reta e nivelada; cada outro humor tem curva ou inclinação própria', () => {
+    for (const e of BROWED) {
+      const [, y1, , y2] = browBar(e, -1)!
+      const tilt = Math.abs(y1 - y2)
+      if (e === 'serious') {
+        expect(browArch(e)).toBe(0)
+        expect(tilt).toBe(0)
+      } else {
+        expect(browArch(e) > 0 || tilt > 0.5).toBe(true)
+      }
+    }
+    // feliz: levantada e arqueada; surpreso: mais alta e bem mais arqueada
+    expect(browArch('happy')).toBeGreaterThan(0)
+    expect(browArch('surprised')).toBeGreaterThan(browArch('happy'))
+  })
+
   it('sobrancelha e pálpebra pesada nunca juntas (nada de sobrancelha dupla), em todas as expressões', () => {
     for (const e of SUN_EXPRESSIONS) expect(browBar(e, -1) !== null && hasLidCap(e)).toBe(false)
   })
 
   it('admirando: sobrancelhas levantadas, macias (curvas) e com a ponta de dentro mais alta; brilho na pupila', () => {
     expect(browArch('admiring')).toBeGreaterThan(0)
-    for (const e of ['serious', 'happy', 'surprised', 'sad'] as const) expect(browArch(e)).toBe(0)
     const [x1, y1, x2, y2] = browBar('admiring', -1)!
     const inner = x1 > x2 ? y1 : y2
     const outer = x1 > x2 ? y2 : y1
@@ -178,5 +193,20 @@ describe('viajando e de olho', () => {
     const [xl] = pupilLook('admiring', 0, 0, [0, 0, 0], -1.2, 0)
     expect(xl - PUPIL.admiring.x).toBeCloseTo(-PUPIL_REACH)
     expect(pupilLook('happy', 0, 0, [0, 0, 0], 1.2, 0)[0]).toBe(PUPIL.happy.x)
+  })
+})
+
+describe('repintar o rosto só quando ele muda', () => {
+  it('viajando não tem olhos para fechar: piscar não muda a chave (nem repinta)', () => {
+    expect(hasEyes('viajando')).toBe(false)
+    expect(faceKey('viajando', true)).toBe(faceKey('viajando', false))
+  })
+
+  it('de olhos abertos, piscar muda a chave; expressões diferentes têm chaves diferentes', () => {
+    for (const e of SUN_EXPRESSIONS.filter((x) => x !== 'viajando')) {
+      expect(hasEyes(e)).toBe(true)
+      expect(faceKey(e, true)).not.toBe(faceKey(e, false))
+    }
+    expect(new Set(SUN_EXPRESSIONS.map((e) => faceKey(e, false))).size).toBe(SUN_EXPRESSIONS.length)
   })
 })

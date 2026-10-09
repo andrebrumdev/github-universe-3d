@@ -280,10 +280,10 @@ export function quantizePupil(v: number, reach: number, steps = 8): number {
 }
 
 /**
- * O rosto vira no máximo isto para os lados, a partir de quem vê: olhando longe, ele desliza pela esfera até perto
- * da borda (como na foto do Sphere de lado), com o olho de perto inteiro e o de longe encurtado.
+ * O rosto vira no máximo isto para os lados, a partir de quem vê: olhando longe, ele desliza pela esfera (como na foto
+ * do Sphere de lado, ~45–50°), com os dois olhos legíveis e o de longe encurtado. 70° deixava meio rosto na borda.
  */
-export const MAX_TURN_AWAY = (70 * Math.PI) / 180
+export const MAX_TURN_AWAY = (55 * Math.PI) / 180
 
 type Turn = { yaw: number; pitch: number }
 const toDir = (t: Turn): [number, number, number] => [Math.cos(t.pitch) * Math.sin(t.yaw), Math.sin(t.pitch), Math.cos(t.pitch) * Math.cos(t.yaw)]

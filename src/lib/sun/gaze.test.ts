@@ -333,7 +333,7 @@ describe('pupila em degraus (cara de olhar de desenho, sem jitter)', () => {
   })
 })
 
-describe('olhando longe: o rosto desliza pela esfera até ~70° de quem vê e o pitch fica limitado', () => {
+describe('olhando longe: o rosto desliza pela esfera até 55° de quem vê e o pitch fica limitado', () => {
   const deg = (d: number) => (d * Math.PI) / 180
   const front = { yaw: 0, pitch: 0 }
   const dir = (t: { yaw: number; pitch: number }) => [Math.cos(t.pitch) * Math.sin(t.yaw), Math.sin(t.pitch), Math.cos(t.pitch) * Math.cos(t.yaw)]
@@ -342,11 +342,11 @@ describe('olhando longe: o rosto desliza pela esfera até ~70° de quem vê e o 
     return Math.acos(Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2]))
   }
 
-  it('yaw: segue igual até 70° da câmera; além disso para no limite, do lado do alvo', () => {
-    expect(MAX_TURN_AWAY).toBeCloseTo(deg(70))
+  it('yaw: segue igual até 55° da câmera; além disso para no limite, do lado do alvo', () => {
+    expect(MAX_TURN_AWAY).toBeCloseTo(deg(55))
     expect(limitTurn({ yaw: deg(50), pitch: 0 }, front).yaw).toBeCloseTo(deg(50))
-    expect(limitTurn({ yaw: deg(170), pitch: 0 }, front).yaw).toBeCloseTo(deg(70))
-    expect(limitTurn({ yaw: deg(-120), pitch: 0 }, front).yaw).toBeCloseTo(deg(-70))
+    expect(limitTurn({ yaw: deg(170), pitch: 0 }, front).yaw).toBeCloseTo(deg(55))
+    expect(limitTurn({ yaw: deg(-120), pitch: 0 }, front).yaw).toBeCloseTo(deg(-55))
     // na volta do ±π (sem normalizar: a mola trata a volta)
     expect(limitTurn({ yaw: deg(-170), pitch: 0 }, { yaw: deg(170), pitch: 0 }).yaw).toBeCloseTo(deg(190))
   })
@@ -358,7 +358,7 @@ describe('olhando longe: o rosto desliza pela esfera até ~70° de quem vê e o 
     expect(limitTurn({ yaw: 0, pitch: deg(20) }, front).pitch).toBeCloseTo(deg(20))
   })
 
-  it('com a câmera de cima, o ângulo de verdade até quem vê também para em 70° (o rosto não some na borda)', () => {
+  it('com a câmera de cima, o ângulo de verdade até quem vê também para no limite (o rosto não some na borda)', () => {
     const viewer = { yaw: 0, pitch: deg(30) }
     for (const target of [{ yaw: deg(160), pitch: deg(-10) }, { yaw: deg(-100), pitch: 0 }, { yaw: deg(80), pitch: deg(-20) }]) {
       expect(angle(limitTurn(target, viewer), viewer)).toBeLessThanOrEqual(MAX_TURN_AWAY + 1e-9)

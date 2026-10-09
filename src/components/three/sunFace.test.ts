@@ -75,13 +75,13 @@ describe('rosto do sol no estilo do Sphere (emoji em LED)', () => {
     }
   })
 
-  it('sobrancelhas por humor: duas barras retas e grossas (só moveTo + lineTo); boca bem mais fina', () => {
+  it('sobrancelhas por humor: duas, grossas; reta só no sério, curva nos outros; boca bem mais fina', () => {
     expect(BROW_WIDTH).toBeGreaterThan(2 * MOUTH_WIDTH - 0.5)
     for (const e of BROWED) {
       const brows = draw(e).filter((o) => o.op === 'stroke' && o.lineWidth === BROW_WIDTH)
       expect(brows).toHaveLength(2)
-      // admirando: macias (curvas); as outras, barras retas
-      for (const b of brows) expect(b.path.map((c) => c[0])).toEqual(e === 'admiring' ? ['moveTo', 'quadraticCurveTo'] : ['moveTo', 'lineTo'])
+      // só o sério é barra reta; os outros humores desenham a sobrancelha curva
+      for (const b of brows) expect(b.path.map((c) => c[0])).toEqual(e === 'serious' ? ['moveTo', 'lineTo'] : ['moveTo', 'quadraticCurveTo'])
     }
     for (const e of [...EXPRESSIONS, 'viajando'] as const) expect(draw(e).filter((o) => o.style === SUN_FEATURE).length).toBe(FEATURES[e])
   })

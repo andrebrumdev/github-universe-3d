@@ -38,6 +38,19 @@ export const PUPIL_REACH = 3.6
 /** De olho (pálpebra pesada): a pupila corre para a borda do branco do lado para onde a cabeça virou (unidades/rad). */
 export const SIDE_EYE_GAIN = 6
 
+/** Viajando não tem olhos abertos para fechar: os olhos são traços (piscar não muda nada). */
+export function hasEyes(expression: SunExpression): boolean {
+  return expression !== 'viajando'
+}
+
+/**
+ * Chave do desenho do rosto: muda só quando o rosto muda de verdade (fechado = piscando e com olhos). O Sun repinta a
+ * textura quando ela muda — viajando, piscar não repinta.
+ */
+export function faceKey(expression: SunExpression, blinking: boolean): string {
+  return `${expression}:${blinking && hasEyes(expression) ? 'closed' : 'open'}`
+}
+
 /** Viajando não tem pupila: os olhos são traços. */
 export function hasPupils(expression: SunExpression): boolean {
   return expression !== 'viajando'
@@ -63,13 +76,18 @@ export function hasSparkle(expression: SunExpression): boolean {
 
 /**
  * Sobrancelha em barra reta: quanto sobe acima do topo do olho e quanto a ponta de dentro sobe a mais que a de fora
- * (`tilt` > 0: preocupado/encantado; 0: nivelada). Reta e nivelada só no sério; viajando e de olho não têm.
+ * (`tilt` > 0: preocupado/encantado) e quanto o meio sobe (`arch`, curva). Reta e nivelada só no sério; viajando e de
+ * olho não têm.
  */
 const BROW: Partial<Record<SunExpression, { lift: number; tilt: number; arch: number }>> = {
+  // só o sério é barra reta e nivelada
   serious: { lift: 3, tilt: 0, arch: 0 },
-  happy: { lift: 5, tilt: 0, arch: 0 },
-  surprised: { lift: 7, tilt: 0, arch: 0 },
-  sad: { lift: 3.5, tilt: 1.6, arch: 0 },
+  // feliz: levantada, arqueada e relaxada
+  happy: { lift: 5, tilt: 0, arch: 1.4 },
+  // surpreso: bem alta e bem arqueada
+  surprised: { lift: 8, tilt: 0, arch: 2.6 },
+  // triste: ponta de dentro alta, de fora baixa, com uma curva leve
+  sad: { lift: 3.5, tilt: 1.6, arch: 0.5 },
   // "own": levantadas, macias (curvas) e com a ponta de dentro mais alta
   admiring: { lift: 5.5, tilt: 1.2, arch: 1.6 },
 }

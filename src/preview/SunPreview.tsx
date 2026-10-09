@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { aberrationLimbPx, fringeRho, sunScreenRadius } from '@/lib/sun/aberration'
-import { hasSparkle, pupilLook } from '@/lib/sun/face'
+import { hasEyes, hasSparkle, pupilLook } from '@/lib/sun/face'
 import { MAX_TURN_AWAY } from '@/lib/sun/gaze'
 import { kickSquash, SQUASH_AT_REST, SQUASH_TARGET, squashScale, stepSquash, type Squash } from '@/lib/sun/squash'
 import { SUN_EXPRESSIONS, type SunExpression, type SunMode } from '@/lib/sun/sunMachine'
@@ -39,7 +39,8 @@ const GAZES: Gaze[] = [
   { label: 'Direita', yaw: 0.6, pitch: 0 },
   { label: 'Cima', yaw: 0, pitch: 0.45 },
   { label: 'Baixo', yaw: 0, pitch: -0.45 },
-  { label: 'Lado extremo (70°)', yaw: MAX_TURN_AWAY, pitch: 0 },
+  // o limite de verdade do sol (MAX_TURN_AWAY)
+  { label: `Lado extremo (${Math.round((MAX_TURN_AWAY * 180) / Math.PI)}°)`, yaw: MAX_TURN_AWAY, pitch: 0 },
 ]
 
 /** Botões de squash & stretch: o modo que dá o empurrão e o alvo, e quanto tempo segura antes de voltar ao idle. */
@@ -68,13 +69,14 @@ function SunTile({ expression, blink, gaze, reduced, kick }: TileProps) {
     tex.anisotropy = 8
     return tex
   }, [])
+  const closed = blink && hasEyes(expression)
   useEffect(() => {
     const ctx = (texture.image as HTMLCanvasElement).getContext('2d')
     if (!ctx) return
-    drawSunFace(ctx, expression, blink)
+    drawSunFace(ctx, expression, closed)
     // oxlint-disable-next-line react/immutability -- API imperativa de textura do Three.js
     texture.needsUpdate = true
-  }, [expression, blink, texture])
+  }, [expression, closed, texture])
   const parts = useMemo(() => {
     const glowMaterial = createGlowMaterial()
     glowMaterial.uniforms.uOpacity.value = sunGlowOpacity(BLOOM_LOOK.plain, 1)

@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import { aberrationLimbPx, fringeRho, sunScreenRadius } from '@/lib/sun/aberration'
 import { showcasePlanet } from '@/lib/cameraPoses'
 import { selectedPlanet } from '@/lib/interaction'
-import { hasSparkle, PUPIL, PUPIL_REACH, pupilLook } from '@/lib/sun/face'
+import { hasEyes, hasSparkle, PUPIL, PUPIL_REACH, pupilLook } from '@/lib/sun/face'
 import { FACE_AT_REST, faceTarget, stepFaceSpring, wrapAngle, type FaceSpring } from '@/lib/sun/faceSpring'
 import {
   GAZE_AT_START,
@@ -99,6 +99,10 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   const expressionNow = useRef<SunExpression>(SUN_LOOK.idle.expression)
   // Acordando do "viajando": os traços abrem numa piscada rápida.
   const [waking, setWaking] = useState(false)
+  const wakeTimer = useRef(0)
+  useEffect(() => () => window.clearTimeout(wakeTimer.current), [])
+  // Fechado só piscando e com olhos (viajando não tem): a textura só é refeita quando o desenho muda (ver `faceKey`).
+  const closed = (blink || waking) && hasEyes(expression)
   const showcase = useMemo(() => showcasePlanet(repos), [repos])
   // Planetas que o sol admira: os grandes e os com push recente (a hora do carregamento basta).
   const [loadedAt] = useState(() => Date.now())
@@ -155,10 +159,10 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   useEffect(() => {
     const ctx = (texture.image as HTMLCanvasElement).getContext('2d')
     if (!ctx) return
-    drawSunFace(ctx, expression, blink || waking)
+    drawSunFace(ctx, expression, closed)
     // oxlint-disable-next-line react/immutability -- API imperativa de textura do Three.js
     texture.needsUpdate = true
-  }, [expression, blink, waking, texture])
+  }, [expression, closed, texture])
 
   useEffect(() => () => texture.dispose(), [texture])
 
@@ -265,7 +269,8 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     if (nowExpression !== expressionNow.current) {
       if (!reduced && wakesUp(expressionNow.current, nowExpression)) {
         setWaking(true)
-        window.setTimeout(() => setWaking(false), 130)
+        window.clearTimeout(wakeTimer.current)
+        wakeTimer.current = window.setTimeout(() => setWaking(false), 130)
       }
       expressionNow.current = nowExpression
       setExpression(nowExpression)
