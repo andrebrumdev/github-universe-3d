@@ -6,6 +6,7 @@ import { EmissivePulseEffect, GlowHalo } from 'three-low-poly'
 import { COLORS, CONTRIBUTION_COLORS, DASHBOARD } from '@/lib/ship/geometry'
 import { thrusterScale } from '@/lib/ship/motion'
 import { applyImpulse } from '@/lib/ship/verlet'
+import { useBloom } from '@/store/bloom'
 import { FlexRod, type InertiaFrame, useInertiaProbe } from './flexRod'
 import {
   ANTENNA_GEOMETRY,
@@ -47,7 +48,13 @@ import {
   WING_LIGHT_GEOMETRY,
   WINGS,
 } from './shipParts'
-import { createThrusterMaterial, createThrusterParams, thrusterParams, updateThrusterMaterial } from './thrusterMaterial'
+import {
+  createThrusterMaterial,
+  createThrusterParams,
+  thrusterHaloOpacity,
+  thrusterParams,
+  updateThrusterMaterial,
+} from './thrusterMaterial'
 
 // Materiais opacos compartilhados: cor sólida + flatShading (as faces aparecem).
 const solid = (color: string, roughness = 0.6, metalness = 0.05) =>
@@ -170,7 +177,8 @@ export function Ship({
       flame.current.scale.set(1, 1, Math.max(params.length, 0.001))
       flame.current.visible = params.visible
     }
-    thrusterHalo.setOpacity(0.8 * s)
+    // halo mais fraco com bloom; lido no quadro (getState), sem assinar o store nem alocar
+    thrusterHalo.setOpacity(thrusterHaloOpacity(s, useBloom.getState().active))
   })
 
   // Brilhos (sprites aditivos): um por farol e um na boca do bocal.

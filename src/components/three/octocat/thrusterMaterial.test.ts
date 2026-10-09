@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { COLORS } from '@/lib/ship/geometry'
+import { BLOOM_LOOK } from '@/store/bloom'
 import {
   createThrusterMaterial,
   createThrusterParams,
   THRUSTER_COLORS,
+  thrusterHaloOpacity,
   thrusterParams,
   updateThrusterMaterial,
 } from './thrusterMaterial'
@@ -84,11 +86,13 @@ describe('thrusterParams', () => {
     expect(thrusterParams(1, 1).diamonds).toBeGreaterThan(0.9)
   })
 
-  it('a chama da escolta (0,25) ainda passa do lábio do bocal; a da viagem tem o comprimento cheio', () => {
+  it('a chama da escolta (0,25) ainda passa do lábio do bocal; a da viagem é um rastro longo (3×)', () => {
     expect(thrusterParams(0.25, 0.25).length).toBeGreaterThan(0.5)
-    expect(thrusterParams(1, 1).length).toBeCloseTo(1)
+    expect(thrusterParams(0.25, 0.25).length).toBeLessThan(0.6)
+    expect(thrusterParams(0.8, 0.8).length).toBeCloseTo(2.046)
+    expect(thrusterParams(1, 1).length).toBeCloseTo(3)
     // a tremulação mexe o comprimento, mas menos que o thrusterScale (±23%)
-    expect(thrusterParams(1, 1.2).length).toBeCloseTo(1.1)
+    expect(thrusterParams(1, 1.2).length).toBeCloseTo(3.3)
   })
 
   it('flicker vira razão em torno de 1 (thrusterScale / nível), limitada', () => {
@@ -115,5 +119,15 @@ describe('thrusterParams sem alocar', () => {
     thrusterParams(0, 0, out)
     expect(out.visible).toBe(false)
     expect(out.intensity).toBe(0)
+  })
+})
+
+describe('halo do bocal com o visual do bloom', () => {
+  it('com bloom o halo fica mais fraco (aditivo no buffer HDR); sem bloom, como antes (0,8 × tremulação)', () => {
+    expect(BLOOM_LOOK.plain.thrusterHalo).toBe(1)
+    expect(BLOOM_LOOK.bloom.thrusterHalo).toBeLessThan(BLOOM_LOOK.plain.thrusterHalo)
+    expect(thrusterHaloOpacity(1, false)).toBeCloseTo(0.8)
+    expect(thrusterHaloOpacity(1, true)).toBeCloseTo(0.8 * BLOOM_LOOK.bloom.thrusterHalo)
+    expect(thrusterHaloOpacity(0, true)).toBe(0)
   })
 })

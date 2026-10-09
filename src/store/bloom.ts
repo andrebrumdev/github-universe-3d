@@ -6,8 +6,8 @@ import { create } from 'zustand'
  * sem bloom (celular, `?nobloom`). Só o GlowBloom liga e desliga (ver `applyBloomLook`).
  */
 export const BLOOM_LOOK = {
-  plain: { orbit: 0.14, atmosphere: 0.24, halo: 1 },
-  bloom: { orbit: 0.04, atmosphere: 0.08, halo: 0.2 },
+  plain: { thrusterHalo: 1, orbit: 0.14, atmosphere: 0.24, halo: 1 },
+  bloom: { thrusterHalo: 0.35, orbit: 0.04, atmosphere: 0.08, halo: 0.2 },
 } as const
 
 export type BloomLook = (typeof BLOOM_LOOK)[keyof typeof BLOOM_LOOK]

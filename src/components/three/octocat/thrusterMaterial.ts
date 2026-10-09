@@ -9,6 +9,7 @@
  */
 import * as THREE from 'three'
 import { COLORS, NOZZLE, THRUSTER } from '@/lib/ship/geometry'
+import { bloomLook } from '@/store/bloom'
 
 /** Paleta da chama: núcleo quente quase branco puxado para o ciano, ciano do propulsor, violeta da cauda. */
 export const THRUSTER_COLORS = {
@@ -23,8 +24,9 @@ export type ThrusterParams = {
   /** Nível limitado a 0–1,25 (vai para `uLevel`: comprimento do núcleo quente). */
   level: number
   /**
-   * Escala z do mesh (comprimento relativo a THRUSTER.length). Piso de 0,4 para a chama da escolta não sumir dentro do
-   * lábio; a tremulação mexe metade do que mexia (o ruído do shader já dá vida).
+   * Escala z do mesh (comprimento relativo a THRUSTER.length), convexa no nível: escolta (0,25) ≈ 0,52 — curta, mas
+   * passando do lábio —, entrando (0,8) ≈ 2,05, viagem (1) ≈ 3 (um rastro longo). A tremulação mexe metade do que
+   * mexia (o ruído do shader já dá vida).
    */
   length: number
   /** Brilho geral, 0 → ~1,1. */
@@ -74,13 +76,21 @@ export function thrusterParams(level: number, flicker: number, out: ThrusterPara
   out.visible = true
   out.level = l
   out.flicker = Math.min(1.5, Math.max(0.5, ratio))
-  out.length = (0.4 + 0.6 * l) * (1 + 0.5 * (out.flicker - 1))
+  out.length = (0.35 + 2.65 * l * l) * (1 + 0.5 * (out.flicker - 1))
   // acende rápido do zero (sem estalo) e cresce menos que linear: a escolta ainda tem chama visível
   out.intensity = smoothstep(0, 0.12, l) * Math.pow(l, 0.6)
-  out.speed = 0.8 + 2.6 * l
+  out.speed = 0.8 + 1.6 * l
   out.turbulence = 0.4 + 0.6 * Math.min(l, 1)
   out.diamonds = smoothstep(0.75, 0.95, l)
   return out
+}
+
+/**
+ * Opacidade do halo (GlowHalo) na boca do bocal: 0,8 × o valor tremulado, vezes o fator do visual com bloom — o sprite
+ * aditivo, somado no buffer HDR do EffectComposer, ficava maior e mais claro que a própria chama.
+ */
+export function thrusterHaloOpacity(flicker: number, bloomActive: boolean): number {
+  return 0.8 * flicker * bloomLook(bloomActive).thrusterHalo
 }
 
 const f = (n: number) => n.toFixed(4)
@@ -100,6 +110,9 @@ void main() {
 `
 
 const FRAGMENT = /* glsl */ `
+// o hash do ruído passa de 1e5: em mediump vira bloco; não depender do prefixo do three
+precision highp float;
+
 uniform float uTime;
 uniform float uLevel;
 uniform float uFlicker;
@@ -180,8 +193,8 @@ void main() {
   vec3 rgb = color * (0.5 * soft * body * density);
   rgb += uCore * (0.45 * hot * uLevel + 0.35 * diamonds) * body;
   rgb *= uIntensity * flick;
-  // face de trás (dentro do volume) soma menos: dá corpo sem estourar
-  if (!gl_FrontFacing) rgb *= 0.6;
+  // face de trás (dentro do volume) soma menos: dá corpo sem estourar (sem desvio)
+  rgb *= mix(0.6, 1.0, float(gl_FrontFacing));
 
   gl_FragColor = vec4(rgb, 1.0);
   #include <tonemapping_fragment>
