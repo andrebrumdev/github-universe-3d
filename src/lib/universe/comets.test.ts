@@ -105,9 +105,8 @@ describe('buildComets', () => {
       // 3ª lei, na mesma escala dos anéis
       expect(c.period / system.rings[0].period).toBeCloseTo(Math.pow(c.a / system.rings[0].a, 1.5), 9)
     }
-    // periélio logo fora do raio seguro na amostra (com as luas em ressonância o sistema cresce e, com e ≤ 0,92, o
-    // periélio sai um pouco: até ~7,1)
-    if (system === sample) for (const c of comets) expect(c.a * (1 - c.e)).toBeLessThan(SUN_RADIUS + 5)
+    // periélio logo fora do raio seguro na amostra
+    if (system === sample) for (const c of comets) expect(c.a * (1 - c.e)).toBeLessThan(SUN_RADIUS + 4)
   })
 
   it.each([

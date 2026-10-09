@@ -27,9 +27,10 @@ const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2])
 /**
  * Distância da visão geral na amostra pública, medida com o encaixe exato e o alvo à frente do sol, mais ~2% de folga.
  * Antes desta série era 126,4; com o encaixe por fórmula da precessão, 171; com o encaixe exato, 119,4. Com as luas em
- * ressonância (1:2:4…, a ∝ T^(2/3)) os sistemas de luas crescem (universe-3d: alcance 6,2 → 10,1) e ela vai a 172,5.
+ * ressonância compacta (1:2:3…, a ∝ T^(2/3)) os sistemas de luas crescem um pouco (universe-3d: alcance 6,2 → 7,8) e
+ * ela vai a 135,8 (a cadeia 1:2:4:8… levava a 172,5).
  */
-const OVERVIEW_SAMPLE_MAX_D = 176
+const OVERVIEW_SAMPLE_MAX_D = 139
 const system = buildOrbits(Array.from({ length: 8 }, (_, i) => ({ name: `p${i}`, radius: 1 + (i % 3) * 0.5 })))
 
 describe('overviewPose', () => {

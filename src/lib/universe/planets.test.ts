@@ -115,10 +115,14 @@ describe('moonOrbits', () => {
   it('período pela 3ª lei de Kepler em volta do planeta: T ∝ a^1,5; a lua interna de um planeta médio leva 8–15 s', () => {
     const equal = Array.from({ length: MAX_MOONS }, (_, i) => lang(`L${i}`, 900))
     for (const r of [1.5, 1.7, 2]) {
-      const moons = moonOrbits(r, equal, 'mid')
-      expect(moons[0].period).toBeGreaterThanOrEqual(8)
-      expect(moons[0].period).toBeLessThanOrEqual(15)
-      for (const m of moons) expect(m.period / moons[0].period).toBeCloseTo(Math.pow(m.a / moons[0].a, 1.5), 9)
+      // até 4 luas a interna fica na casca mais próxima; com 6, o passo 6:5 (o mais justo da ressonância) a afasta um
+      // pouco num planeta médio, e ela leva até ~20 s
+      for (const n of [1, 3, 4, MAX_MOONS]) {
+        const moons = moonOrbits(r, equal.slice(0, n), 'mid')
+        expect(moons[0].period).toBeGreaterThanOrEqual(8)
+        expect(moons[0].period).toBeLessThanOrEqual(n <= 4 ? 15 : 20)
+        for (const m of moons) expect(m.period / moons[0].period).toBeCloseTo(Math.pow(m.a / moons[0].a, 1.5), 9)
+      }
     }
     // mesmo semieixo relativo ao raio (planeta ∝ r³) → mesmo período
     expect(moonPeriod(2, 1)).toBeCloseTo(moonPeriod(4, 2), 12)
@@ -141,18 +145,19 @@ describe('moonOrbits', () => {
     expect(dist(p0, out)).toBeLessThan(1e-9)
   })
 
-  it('nenhuma lua encosta no planeta nem em outra (1 a 6 luas), amostrando o período da lua mais lenta', () => {
+  it('nenhuma lua encosta no planeta nem em outra (2 a 6 luas), amostrando um ciclo inteiro da ressonância', () => {
     let planetGap = Infinity
     let pairGap = Infinity
     for (const r of [MIN_PLANET_RADIUS, 0.7, 1, 1.7, 2.4, MAX_PLANET_RADIUS]) {
       for (const n of [2, 3, 4, 5, 6]) for (const seed of ['a', 'b', 'c']) {
         const moons = moonOrbits(r, Array.from({ length: n }, (_, i) => lang(`L${i}`, 900)), seed)
-        // em ressonância, o sistema todo se repete depois de uma volta da lua mais lenta: amostrar ela basta
-        const slowest = moons[moons.length - 1].period
-        // ~170 amostras por volta da lua interna (a mais lenta dá 24 voltas dela)
-        const STEPS = 4000
+        // em ressonância, o sistema todo se repete depois de MMC(1..n)·T₀ (60·T₀ com 6 luas): amostrar um ciclo basta
+        const turns = [1, 1, 2, 6, 12, 60, 60][n]
+        const cycle = turns * moons[0].period
+        // 100 amostras por volta da lua interna
+        const STEPS = 100 * turns
         for (let s = 0; s < STEPS; s++) {
-          const t = (s / STEPS) * slowest
+          const t = (s / STEPS) * cycle
           const pos = moons.map((m) => moonPosition(m, t))
           for (let i = 0; i < moons.length; i++) {
             planetGap = Math.min(planetGap, len(pos[i]) - r - moons[i].radius)
@@ -170,27 +175,16 @@ const TWO_PI = 2 * Math.PI
 /** Ângulo levado a (−π, π]. */
 const wrap = (x: number) => x - TWO_PI * Math.round(x / TWO_PI)
 
-describe('ressonância orbital das luas (como Io, Europa e Ganimedes)', () => {
+describe('ressonância orbital das luas (razões inteiras consecutivas: 2:1, 3:2, 4:3…)', () => {
   const RADII = [MIN_PLANET_RADIUS, 0.7, 1, 1.7, 2.4, MAX_PLANET_RADIUS]
   const SEEDS = ['a', 'universe-3d', 'z9']
   const moonsOf = (r: number, n: number, seed: string) => moonOrbits(r, Array.from({ length: n }, (_, i) => lang(`L${i}`, 1000 - i)), seed)
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a)
+  const lcm = (xs: number[]) => xs.reduce((m, x) => (m * x) / gcd(m, x), 1)
 
-  it('cadeia de Laplace: 1 : 2 : 4 nas três primeiras, depois razões simples que dividem a última', () => {
-    expect(moonResonance(1)).toEqual([1])
-    expect(moonResonance(2)).toEqual([1, 2])
-    expect(moonResonance(3)).toEqual([1, 2, 4])
-    for (let n = 1; n <= MAX_MOONS; n++) {
-      const chain = moonResonance(n)
-      expect(chain).toHaveLength(n)
-      const last = chain[n - 1]
-      for (let k = 0; k < n; k++) {
-        expect(Number.isInteger(chain[k])).toBe(true)
-        if (k > 0) expect(chain[k]).toBeGreaterThan(chain[k - 1])
-        // toda razão divide a da lua mais lenta: o sistema se repete a cada volta dela
-        expect(last % chain[k]).toBe(0)
-      }
-      if (n >= 3) expect(chain.slice(0, 3)).toEqual([1, 2, 4])
-    }
+  it('cadeia compacta 1:2:3:4:5:6 (o sistema não cresce como 1:2:4:8…)', () => {
+    for (let n = 0; n <= MAX_MOONS; n++) expect(moonResonance(n)).toEqual(Array.from({ length: n }, (_, k) => k + 1))
+    expect(lcm(moonResonance(MAX_MOONS))).toBe(60)
   })
 
   it('períodos são múltiplos inteiros exatos do período da lua interna (1e-9)', () => {
@@ -198,6 +192,13 @@ describe('ressonância orbital das luas (como Io, Europa e Ganimedes)', () => {
       const moons = moonsOf(r, n, seed)
       const chain = moonResonance(n)
       moons.forEach((m, k) => expect(Math.abs(m.period / moons[0].period - chain[k])).toBeLessThan(1e-9))
+    }
+  })
+
+  it('cada par de vizinhas está numa razão inteira exata (p+1):p (1e-9)', () => {
+    for (const r of RADII) for (let n = 2; n <= MAX_MOONS; n++) {
+      const moons = moonsOf(r, n, 'pares')
+      for (let p = 1; p < n; p++) expect(Math.abs(moons[p].period / moons[p - 1].period - (p + 1) / p)).toBeLessThan(1e-9)
     }
   })
 
@@ -211,41 +212,46 @@ describe('ressonância orbital das luas (como Io, Europa e Ganimedes)', () => {
     }
   })
 
-  it('depois de uma volta da lua mais lenta, todas as luas voltam ao mesmo lugar (a conjunção se repete)', () => {
+  it('o sistema todo se repete depois de MMC(razões)·T₀ (60·T₀ com 6 luas)', () => {
     for (const r of RADII) for (let n = 2; n <= MAX_MOONS; n++) {
       const moons = moonsOf(r, n, 'repeat')
-      const outer = moons[n - 1].period
-      for (const t of [0, 3.7, 41.2, 5 * outer + 1.3]) {
-        for (const m of moons) expect(dist(moonPosition(m, t), moonPosition(m, t + outer))).toBeLessThan(1e-9)
+      const cycle = lcm(moonResonance(n)) * moons[0].period
+      for (const t of [0, 3.7, 41.2, 2 * cycle + 1.3]) {
+        for (const m of moons) expect(dist(moonPosition(m, t), moonPosition(m, t + cycle))).toBeLessThan(1e-8)
       }
     }
   })
 
-  it('fases travadas: λ₁ − 3λ₂ + 2λ₃ = 180° em qualquer instante (a relação de Laplace de Io–Europa–Ganimedes)', () => {
-    for (const r of RADII) for (let n = 3; n <= MAX_MOONS; n++) for (const seed of SEEDS) {
+  it('fases travadas: Nᵢ·λᵢ − Nⱼ·λⱼ não muda com o tempo (o ângulo de ressonância de cada par)', () => {
+    for (const r of RADII) for (let n = 2; n <= MAX_MOONS; n++) for (const seed of SEEDS) {
       const moons = moonsOf(r, n, seed)
-      for (const t of [0, 1.1, 17.3, 250.9]) {
-        const laplace = moonLongitude(moons[0], t) - 3 * moonLongitude(moons[1], t) + 2 * moonLongitude(moons[2], t)
-        expect(Math.abs(wrap(laplace - Math.PI))).toBeLessThan(1e-9)
+      const chain = moonResonance(n)
+      const angle = (i: number, j: number, t: number) => chain[i] * moonLongitude(moons[i], t) - chain[j] * moonLongitude(moons[j], t)
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+        for (const t of [1.1, 17.3, 250.9]) expect(Math.abs(wrap(angle(i, j, t) - angle(i, j, 0)))).toBeLessThan(1e-9)
       }
     }
   })
 
-  it('a cada volta da lua mais lenta as luas se alinham: todas do mesmo lado (a interna do lado oposto com 3+)', () => {
+  it('alinhamentos visíveis: todas juntas a cada MMC·T₀, e cada par de vizinhas se encontra a cada período sinódico no mesmo lugar', () => {
     for (const n of [2, 3, 4, 6]) for (const seed of SEEDS) {
       const moons = moonsOf(1.7, n, seed)
-      const outer = moons[n - 1].period
-      for (const k of [0, 1, 3]) {
-        const t = k * outer
-        const ref = moonLongitude(moons[n - 1], t)
-        moons.forEach((m, i) => {
-          const expected = n >= 3 && i === 0 ? Math.PI : 0
-          expect(Math.abs(wrap(moonLongitude(m, t) - ref - expected))).toBeLessThan(1e-9)
-        })
+      const T0 = moons[0].period
+      const cycle = lcm(moonResonance(n)) * T0
+      const side = moonLongitude(moons[0], 0)
+      for (const k of [0, 1, 2]) for (const m of moons) expect(Math.abs(wrap(moonLongitude(m, k * cycle) - side))).toBeLessThan(1e-9)
+      // par p:(p+1): sinódico p(p+1)·T₀; a conjunção cai sempre na mesma longitude
+      for (let p = 1; p < n; p++) {
+        const synodic = p * (p + 1) * T0
+        for (const k of [1, 2, 5]) {
+          const t = k * synodic
+          expect(Math.abs(wrap(moonLongitude(moons[p - 1], t) - moonLongitude(moons[p], t)))).toBeLessThan(1e-9)
+          expect(Math.abs(wrap(moonLongitude(moons[p], t) - side))).toBeLessThan(1e-9)
+        }
       }
     }
     // o lado do alinhamento varia de planeta para planeta
-    const side = (seed: string) => moonLongitude(moonsOf(1.7, 3, seed)[2], 0)
+    const side = (seed: string) => moonLongitude(moonsOf(1.7, 3, seed)[0], 0)
     expect(Math.abs(wrap(side('a') - side('universe-3d')))).toBeGreaterThan(0.1)
   })
 
@@ -253,9 +259,8 @@ describe('ressonância orbital das luas (como Io, Europa e Ganimedes)', () => {
     const moons = moonsOf(2, 4, 'focus')
     let extra = 0
     for (let i = 0; i < 90; i++) extra = focusMoonStep(extra, 1 / 30, true, 0)
-    const t = 12.5 + extra
-    const laplace = moonLongitude(moons[0], t) - 3 * moonLongitude(moons[1], t) + 2 * moonLongitude(moons[2], t)
-    expect(Math.abs(wrap(laplace - Math.PI))).toBeLessThan(1e-9)
+    const angle = (t: number) => 2 * moonLongitude(moons[1], t) - 3 * moonLongitude(moons[2], t)
+    expect(Math.abs(wrap(angle(12.5 + extra) - angle(0)))).toBeLessThan(1e-9)
   })
 })
 
@@ -284,10 +289,9 @@ describe('bodyExtent', () => {
         expect(ext).toBeGreaterThan(bodyExtent(r, n - 1))
       }
     }
-    // em ressonância (1:2:4:6:12:24) o semieixo da última lua é 24^(2/3) ≈ 8,3× o da primeira: o planeta maior com
-    // 6 luas chega a ~10,9× o próprio raio (32,6); com 3 luas (1:2:4), ~3,4× (10,1)
-    expect(bodyExtent(MAX_PLANET_RADIUS, MAX_MOONS)).toBeLessThan(33)
-    expect(bodyExtent(MAX_PLANET_RADIUS, 3)).toBeLessThan(10.5)
+    // em ressonância (1:2:3:4:5:6) o semieixo da última lua é 6^(2/3) ≈ 3,3× o da primeira: o planeta maior com
+    // 6 luas fica em ~4,4× o próprio raio (era ~3,1× sem ressonância)
+    expect(bodyExtent(MAX_PLANET_RADIUS, MAX_MOONS)).toBeLessThan(12.5)
   })
 })
 

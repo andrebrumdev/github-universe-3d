@@ -74,8 +74,11 @@ export const MAX_MOON_ECCENTRICITY = 0.12
  * de semieixo grande, ficam perto de e = 0,02. Assim a folga entre as cascas não explode o alcance do planeta.
  */
 const MOON_EXCURSION = 0.1
-/** Periapse da 1ª lua: MOON_ORBIT_SCALE·r + MOON_ORBIT_OFFSET (a superfície da lua fica ≥ 0,1·r + 0,05 do planeta). */
-const MOON_ORBIT_SCALE = 1.1
+/**
+ * Periapse da 1ª lua: MOON_ORBIT_SCALE·r + MOON_ORBIT_OFFSET (a superfície da maior lua fica ≥ 0,05 do planeta). Era
+ * 1,1·r + 0,4; com a ressonância 1:2:3… as luas de fora saem da 3ª lei, e a interna mais perto compacta o sistema.
+ */
+const MOON_ORBIT_SCALE = 1.0
 const MOON_ORBIT_OFFSET = 0.4
 /** Folga entre a apoapse de uma lua e a periapse da seguinte, além dos dois raios máximos de lua. */
 const MOON_GAP = 0.05
@@ -99,16 +102,15 @@ function semiMajorForPeriapsis(peri: number): number {
 }
 
 /**
- * Ressonância orbital das luas, como Io, Europa e Ganimedes (1 : 2 : 4, a ressonância de Laplace): o período de cada
- * lua é um múltiplo inteiro do da lua interna. Depois da terceira, razões simples (6, 12, 24) que dividem a da última:
- * o sistema todo volta ao mesmo desenho a cada volta da lua mais lenta. Cada lista usa o menor último possível (com 4
- * luas, 1:2:4:8; com 5, 1:2:4:6:12; com 6, 1:2:4:6:12:24): a última lua fica a N^(2/3) vezes a distância da interna.
+ * Ressonância orbital das luas: o período de cada lua é um múltiplo inteiro do da lua interna, em razões consecutivas
+ * 1:2:3:4:5:6 — cada par de vizinhas fica em (p+1):p (2:1, 3:2, 4:3…), como os exemplos do usuário. A cadeia de Laplace
+ * pura (1:2:4:8…) foi descartada: a 3ª lei põe a última lua a N^(2/3) da interna (24^(2/3) ≈ 8,3 contra 6^(2/3) ≈ 3,3)
+ * e o sistema inteiro crescia demais. O desenho todo se repete a cada MMC(razões)·T₀ (60·T₀ com 6 luas); cada par de
+ * vizinhas se encontra a cada período sinódico p(p+1)·T₀, sempre no mesmo lugar.
  */
-const MOON_RESONANCE: readonly (readonly number[])[] = [[], [1], [1, 2], [1, 2, 4], [1, 2, 4, 8], [1, 2, 4, 6, 12], [1, 2, 4, 6, 12, 24]]
-
-/** Razões dos períodos das `n` luas de um planeta ao da lua interna (inteiros; cada um divide o último). */
+/** Razões dos períodos das `n` luas de um planeta ao da lua interna: 1, 2, …, n. */
 export function moonResonance(n: number): number[] {
-  return [...MOON_RESONANCE[Math.min(MAX_MOONS, Math.max(0, Math.floor(n)))]]
+  return Array.from({ length: Math.min(MAX_MOONS, Math.max(0, Math.floor(n))) }, (_, k) => k + 1)
 }
 
 /** As cascas com a lua interna em a0: aₖ = a0·Nₖ^(2/3) (3ª lei de Kepler, T ∝ a^1,5) e a excentricidade máxima de cada. */
@@ -133,8 +135,8 @@ function shellsApart(shells: { a: number; eMax: number }[]): boolean {
  * Cascas das luas, em ressonância: a lua interna fica o mais perto que a superfície do planeta deixa, e as outras saem
  * da 3ª lei com as razões de `moonResonance`. Cada periapse fica além da apoapse anterior com dois raios máximos de
  * lua e folga (cascas radiais disjuntas: nenhuma lua encosta noutra, em qualquer inclinação ou fase). Num planeta
- * pequeno o 2:1 ficaria apertado demais: em vez de quebrar a cadeia, a lua interna se afasta (a folga cresce com a0)
- * até caber, por bissecção. Depende só do raio do planeta (o alcance não precisa do nome).
+ * pequeno os passos de fora (6:5 é o mais apertado) ficariam justos demais: em vez de quebrar a cadeia, a lua interna se
+ * afasta (a folga cresce com a0) até caber, por bissecção. Depende só do raio do planeta (o alcance não precisa do nome).
  */
 function moonShells(planetR: number, n: number): { a: number; eMax: number }[] {
   const chain = moonResonance(n)
@@ -170,9 +172,9 @@ export function bodyExtent(planetR: number, moonCount: number): number {
 /**
  * `languages` deve vir ordenado por bytes (decrescente), como sai do normalize. `seed` (o nome do repo) varia a órbita.
  * Períodos em ressonância (ver `moonResonance`): Tₖ = Nₖ·T₀ exatamente, com T₀ o da lua interna pela 3ª lei.
- * Fases travadas pela longitude média λ = Ω + ω + M: em t = 0 as luas ficam alinhadas num lado λ* (sorteado por
- * planeta); com 3 ou mais, a interna fica do lado oposto, como na relação de Laplace (λ₁ − 3λ₂ + 2λ₃ = 180°, que a
- * cadeia 1:2:4 conserva para sempre). Como todo período divide o da última, o alinhamento volta a cada volta dela.
+ * Fases travadas pela longitude média λ = Ω + ω + M: em t = 0 todas as luas ficam alinhadas num lado λ* (sorteado por
+ * planeta). Como Nᵢ·λᵢ − Nⱼ·λⱼ não muda no tempo, o alinhamento total volta a cada MMC·T₀ e cada par de vizinhas se
+ * encontra de novo em λ* a cada período sinódico p(p+1)·T₀.
  */
 export function moonOrbits(planetR: number, languages: Language[], seed = ''): MoonSpec[] {
   const langs = languages.slice(0, MAX_MOONS)
@@ -190,7 +192,6 @@ export function moonOrbits(planetR: number, languages: Language[], seed = ''): M
     const inclination = (rng() < 0.5 ? -1 : 1) * (MOON_MIN_INCLINATION + rng() * (MOON_MAX_INCLINATION - MOON_MIN_INCLINATION))
     const node = rng() * Math.PI * 2
     const periapsis = rng() * Math.PI * 2
-    const longitude = side + (n >= 3 && i === 0 ? Math.PI : 0)
     return {
       language: l.name,
       color: l.color,
@@ -202,7 +203,7 @@ export function moonOrbits(planetR: number, languages: Language[], seed = ''): M
       periapsis,
       period: innerPeriod * chain[i],
       // M em t = 0 que põe a lua na longitude média do alinhamento
-      phase: longitude - node - periapsis,
+      phase: side - node - periapsis,
     }
   })
 }
