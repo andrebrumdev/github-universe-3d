@@ -1,11 +1,12 @@
 import { useReducedMotion } from 'framer-motion'
-import { commitsLabel, formatCount, timeAgo } from '@/lib/format'
+import { commitsLabel, timeAgo } from '@/lib/format'
 import { selectedPlanet } from '@/lib/interaction'
 import type { Repo, Universe } from '@/lib/types'
 import { languageShares } from '@/lib/universe/planets'
 import { usePresentation } from '@/store/presentation'
 import { usePanelReady } from '@/store/panelReady'
 import { useUniverse } from '@/store/universe'
+import { CountUp } from './CountUp'
 import { Reveal } from './Reveal'
 import { SidePanel } from './SidePanel'
 
@@ -22,7 +23,8 @@ export function PlanetPanel({ universe }: { universe: Universe }) {
 
   return (
     <SidePanel open={repo !== null && !presenting && ready} onClose={clearSelection} title={repo?.name ?? 'Repositório'}>
-      {repo && <PlanetDetails repo={repo} focusLanguage={focusLanguage} />}
+      {/* outro repo, cartão novo: os números contam de novo (outra lua do mesmo planeta não) */}
+      {repo && <PlanetDetails key={repo.name} repo={repo} focusLanguage={focusLanguage} />}
     </SidePanel>
   )
 }
@@ -58,7 +60,9 @@ function PlanetDetails({ repo, focusLanguage }: { repo: Repo; focusLanguage: str
           {stats.map(([label, value]) => (
             <div key={label} className="rounded-lg bg-white/5 p-2">
               <dt className="text-xs text-slate-400">{label}</dt>
-              <dd className="text-lg font-semibold">{formatCount(value)}</dd>
+              <dd className="text-lg font-semibold">
+                <CountUp value={value} />
+              </dd>
             </div>
           ))}
         </dl>

@@ -11,6 +11,7 @@ import { PRESENTATION_CARD, SIDE_PANEL_MAX_FRACTION, SIDE_PANEL_WIDTH } from '@/
 import { usePresentation } from '@/store/presentation'
 import { shipPose } from '@/store/shipPose'
 import { cardVariants, contentVariants } from './cardMotion'
+import { CountUp } from './CountUp'
 import { Reveal } from './Reveal'
 
 // Posição pelas medidas compartilhadas (uiLayout): a nave da escolta e a câmera contam com essa coluna/folha.
@@ -347,7 +348,9 @@ function ProfileStop({ profile }: { profile: Profile }) {
           {stats.map(([label, value]) => (
             <div key={label} className="rounded-lg bg-white/5 px-1 py-2">
               <dt className="text-xs text-slate-400 side:text-[11px]">{label}</dt>
-              <dd className="text-base font-semibold">{formatCount(value)}</dd>
+              <dd className="text-base font-semibold">
+                <CountUp value={value} />
+              </dd>
             </div>
           ))}
         </dl>
@@ -415,8 +418,22 @@ function RepoStop({ repo }: { repo: Repo }) {
       )}
       <Reveal className="space-y-4">
         <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 side:grid-cols-2">
-          <Stat label="Stars" value={`⭐ ${formatCount(repo.stars)}`} />
-          <Stat label="Forks" value={`⑂ ${formatCount(repo.forks)}`} />
+          <Stat
+            label="Stars"
+            value={
+              <>
+                ⭐ <CountUp value={repo.stars} />
+              </>
+            }
+          />
+          <Stat
+            label="Forks"
+            value={
+              <>
+                ⑂ <CountUp value={repo.forks} />
+              </>
+            }
+          />
           <Stat label="Commits no último ano" value={formatCount(yearCommits)} />
           <Stat label="Último commit" value={repo.lastCommit ? timeAgo(repo.lastCommit.date) : '—'} />
         </dl>
@@ -433,7 +450,7 @@ function RepoStop({ repo }: { repo: Repo }) {
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="rounded-lg bg-white/5 px-2 py-1.5">
       <dt className="text-xs text-slate-400 side:text-[11px]">{label}</dt>

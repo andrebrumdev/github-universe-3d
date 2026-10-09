@@ -1,10 +1,11 @@
-import { formatCount, timeAgo } from '@/lib/format'
+import { timeAgo } from '@/lib/format'
 import type { Profile } from '@/lib/types'
 import { languageShares } from '@/lib/universe/planets'
 import { useReducedMotion } from 'framer-motion'
 import { usePanelReady } from '@/store/panelReady'
 import { usePresentation } from '@/store/presentation'
 import { useUniverse } from '@/store/universe'
+import { CountUp } from './CountUp'
 import { Reveal } from './Reveal'
 import { SidePanel } from './SidePanel'
 
@@ -44,7 +45,9 @@ export function ProfilePanel({ profile }: { profile: Profile }) {
             {stats.map(([label, value]) => (
               <div key={label} className="rounded-lg bg-white/5 p-2">
                 <dt className="text-xs text-slate-400">{label}</dt>
-                <dd className="text-lg font-semibold">{formatCount(value)}</dd>
+                <dd className="text-lg font-semibold">
+                  <CountUp value={value} />
+                </dd>
               </div>
             ))}
           </dl>
