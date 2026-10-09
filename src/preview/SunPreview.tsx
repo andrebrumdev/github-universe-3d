@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { aberrationLimbPx, fringeRho, sunScreenRadius } from '@/lib/sun/aberration'
 import { hasEyes, hasSparkle, pupilLook, zzzState } from '@/lib/sun/face'
 import { MAX_TURN_AWAY } from '@/lib/sun/gaze'
+import { CALM, MOOD_TABLE, moodFor, type MoodTarget } from '@/lib/sun/mood'
 import { kickSquash, SQUASH_AT_REST, SQUASH_TARGET, squashScale, stepSquash, type Squash } from '@/lib/sun/squash'
 import { SUN_EXPRESSIONS, type SunExpression, type SunMode } from '@/lib/sun/sunMachine'
 import { SUN_RADIUS } from '@/lib/universe/orbits'
@@ -51,6 +52,18 @@ const SQUASHES: { label: string; mode: SunMode; hold: number }[] = [
 ]
 
 type Kick = { mode: SunMode; hold: number; n: number }
+
+const TARGET_LABELS: Record<MoodTarget, string> = {
+  viewer: 'quem vê',
+  mouse: 'o mouse',
+  ship: 'a nave',
+  planet: 'o planeta',
+  comet: 'o cometa',
+  drift: 'à deriva',
+}
+
+/** Direção do olhar na galeria para cada alvo do humor (só para ilustrar). */
+const TARGET_GAZE: Record<MoodTarget, number> = { viewer: 0, drift: 0, mouse: 2, ship: 5, planet: 1, comet: 3 }
 type TileProps = { expression: SunExpression; blink: boolean; gaze: Gaze; reduced: boolean; kick: Kick | null }
 
 /** Um sol de verdade (material, shader, brilho e névoa da cena) com a expressão forçada, sem a máquina de estados. */
@@ -141,13 +154,16 @@ function SunTile({ expression, blink, gaze, reduced, kick }: TileProps) {
 /**
  * Galeria das expressões do sol (só no dev: `?preview=sun`): um sol de verdade por expressão — LED, borda âmbar,
  * pupilas do shader, "Z z z" do sol dormindo, aberração e brilho —, com piscar, direções do olhar, squash & stretch e
- * movimento reduzido. As fotos de referência do Sphere não entram (pesadas e de terceiros): ver o relatório.
+ * movimento reduzido. "Situação" mostra o humor de cada linha da tabela (`MOOD_TABLE`) e destaca o sol dele.
+ * As fotos de referência do Sphere não entram (pesadas e de terceiros): ver o relatório.
  */
 export function SunPreview() {
   const [blink, setBlink] = useState(false)
   const [gaze, setGaze] = useState<Gaze>(GAZES[0])
   const [reduced, setReduced] = useState(false)
   const [kick, setKick] = useState<Kick | null>(null)
+  const [situation, setSituation] = useState<number | null>(null)
+  const picked = situation === null ? null : moodFor({ ...CALM, ...MOOD_TABLE[situation].context })
 
   return (
     <main className="fixed inset-0 overflow-auto bg-space text-slate-100">
@@ -196,6 +212,31 @@ export function SunPreview() {
           Movimento reduzido
         </label>
 
+        <label className="block space-y-1">
+          <span className="text-xs uppercase tracking-wider text-slate-400">Situação</span>
+          <select
+            value={situation ?? ''}
+            onChange={(e) => {
+              const i = e.target.value === '' ? null : Number(e.target.value)
+              setSituation(i)
+              if (i !== null) setGaze(GAZES[TARGET_GAZE[moodFor({ ...CALM, ...MOOD_TABLE[i].context }).target]])
+            }}
+            className="w-full rounded-lg border border-slate-600 bg-panel px-2 py-1 text-slate-200"
+          >
+            <option value="">—</option>
+            {MOOD_TABLE.map((row, i) => (
+              <option key={row.label} value={i}>
+                {row.label}
+              </option>
+            ))}
+          </select>
+          {picked && (
+            <span className="block text-xs text-slate-300">
+              → {LABELS[picked.expression]}, olhando {TARGET_LABELS[picked.target]}
+            </span>
+          )}
+        </label>
+
         <p className="text-xs text-slate-400">
           Comparar com referências: as fotos do Sphere ficam fora do repositório (pesadas e de terceiros). Abra-as em
           <code className="mx-1">.superpowers/sdd/…/sun-reference-sphere*.png</code>.
@@ -204,7 +245,10 @@ export function SunPreview() {
 
       <section className="ml-72 grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4 p-4">
         {SUN_EXPRESSIONS.map((expression) => (
-          <figure key={expression} className="overflow-hidden rounded-2xl border border-slate-700 bg-[#03050d]">
+          <figure
+            key={expression}
+            className={`overflow-hidden rounded-2xl border bg-[#03050d] ${picked?.expression === expression ? 'border-neon ring-2 ring-neon/60' : 'border-slate-700'}`}
+          >
             <div className="aspect-square">
               <Canvas dpr={[1, 2]} camera={{ position: [0, 0, 11.5], fov: 32 }}>
                 <color attach="background" args={['#03050d']} />

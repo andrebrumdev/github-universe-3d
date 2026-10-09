@@ -8,18 +8,8 @@ import { showcasePlanet } from '@/lib/cameraPoses'
 import { selectedPlanet } from '@/lib/interaction'
 import { hasEyes, hasSparkle, PUPIL, PUPIL_REACH, pupilLook, zzzState } from '@/lib/sun/face'
 import { FACE_AT_REST, faceTarget, stepFaceSpring, wrapAngle, type FaceSpring } from '@/lib/sun/faceSpring'
-import {
-  GAZE_AT_START,
-  gazeExpression,
-  headOffset,
-  limitTurn,
-  planetGazeWeight,
-  quantizePupil,
-  stepGaze,
-  wakesUp,
-  type GazeInput,
-  type GazeState,
-} from '@/lib/sun/gaze'
+import { headOffset, limitTurn, MOTION_AT_REST, quantizePupil, stepGazeMotion, type GazeMotion } from '@/lib/sun/gaze'
+import { CALM, MOOD_AT_START, moodFor, stepMood, type MoodContext, type MoodState } from '@/lib/sun/mood'
 import { kickSquash, SQUASH_AT_REST, SQUASH_TARGET, squashScale, stepSquash, type Squash } from '@/lib/sun/squash'
 import {
   CLICK_DURATION,
@@ -28,11 +18,14 @@ import {
   SUN_LOOK,
   sunReducer,
   type SunExpression,
+  type SunMode,
   type SunState,
 } from '@/lib/sun/sunMachine'
 import type { RepoBase } from '@/lib/types'
 import { barycenterOffset } from '@/lib/universe/barycenter'
+import { buildComets, cometPosition } from '@/lib/universe/comets'
 import { planetPosition, SUN_RADIUS, type OrbitSystem, type Vec3 } from '@/lib/universe/orbits'
+import { crashTimeline } from '@/store/crash'
 import { bloomLook, useBloom } from '@/store/bloom'
 import { usePresentation } from '@/store/presentation'
 import { shipPose } from '@/store/shipPose'
@@ -61,8 +54,41 @@ const NO_RAYCAST = () => undefined
 
 /** Para onde o mouse "está" para o olhar: no raio do ponteiro, um pouco à frente do sol (em raios do sol). */
 const MOUSE_LOOK_AHEAD = 3
+/** Nave passando raspando: a menos disto do centro do sol (em raios do sol). */
+const CLOSE_PASS = 4
+/** Nave "bem de lado" para quem vê: mais que isto entre a direção da nave e a da câmera, vistas do sol. */
+const FAR_SIDE = (60 * Math.PI) / 180
+/** Cometa "perto do periélio": a menos disto × o periélio do sol. */
+const COMET_NEAR = 1.4
+/** A fala de desculpa da trombada dura mais ou menos isto (s): o sol ri junto. */
+const CRASH_LAUGH = 2.5
+/** A aba precisa ficar escondida mais que isto (ms) para o sol "acordar" quando ela volta. */
+const TAB_AWAY_MS = 10_000
+/** Piscada de transição entre humores (ms). */
+const TRANSITION_BLINK_MS = 130
 
-type SunRepo = Pick<RepoBase, 'name' | 'languages' | 'pushedAt'>
+type SunRepo = Pick<RepoBase, 'name' | 'languages' | 'pushedAt' | 'lastCommit'>
+
+/** Relógios e marcas dos eventos que o humor precisa (s do relógio da cena; −Infinity = nunca). */
+interface MoodEvents {
+  startAt: number
+  clickAt: number
+  clickPending: boolean
+  crashActive: boolean
+  crashCancelled: boolean
+  laughUntil: number
+  shipMode: string
+  arrivalAt: number
+  arrivalPlanet: string | null
+  cometNearAt: number
+  tabReturnPending: boolean
+  tabReturnAt: number
+  profileOpen: boolean
+  mode: SunMode
+  leaveAt: number
+  /** performance.now() da última entrada do usuário ou evento. */
+  lastActivity: number
+}
 
 /** Planeta em foco na apresentação (parada de repo) ou no passo "tech" do tutorial; leitura só, sem assinar. */
 function focusedPlanet(showcase: string | null): string | null {
@@ -93,27 +119,41 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   const [faceHovered, setFaceHovered] = useState(false)
   const [proxyHovered, setProxyHovered] = useState(false)
   const hovered = faceHovered || proxyHovered
-  const gaze = useRef<GazeState>(GAZE_AT_START)
-  // Expressão vem do olhar e do modo (viajando por padrão); repinta só quando muda.
-  const [expression, setExpression] = useState<SunExpression>(SUN_LOOK.idle.expression)
-  const expressionNow = useRef<SunExpression>(SUN_LOOK.idle.expression)
-  // Acordando do "viajando": os traços abrem numa piscada rápida.
+  // Humor coerente com o que acontece (mood.ts); o movimento pequeno do olhar vem de gaze.ts.
+  const mood = useRef<MoodState>(MOOD_AT_START)
+  const motion = useRef<GazeMotion>(MOTION_AT_REST)
+  const moodCtx = useRef<MoodContext>({ ...CALM })
+  const events = useRef<MoodEvents>({
+    startAt: -1,
+    clickAt: -Infinity,
+    clickPending: false,
+    crashActive: false,
+    crashCancelled: false,
+    laughUntil: -Infinity,
+    shipMode: shipPose.mode,
+    arrivalAt: -Infinity,
+    arrivalPlanet: null,
+    cometNearAt: -1,
+    tabReturnPending: false,
+    tabReturnAt: -Infinity,
+    profileOpen: false,
+    mode: 'idle',
+    leaveAt: -Infinity,
+    lastActivity: 0,
+  })
+  // Expressão do humor; repinta só quando muda. Começa acordado (cumprimentando), nunca dormindo.
+  const [expression, setExpression] = useState<SunExpression>(MOOD_AT_START.mood.expression)
+  const expressionNow = useRef<SunExpression>(MOOD_AT_START.mood.expression)
+  // Toda troca de humor passa por uma piscada rápida (fechado → aberto: uma repintura por mudança visível).
   const [waking, setWaking] = useState(false)
   const wakeTimer = useRef(0)
   useEffect(() => () => window.clearTimeout(wakeTimer.current), [])
   // Fechado só piscando e com olhos (viajando não tem): a textura só é refeita quando o desenho muda (ver `faceKey`).
   const closed = (blink || waking) && hasEyes(expression)
   const showcase = useMemo(() => showcasePlanet(repos), [repos])
-  // Planetas que o sol admira: os grandes e os com push recente (a hora do carregamento basta).
-  const [loadedAt] = useState(() => Date.now())
-  const planets = useMemo(
-    () =>
-      system.orbits.map((o) => ({
-        name: o.name,
-        weight: planetGazeWeight(o.radius, repos.find((r) => r.name === o.name)?.pushedAt ?? null, loadedAt),
-      })),
-    [system, repos, loadedAt],
-  )
+  // Os mesmos cometas do Comets (a lista é fixa enquanto a página fica aberta), só para saber quando um passa perto.
+  const [loadedAt] = useState(() => new Date())
+  const comets = useMemo(() => buildComets(system, repos, loadedAt), [system, repos, loadedAt])
   const orbitByName = useMemo(() => new Map(system.orbits.map((o) => [o.name, o])), [system])
   useCursor(hovered)
   const select = useUniverse((s) => s.select)
@@ -123,6 +163,26 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   useEffect(() => {
     SUN_UNIFORMS.uSunMask.value = sunMask(bloomActive)
   }, [bloomActive])
+
+  // Entrada do usuário (qualquer uma) adia o sono; a aba voltando depois de >10 s escondida acorda o sol.
+  useEffect(() => {
+    const ev = events.current
+    const onInput = () => {
+      ev.lastActivity = performance.now()
+    }
+    let hiddenAt = 0
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') hiddenAt = performance.now()
+      else if (hiddenAt && performance.now() - hiddenAt > TAB_AWAY_MS) ev.tabReturnPending = true
+    }
+    const inputs = ['pointermove', 'pointerdown', 'wheel', 'keydown'] as const
+    for (const name of inputs) window.addEventListener(name, onInput, { passive: true })
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      for (const name of inputs) window.removeEventListener(name, onInput)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [])
 
   // O `pointer` do R3F começa em (0,0) e nunca zera: só há "perto" com um ponteiro real no canvas.
   const gl = useThree((s) => s.gl)
@@ -211,15 +271,10 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   const zzz = useMemo(() => zzzState(0, false), [])
   const lookAt = useMemo(() => new THREE.Vector3(), [])
   const planetAt = useMemo<Vec3>(() => [0, 0, 0], [])
-  const gazeInput = useRef<GazeInput>({
-    mode: 'idle',
-    pointer: false,
-    shipTraveling: false,
-    focusPlanet: null,
-    selectedPlanet: null,
-    planets: [],
-    reduced: false,
-  })
+  const cometAt = useMemo<Vec3>(() => [0, 0, 0], [])
+  const nearComet = useMemo(() => new THREE.Vector3(), [])
+  const toShip = useMemo(() => new THREE.Vector3(), [])
+  const toCamera = useMemo(() => new THREE.Vector3(), [])
 
   useFrame(({ pointer, camera, clock, size, viewport }, dt) => {
     // Bamboleio em torno do baricentro: segue o relógio da simulação, como os planetas.
@@ -255,28 +310,88 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
       bounce.current.scale.setScalar(!reduced && next.mode === 'idle' ? 1 + Math.sin(t * 1.6) * 0.03 : 1)
     }
 
-    // Olhar com personalidade: o diretor escolhe o alvo (câmera, mouse, nave, planeta); a mola suaviza a virada.
-    const input = gazeInput.current
-    input.mode = next.mode
-    input.pointer = pointerPresent.current
-    input.shipTraveling = shipPose.mode === 'traveling' || shipPose.mode === 'returning'
-    input.focusPlanet = focusedPlanet(showcase)
-    input.selectedPlanet = selectedPlanet(useUniverse.getState().selection)
-    input.planets = planets
-    input.reduced = reduced
-    gaze.current = stepGaze(gaze.current, input, dt, Math.random)
-    const g = gaze.current
-    const nowExpression = gazeExpression(g, next.mode)
+    // Humor coerente com o que acontece: monta a situação (stores, nave, trombada, cometas, aba) e segue a tabela.
+    const ev = events.current
+    if (ev.startAt < 0) {
+      ev.startAt = t
+      ev.lastActivity = performance.now()
+    }
+    if (ev.clickPending) {
+      ev.clickPending = false
+      ev.clickAt = t
+    }
+    const { selection } = useUniverse.getState()
+    const profileOpen = selection.kind === 'profile'
+    // quem interagia saiu: fechou o painel do perfil, ou o mouse foi embora do sol
+    if ((ev.profileOpen && !profileOpen) || (ev.mode === 'hover' && next.mode === 'away')) ev.leaveAt = t
+    ev.profileOpen = profileOpen
+    ev.mode = next.mode
+    // trombada: impacto enquanto a linha do tempo corre; rindo quando ela termina pela fala (não cancelada)
+    const crashActive = crashTimeline.since >= 0
+    if (ev.crashActive && !crashActive && !ev.crashCancelled) ev.laughUntil = t + CRASH_LAUGH
+    ev.crashActive = crashActive
+    ev.crashCancelled = crashActive && crashTimeline.cancelledAt >= 0
+    // nave: viajando, chegando num planeta, passando raspando, bem de lado
+    const traveling = shipPose.mode === 'traveling' || shipPose.mode === 'returning'
+    if ((ev.shipMode === 'traveling' || ev.shipMode === 'returning') && shipPose.mode === 'visiting') {
+      ev.arrivalAt = t
+      ev.arrivalPlanet = shipPose.target?.kind === 'planet' ? shipPose.target.name : null
+    }
+    ev.shipMode = shipPose.mode
+    toShip.fromArray(shipPose.position).sub(sunAt)
+    toCamera.copy(camera.position).sub(sunAt)
+    // cometa perto do periélio (o mais perto)
+    let cometNear = false
+    let best = Infinity
+    for (const c of comets) {
+      cometPosition(c, simClock.time, cometAt)
+      const d = Math.hypot(cometAt[0] - sunAt.x, cometAt[1] - sunAt.y, cometAt[2] - sunAt.z)
+      if (d < COMET_NEAR * c.a * (1 - c.e) && d < best) {
+        best = d
+        cometNear = true
+        nearComet.fromArray(cometAt)
+      }
+    }
+    if (cometNear && ev.cometNearAt < 0) ev.cometNearAt = t
+    if (!cometNear) ev.cometNearAt = -1
+    if (ev.tabReturnPending) {
+      ev.tabReturnPending = false
+      ev.tabReturnAt = t
+    }
+    const ctx = moodCtx.current
+    ctx.hover = next.mode === 'hover'
+    ctx.sinceClick = t - ev.clickAt
+    ctx.crash = crashActive && !ev.crashCancelled ? 'impact' : t < ev.laughUntil ? 'laugh' : 'none'
+    ctx.shipTraveling = traveling
+    ctx.closePass = traveling && (shipPose.slingshot || toShip.length() < CLOSE_PASS * SUN_RADIUS)
+    ctx.shipFarSide = toShip.angleTo(toCamera) > FAR_SIDE
+    ctx.sinceArrival = t - ev.arrivalAt
+    ctx.arrivalPlanet = ev.arrivalPlanet
+    ctx.focusPlanet = selectedPlanet(selection) ?? focusedPlanet(showcase)
+    ctx.profileOpen = profileOpen
+    ctx.cometNear = cometNear
+    ctx.sinceCometNear = cometNear ? t - ev.cometNearAt : Infinity
+    ctx.sinceTabReturn = t - ev.tabReturnAt
+    ctx.sinceStart = t - ev.startAt
+    ctx.tutorialWelcome = useTutorial.getState().step === 'welcome'
+    ctx.sinceLeave = t - ev.leaveAt
+    // qualquer evento conta como atividade: o sono só vem com nada acontecendo
+    ctx.idleFor = 0
+    if (moodFor(ctx).rank > 0) ev.lastActivity = performance.now()
+    ctx.idleFor = (performance.now() - ev.lastActivity) / 1000
+    mood.current = stepMood(mood.current, ctx, dt)
+    const m = mood.current.mood
+    motion.current = stepGazeMotion(motion.current, reduced, dt, Math.random)
+    const nowExpression = m.expression
     if (nowExpression !== expressionNow.current) {
-      if (!reduced && wakesUp(expressionNow.current, nowExpression)) {
+      if (!reduced && hasEyes(nowExpression)) {
         setWaking(true)
         window.clearTimeout(wakeTimer.current)
-        wakeTimer.current = window.setTimeout(() => setWaking(false), 130)
+        wakeTimer.current = window.setTimeout(() => setWaking(false), TRANSITION_BLINK_MS)
       }
       expressionNow.current = nowExpression
       setExpression(nowExpression)
     }
-    // Bolinha de pensamento: aparece só viajando (o shader a desenha e balança pelo relógio, parado no movimento reduzido).
     SUN_UNIFORMS.uSunSparkle.value = hasSparkle(nowExpression) ? 1 : 0
     // "Z z z" do sol dormindo: aparece e some suave; parado ("Z z z") sob movimento reduzido.
     const sleepy = SUN_UNIFORMS.uSunBubble
@@ -286,21 +401,23 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
 
     if (face.current) {
       face.current.getWorldPosition(facePos)
+      // o alvo do humor: quem vê (e à deriva, dormindo), o mouse, a nave, o planeta ou o cometa
       lookAt.copy(camera.position)
-      if (g.gaze.kind === 'mouse') {
+      if (m.target === 'mouse') {
         const ahead = Math.max(1, camera.position.distanceTo(facePos) - MOUSE_LOOK_AHEAD * SUN_RADIUS)
         raycaster.ray.at(ahead, lookAt)
-      } else if (g.gaze.kind === 'ship') lookAt.fromArray(shipPose.position)
-      else if (g.gaze.kind === 'planet' && g.gaze.planet) {
-        const orbit = orbitByName.get(g.gaze.planet)
+      } else if (m.target === 'ship') lookAt.fromArray(shipPose.position)
+      else if (m.target === 'comet') lookAt.copy(nearComet)
+      else if (m.target === 'planet' && m.planet) {
+        const orbit = orbitByName.get(m.planet)
         if (orbit) lookAt.fromArray(planetPosition(system.rings[orbit.ring], orbit, simClock.time, planetAt))
       }
       const from = facePos.toArray() as Vec3
       const target = faceTarget(from, lookAt.toArray() as Vec3)
-      const [offsetYaw, offsetPitch] = headOffset(g)
+      const [offsetYaw, offsetPitch] = headOffset(motion.current, m.target === 'drift')
       target.yaw += offsetYaw
       target.pitch += offsetPitch
-      // Olhando longe, o rosto desliza pela esfera até ~70° de quem vê (pitch limitado); os olhos vão até o alvo.
+      // Olhando longe, o rosto desliza pela esfera até 55° de quem vê (pitch limitado); os olhos vão até o alvo.
       const toViewer = faceTarget(from, camera.position.toArray() as Vec3)
       const head = limitTurn(target, toViewer)
       spring.current = reduced ? { ...FACE_AT_REST, ...head } : stepFaceSpring(spring.current, head, dt)
@@ -340,6 +457,8 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   function handleClick(e: ThreeEvent<MouseEvent>) {
     e.stopPropagation()
     machine.current = sunReducer(machine.current, { type: 'click' })
+    events.current.clickPending = true
+    events.current.lastActivity = performance.now()
     if (!reduced) squash.current = kickSquash(squash.current, 'click')
     select({ kind: 'profile' })
   }
