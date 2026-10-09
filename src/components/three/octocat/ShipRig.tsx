@@ -87,6 +87,7 @@ import { OctocatShip, type ArmMode } from './OctocatShip'
 import { RetroPuffs, type Nozzles } from './RetroPuffs'
 import { HEADLIGHT_PLACEMENTS, THRUSTER_ORIGIN, WINGS } from './shipParts'
 import { useShipPlay } from './useShipPlay'
+import { useEasterShip } from './useEasterShip'
 
 /** Taxa (1/s) com que a nave assenta no canto da escolta (vindo da volta ou de um resize). */
 const ESCORT_SETTLE = 8
@@ -233,6 +234,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     setBurnShake((n) => n + 1)
   }, [clock])
   const play = useShipPlay({ focused: mode === 'focus', reduced, root: group, onBurst })
+  // easter egg (store/disco): a dancinha do modo disco
+  const easter = useEasterShip({ reduced })
   useCursor(hovered, mode === 'focus' ? (play.dragging ? 'grabbing' : 'grab') : 'pointer')
   /** Câmera do quadro anterior (para saber se ela assentou). */
   const lastCamPos = useMemo(() => new THREE.Vector3(), [])
@@ -901,6 +904,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     shipPose.target = s.target
     // giro, parafuso e olhar do modo de foco (voltam à pose de frente fora dele)
     play.update(dt, spinGroup.current)
+    easter.update(dt, spinGroup.current, jolt.current)
   })
 
   // No modo de foco a nave ocupa o meio da tela: o mouse em cima dela é o normal, não pede piscadela nem aceno.

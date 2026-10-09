@@ -27,6 +27,27 @@ import {
   sunMask,
 } from './sunMaterial'
 
+describe('modo disco no sol (Konami Code)', () => {
+  it('globo espelhado e óculos escuros: uniforms ligados e desligados por padrão, só no corpo e sobre o rosto', () => {
+    const shader = standardShader()
+    patchSunShader(shader)
+    const frag = shader.fragmentShader
+    expect(shader.uniforms.uSunDisco).toBe(SUN_UNIFORMS.uSunDisco)
+    expect(shader.uniforms.uSunDiscoTime).toBe(SUN_UNIFORMS.uSunDiscoTime)
+    expect(shader.uniforms.uSunShades).toBe(SUN_UNIFORMS.uSunShades)
+    expect(SUN_UNIFORMS.uSunDisco.value).toBe(0)
+    expect(SUN_UNIFORMS.uSunShades.value).toBe(0)
+    // ladrilhos só no corpo amarelo (olhos e boca ficam) e o mesmo emissivo
+    expect(frag).toContain('float sunDiscoInk = uSunDisco * sunBody;')
+    expect(frag).toContain('totalEmissiveRadiance = mix( totalEmissiveRadiance, emissive * sunDisco, sunDiscoInk );')
+    // os óculos vêm depois das pupilas (cobrem os olhos) e a marca do composer continua no fim (fora do bloom)
+    expect(frag.indexOf('sunShadesCol')).toBeGreaterThan(frag.indexOf('vec3 sunFeature'))
+    expect(frag.indexOf('if ( uSunMask > 0.5 )')).toBeGreaterThan(frag.indexOf('sunShadesCol'))
+    // a galeria divide o globo com a cena (não tem festa própria)
+    expect(createSunUniforms().uSunDisco).toBe(SUN_UNIFORMS.uSunDisco)
+  })
+})
+
 function standardShader() {
   const lib = THREE.ShaderLib.standard
   return { uniforms: THREE.UniformsUtils.clone(lib.uniforms), vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader }

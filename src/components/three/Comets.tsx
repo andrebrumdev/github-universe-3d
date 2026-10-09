@@ -10,11 +10,13 @@ import {
   cometPosition,
   cometVelocity,
   daysAgoLabel,
+  dustCurlAxis,
   tailDirections,
   tailLength,
   type Comet as CometSpec,
 } from '@/lib/universe/comets'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
+import { clockDirection } from '@/lib/universe/clock'
 import { seededRandom } from '@/lib/universe/random'
 import { DUST_MATERIAL, ION_MATERIAL } from './cometLook'
 import { bloomLook, useBloom } from '@/store/bloom'
@@ -95,6 +97,7 @@ function Comet({ comet, system }: { comet: CometSpec; system: OrbitSystem }) {
       sun: [0, 0, 0] as Vec3,
       ion: [0, 0, 0] as Vec3,
       dust: [0, 0, 0] as Vec3,
+      curl: [0, 0, 0] as Vec3,
       dir: new THREE.Vector3(),
       x: new THREE.Vector3(),
       z: new THREE.Vector3(),
@@ -110,7 +113,9 @@ function Comet({ comet, system }: { comet: CometSpec; system: OrbitSystem }) {
     cometVelocity(comet, t, s.vel)
     barycenterOffset(system, t, s.sun)
     root.current?.position.set(s.pos[0], s.pos[1], s.pos[2])
-    tailDirections(s.pos, s.sun, s.vel, s.ion, s.dust)
+    // modo disco (relógio ao contrário): a poeira fica para trás do movimento de verdade, girando na virada
+    const sense = clockDirection(simClock)
+    tailDirections(s.pos, s.sun, s.vel, s.ion, s.dust, sense)
     const r = Math.hypot(s.pos[0] - s.sun[0], s.pos[1] - s.sun[1], s.pos[2] - s.sun[2])
     const L = tailLength(comet, r)
     if (ion.current) {
@@ -118,12 +123,10 @@ function Comet({ comet, system }: { comet: CometSpec; system: OrbitSystem }) {
       ion.current.scale.set(0.12 + 0.05 * L, L, 0.12 + 0.05 * L)
     }
     if (dust.current) {
-      // y = direção da poeira; x = para trás da velocidade (o lado para onde ela se curva); z fecha a base
+      // y = direção da poeira; x = para trás do movimento (o lado para onde ela se curva); z fecha a base
       s.dir.set(s.dust[0], s.dust[1], s.dust[2])
-      s.x.set(-s.vel[0], -s.vel[1], -s.vel[2])
-      s.x.addScaledVector(s.dir, -s.x.dot(s.dir))
-      if (s.x.lengthSq() < 1e-12) s.x.set(1, 0, 0).addScaledVector(s.dir, -s.dir.x)
-      s.x.normalize()
+      dustCurlAxis(s.dust, s.vel, sense, s.curl)
+      s.x.set(s.curl[0], s.curl[1], s.curl[2])
       s.z.crossVectors(s.x, s.dir)
       dust.current.quaternion.setFromRotationMatrix(s.basis.makeBasis(s.x, s.dir, s.z))
       const D = 0.75 * L

@@ -27,6 +27,8 @@ const linear = (hex: string) => {
  *   (ver `sunComposer.ts`).
  * - `uSunAberration`: deslocamento RGB no limbo, em px (ver `aberrationLimbPx`); `uSunFringe`: o mesmo em raios do sol,
  *   para o brilho e a névoa (ver `fringeRho`).
+ * - `uSunDisco`: 0–1, o globo espelhado do modo disco (Konami Code) no lugar do corpo amarelo; `uSunDiscoTime`: o
+ *   relógio dele (gira os ladrilhos e as luzes; parado sob movimento reduzido); `uSunShades`: 0–1, os óculos escuros.
  */
 export const SUN_UNIFORMS = {
   uSunTime: { value: 0 },
@@ -39,6 +41,9 @@ export const SUN_UNIFORMS = {
   uSunSparkle: { value: 0 },
   uSunAberration: { value: 0 },
   uSunFringe: { value: 0 },
+  uSunDisco: { value: 0 },
+  uSunDiscoTime: { value: 0 },
+  uSunShades: { value: 0 },
 }
 
 export type SunUniforms = typeof SUN_UNIFORMS
@@ -64,7 +69,7 @@ export function sunMask(bloomActive: boolean): number {
   return bloomActive ? 1 : 0
 }
 
-export const SUN_PROGRAM_KEY = 'sun-led-v9'
+export const SUN_PROGRAM_KEY = 'sun-led-v10'
 /** Malha densa o bastante para o balanço ficar liso (6 mil vértices; o deslocamento é por vértice). */
 export const SUN_SEGMENTS: readonly [number, number] = [96, 64]
 /** Emissivo do painel de LED (a cor vem da textura; sem tone mapping). */
@@ -78,6 +83,10 @@ export const SHADE_DEEP = '#E8870A'
 export const HAZE_EXTENT = 2.8
 /** Painel de LED: LEDs na volta e de polo a polo (1° cada); só aparecem de perto. */
 export const LED_GRID: readonly [number, number] = [360, 180]
+/** Globo espelhado do modo disco: ladrilhos na volta e de polo a polo. */
+export const DISCO_TILES: readonly [number, number] = [36, 18]
+/** Óculos escuros do modo disco: meia-largura e meia-altura de cada lente e o raio do canto (unidades de desenho). */
+export const SHADES = { hw: 12.5, hh: 9.5, r: 4.5 } as const
 
 const VERTEX_PARS = /* glsl */ `#include <common>
 ${SUN_NOISE_GLSL}
@@ -137,6 +146,13 @@ float sunZGlyph( vec2 p, vec4 z ) {
 }
 uniform float uSunSparkle;
 uniform float uSunAberration;
+uniform float uSunDisco;
+uniform float uSunDiscoTime;
+uniform float uSunShades;
+float sunRoundBox( vec2 p, vec2 b, float r ) {
+	vec2 q = abs( p ) - b + r;
+	return length( max( q, 0.0 ) ) + min( max( q.x, q.y ), 0.0 ) - r;
+}
 varying vec3 vSunObj;`
 
 /**
@@ -195,6 +211,8 @@ const FRAGMENT_DETAIL = /* glsl */ `#ifdef USE_MAP
 	float sunPupil = 0.0;
 	float sunSparkle = 0.0;
 	float sunLedF = 1.0;
+	float sunShadesInk = 0.0;
+	float sunShadesGlint = 0.0;
 	#ifdef USE_MAP
 		sunBody = smoothstep( 0.5, 0.8, sunTexel.r ) * ( 1.0 - smoothstep( 0.3, 0.7, sunTexel.b ) );
 		float sunWhite = smoothstep( 0.55, 0.9, sunTexel.b );
@@ -225,6 +243,24 @@ const FRAGMENT_DETAIL = /* glsl */ `#ifdef USE_MAP
 			sunStarInk = max( sunStarInk, ( 1.0 - smoothstep( -saa, saa, sd ) ) * uSunStars[ i ].w );
 		}
 		sunPupil = max( sunPupil, sunStarInk * uSunDizzy * sunBody );
+		// modo disco: óculos escuros (duas lentes arredondadas sobre os olhos, a ponte e as hastes) com um reflexo
+		if ( uSunShades > 0.0 ) {
+			vec2 sunGlassL = vec2( ${f(FACE_X - EYE.dx)}, ${f(FACE_Y + EYE.y)} );
+			vec2 sunGlassR = vec2( ${f(FACE_X + EYE.dx)}, ${f(FACE_Y + EYE.y)} );
+			vec2 sunLens = vec2( ${f(SHADES.hw)}, ${f(SHADES.hh)} );
+			float sunLensD = min( sunRoundBox( sunAt - sunGlassL, sunLens, ${f(SHADES.r)} ), sunRoundBox( sunAt - sunGlassR, sunLens, ${f(SHADES.r)} ) );
+			float sunFrameD = min( sunSeg( sunAt, sunGlassL + vec2( ${f(SHADES.hw - 1)}, -3.0 ), sunGlassR + vec2( ${f(1 - SHADES.hw)}, -3.0 ) ),
+				min( sunSeg( sunAt, sunGlassL - vec2( ${f(SHADES.hw - 1)}, 3.0 ), sunGlassL - vec2( ${f(SHADES.hw + 9)}, 6.0 ) ),
+					sunSeg( sunAt, sunGlassR + vec2( ${f(SHADES.hw - 1)}, -3.0 ), sunGlassR + vec2( ${f(SHADES.hw + 9)}, -6.0 ) ) ) ) - 1.5;
+			float sunGlassD = min( sunLensD, sunFrameD );
+			float sunGlassAA = max( fwidth( sunGlassD ), 1e-4 );
+			sunShadesInk = ( 1.0 - smoothstep( -sunGlassAA, sunGlassAA, sunGlassD ) ) * uSunShades;
+			// reflexo: uma faixa diagonal em cada lente
+			vec2 sunGlassP = sunAt - ( sunAt.x < ${f(FACE_X)} ? sunGlassL : sunGlassR );
+			float sunGlintD = abs( dot( sunGlassP, vec2( 0.7071, 0.7071 ) ) + 3.5 ) - 1.6;
+			float sunGlintAA = max( fwidth( sunGlintD ), 1e-4 );
+			sunShadesGlint = ( 1.0 - smoothstep( -sunGlintAA, sunGlintAA, sunGlintD ) ) * ( 1.0 - smoothstep( -sunGlassAA, sunGlassAA, sunLensD + 1.5 ) ) * uSunShades * 0.75;
+		}
 		vec2 sunLed = vMapUv * vec2( ${f(LED_GRID[0])}, ${f(LED_GRID[1])} );
 		float sunLedW = max( fwidth( sunLed.x ), fwidth( sunLed.y ) );
 		float sunLedVis = 1.0 - smoothstep( 0.12, 0.3, sunLedW );
@@ -247,9 +283,45 @@ const FRAGMENT_DETAIL = /* glsl */ `#ifdef USE_MAP
 	vec3 sunShadeMix = mix( vec3( 1.0 ), sunShadeF, sunBody );
 	diffuseColor.rgb *= sunShadeMix;
 	totalEmissiveRadiance *= sunShadeMix;
+	// modo disco: o corpo vira um globo espelhado (rosto, olhos e boca ficam). Ladrilhos numa grade de latitude ×
+	// longitude que gira em volta do eixo; cada um reflete as luzes coloridas que giram (pela normal do centro dele) e
+	// pisca branco de vez em quando; o rejunte escuro separa os ladrilhos.
+	if ( uSunDisco > 0.0 ) {
+		float sunLat = asin( clamp( sunObj.y, -1.0, 1.0 ) );
+		float sunLon = atan( sunObj.x, sunObj.z ) + uSunDiscoTime * 0.5;
+		vec2 sunTileUv = vec2( sunLon / 6.2831853 * ${f(DISCO_TILES[0])}, ( sunLat / 3.1415927 + 0.5 ) * ${f(DISCO_TILES[1])} );
+		vec2 sunTileId = floor( sunTileUv );
+		sunTileId.x = mod( sunTileId.x, ${f(DISCO_TILES[0])} );
+		vec2 sunTileF = fract( sunTileUv );
+		float sunEdge = min( min( sunTileF.x, 1.0 - sunTileF.x ), min( sunTileF.y, 1.0 - sunTileF.y ) );
+		// a derivada de y não pula na costura da longitude
+		float sunEdgeAA = max( fwidth( sunTileUv.y ), 1e-4 );
+		float sunGrout = 1.0 - smoothstep( 0.04, 0.04 + 1.5 * sunEdgeAA, sunEdge );
+		float sunTLat = ( ( sunTileId.y + 0.5 ) / ${f(DISCO_TILES[1])} - 0.5 ) * 3.1415927;
+		float sunTLon = ( sunTileId.x + 0.5 ) / ${f(DISCO_TILES[0])} * 6.2831853 - uSunDiscoTime * 0.5;
+		vec3 sunTileN = vec3( cos( sunTLat ) * sin( sunTLon ), sin( sunTLat ), cos( sunTLat ) * cos( sunTLon ) );
+		float sunTileH = fract( sin( dot( sunTileId, vec2( 12.9898, 78.233 ) ) ) * 43758.5453 );
+		vec3 sunDisco = mix( vec3( 0.42, 0.45, 0.55 ), vec3( 0.86, 0.89, 0.97 ), sunTileH );
+		for ( int i = 0; i < 3; i ++ ) {
+			float fi = float( i );
+			float a = uSunDiscoTime * ( 0.9 + 0.35 * fi ) + fi * 2.094;
+			vec3 sunLight = normalize( vec3( sin( a ), 0.5 * sin( a * 0.7 + fi ), cos( a ) ) );
+			vec3 sunLightCol = 0.5 + 0.5 * cos( 6.2831853 * ( fi / 3.0 + vec3( 0.0, 0.33, 0.67 ) ) );
+			sunDisco += 1.3 * sunLightCol * pow( max( dot( sunTileN, sunLight ), 0.0 ), 24.0 );
+		}
+		sunDisco += step( 0.95, fract( sunTileH * 7.13 + uSunDiscoTime * ( 0.3 + sunTileH ) ) );
+		// globo: mais claro de frente para quem vê, rejunte escuro
+		sunDisco *= ( 0.7 + 0.3 * max( normal.z, 0.0 ) ) * ( 1.0 - 0.8 * sunGrout );
+		float sunDiscoInk = uSunDisco * sunBody;
+		diffuseColor.rgb = mix( diffuseColor.rgb, sunDisco, sunDiscoInk );
+		totalEmissiveRadiance = mix( totalEmissiveRadiance, emissive * sunDisco, sunDiscoInk );
+	}
 	vec3 sunFeature = ${linear(SUN_FEATURE)};
 	diffuseColor.rgb = mix( mix( diffuseColor.rgb, sunFeature, sunPupil ), vec3( 1.0 ), sunSparkle ) * sunLedF;
 	totalEmissiveRadiance = mix( mix( totalEmissiveRadiance, emissive * sunFeature, sunPupil ), emissive, sunSparkle ) * sunLedF;
+	vec3 sunShadesCol = mix( ${linear('#1B1230')}, vec3( 1.0 ), sunShadesGlint );
+	diffuseColor.rgb = mix( diffuseColor.rgb, sunShadesCol, max( sunShadesInk, sunShadesGlint ) );
+	totalEmissiveRadiance = mix( totalEmissiveRadiance, emissive * sunShadesCol, max( sunShadesInk, sunShadesGlint ) );
 }`
 
 /** Com bloom: a marca do sol para o composer (alfa 0 = fora do ACES e do bloom; ver `sunComposer.ts`). */
@@ -280,6 +352,9 @@ export function patchSunShader(shader: ShaderLike, uniforms: SunUniforms = SUN_U
   shader.uniforms.uSunStars = uniforms.uSunStars
   shader.uniforms.uSunSparkle = uniforms.uSunSparkle
   shader.uniforms.uSunAberration = uniforms.uSunAberration
+  shader.uniforms.uSunDisco = uniforms.uSunDisco
+  shader.uniforms.uSunDiscoTime = uniforms.uSunDiscoTime
+  shader.uniforms.uSunShades = uniforms.uSunShades
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', VERTEX_PARS)
     .replace('#include <beginnormal_vertex>', VERTEX_NORMAL)

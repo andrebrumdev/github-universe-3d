@@ -31,6 +31,8 @@ import { buildComets, cometPosition } from '@/lib/universe/comets'
 import { planetPosition, SUN_RADIUS, type OrbitSystem, type Vec3 } from '@/lib/universe/orbits'
 import { crashApology, crashTimeline } from '@/store/crash'
 import { bloomLook, useBloom } from '@/store/bloom'
+import { disco } from '@/store/disco'
+import { octocatMood } from '@/store/fourthWall'
 import { flightClock } from '@/store/frameClock'
 import { usePresentation } from '@/store/presentation'
 import { shipPose } from '@/store/shipPose'
@@ -69,6 +71,11 @@ const DIZZY_WOBBLE = { yaw: 0.25, pitch: 0.12, roll: 0.08 }
 const DIZZY_LINE = 'Coitado do sol…'
 /** Piscada de transição entre humores (ms). */
 const TRANSITION_BLINK_MS = 130
+/** Modo disco: a partir deste nível o sol fica feliz (de óculos escuros); o brilho e a luz trocam de cor neste ritmo (voltas/s). */
+const DISCO_HAPPY = 0.3
+const DISCO_HUE_RATE = 0.18
+const GLOW_COLOR = new THREE.Color('#FFB830')
+const LIGHT_COLOR = new THREE.Color('#FFF1C9')
 
 type SunRepo = Pick<RepoBase, 'name' | 'languages' | 'pushedAt' | 'lastCommit'>
 
@@ -280,6 +287,7 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   const nearComet = useMemo(() => new THREE.Vector3(), [])
   const toShip = useMemo(() => new THREE.Vector3(), [])
   const toCamera = useMemo(() => new THREE.Vector3(), [])
+  const discoColor = useMemo(() => new THREE.Color(), [])
 
   useFrame(({ pointer, camera, clock, size, viewport }, dt) => {
     // Bamboleio em torno do baricentro: segue o relógio da simulação, como os planetas.
@@ -397,6 +405,8 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     ctx.sinceStart = happened.sinceStart
     ctx.tutorialWelcome = useTutorial.getState().step === 'welcome'
     ctx.sinceLeave = happened.sinceLeave
+    // o Octocat cochilando na borda ou se firmando na janela apertada (roteiro da quarta parede)
+    ctx.octocat = octocatMood()
     // qualquer evento conta como atividade: o sono só vem com nada acontecendo
     ctx.idleFor = 0
     if (moodFor(ctx).rank > 0) ev.lastActivity = performance.now()
@@ -404,7 +414,12 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     mood.current = stepMood(mood.current, ctx, dt)
     const m = mood.current.mood
     motion.current = stepGazeMotion(motion.current, reduced, dt, Math.random)
-    const nowExpression = m.expression
+    // modo disco: globo espelhado, óculos escuros e cara de festa (no shader; o desenho do rosto é o feliz)
+    const party = disco.level
+    SUN_UNIFORMS.uSunDisco.value = party
+    SUN_UNIFORMS.uSunShades.value = party
+    if (party > 0 && !reduced) SUN_UNIFORMS.uSunDiscoTime.value += dt
+    const nowExpression = party > DISCO_HAPPY ? 'happy' : m.expression
     if (nowExpression !== expressionNow.current) {
       if (!reduced && hasEyes(nowExpression)) {
         setWaking(true)
@@ -485,6 +500,11 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     // oxlint-disable-next-line react/immutability -- uniforms do Three.js são mutáveis por design
     glow.value += (sunGlowOpacity(bloom, look.glow) - glow.value) * k
     if (light.current) light.current.intensity += (2.2 * look.glow - light.current.intensity) * k
+    // modo disco: o brilho em volta e a luz do sol (que ilumina os planetas) passeiam pelas cores
+    const hue = (SUN_UNIFORMS.uSunDiscoTime.value * DISCO_HUE_RATE) % 1
+    discoColor.setHSL(hue, 0.85, 0.6)
+    ;(glowMaterial.uniforms.uColor.value as THREE.Color).copy(GLOW_COLOR).lerp(discoColor, 0.7 * party)
+    if (light.current) light.current.color.copy(LIGHT_COLOR).lerp(discoColor, 0.55 * party)
   })
 
   // Aperto sobre o sol: começa um gesto (pode virar giro ou clique) e trava o giro de um ponteiro da câmera até soltar.

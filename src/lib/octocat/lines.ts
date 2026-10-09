@@ -64,3 +64,11 @@ export function firstName(full: string): string {
 export function formatLine(text: string, name: string): string {
   return text.replaceAll('{name}', firstName(name))
 }
+
+/**
+ * Easter eggs da quarta parede (bloco à parte): o modo disco do Konami Code.
+ * `disco` alterna a cada festa (a primeira e as seguintes).
+ */
+export const EASTER_LINES = {
+  disco: ['Modo disco ativado! Solta o som, universo!', 'De novo? Bora, que a pista é nossa!'],
+} as const

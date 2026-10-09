@@ -305,10 +305,13 @@ export function focusSpinStep(angle: number, dt: number, focused: boolean, clock
 /** Segundos de simulação por segundo real que as luas do planeta em foco seguem andando (~35% do normal). */
 export const FOCUS_MOON_RATE = 0.35
 
-/** Tempo extra das luas do planeta em foco: mesma entrada gradual e as mesmas regras do `focusSpinStep`. */
-export function focusMoonStep(extra: number, dt: number, focused: boolean, clockScale: number, reduced = false): number {
+/**
+ * Tempo extra das luas do planeta em foco: mesma entrada gradual e as mesmas regras do `focusSpinStep`. `direction` é
+ * o sentido do relógio (`clockDirection`): no modo disco as luas em foco também andam ao contrário.
+ */
+export function focusMoonStep(extra: number, dt: number, focused: boolean, clockScale: number, reduced = false, direction = 1): number {
   if (!focused || reduced) return extra
   const step = Math.min(Math.max(dt, 0), FOCUS_SPIN_MAX_DT)
   const blend = 1 - Math.min(Math.max(clockScale, 0), 1)
-  return extra + FOCUS_MOON_RATE * blend * step
+  return extra + FOCUS_MOON_RATE * blend * step * direction
 }

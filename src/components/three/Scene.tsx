@@ -14,6 +14,8 @@ import { prepareScene, type SceneJobs } from '@/workers/sceneAssets'
 import { preToneMapped } from './acesBackground'
 import { CameraRig } from './CameraRig'
 import { Comets } from './Comets'
+import { DiscoDriver } from './DiscoDriver'
+import { DiscoEffects } from './DiscoEffects'
 import { FlightWarmup } from './octocat/FlightWarmup'
 import { ShipRig } from './octocat/ShipRig'
 import { OrbitLines } from './OrbitLines'
@@ -118,6 +120,8 @@ export function Scene({ universe }: { universe: Universe }) {
       <ambientLight intensity={0.25} />
       <hemisphereLight args={['#9bd8ff', '#1a2350', 0.2]} />
       <Starfield radius={starRadius} />
+      {/* easter eggs: o modo disco (Konami Code) roda antes do relógio, que lê o sentido dele */}
+      <DiscoDriver />
       <SimClockDriver />
       <PlanetGlowDriver />
       {/* Sol, planetas e luas montam e compilam já; o primeiro upload das texturas espera o worker (lazyDataTexture).
@@ -135,6 +139,8 @@ export function Scene({ universe }: { universe: Universe }) {
       <Comets system={system} repos={universe.repos} />
       <CameraRig system={system} repos={universe.repos} />
       <ShipRig system={system} repos={universe.repos} />
+      {/* easter egg: fachos do sol-globo e chuva de estrelas do modo disco */}
+      <DiscoEffects system={system} starRadius={starRadius} />
       {/* programas dos efeitos de voo compilados na montagem (e quando o bloom liga), não no primeiro voo */}
       <FlightWarmup />
       {bloom && (

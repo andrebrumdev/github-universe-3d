@@ -142,9 +142,11 @@ export function tailLength(c: Comet, r: number): number {
 
 /**
  * Direções unitárias das caudas: a de íons aponta direto para longe do sol; a de poeira também, mas curvada para
- * trás da velocidade. Escreve em `ion` e `dust`.
+ * trás da velocidade. Escreve em `ion` e `dust`. `sense` é o sentido do relógio (`clockDirection`, −1..1): com o tempo
+ * ao contrário (modo disco) o cometa anda no sentido −velocidade, e a poeira fica para trás desse movimento; parado no
+ * meio da virada (0), ela alinha com a de íons.
  */
-export function tailDirections(pos: Vec3, sun: Vec3, velocity: Vec3, ion: Vec3, dust: Vec3): void {
+export function tailDirections(pos: Vec3, sun: Vec3, velocity: Vec3, ion: Vec3, dust: Vec3, sense = 1): void {
   let x = pos[0] - sun[0]
   let y = pos[1] - sun[1]
   let z = pos[2] - sun[2]
@@ -152,12 +154,46 @@ export function tailDirections(pos: Vec3, sun: Vec3, velocity: Vec3, ion: Vec3, 
   ion[0] = x / l
   ion[1] = y / l
   ion[2] = z / l
-  const vl = Math.hypot(velocity[0], velocity[1], velocity[2]) || 1
-  x = ion[0] - (DUST_LAG * velocity[0]) / vl
-  y = ion[1] - (DUST_LAG * velocity[1]) / vl
-  z = ion[2] - (DUST_LAG * velocity[2]) / vl
+  const lag = (DUST_LAG * sense) / (Math.hypot(velocity[0], velocity[1], velocity[2]) || 1)
+  x = ion[0] - lag * velocity[0]
+  y = ion[1] - lag * velocity[1]
+  z = ion[2] - lag * velocity[2]
   l = Math.hypot(x, y, z) || 1
   dust[0] = x / l
   dust[1] = y / l
   dust[2] = z / l
+}
+
+/**
+ * Lado para onde a cauda de poeira se curva (unitário, perpendicular a `dust`): para trás do movimento. Para a frente
+ * (`sense` = 1) é −velocidade; na virada do modo disco ele gira em volta da cauda até +velocidade (`sense` = −1), em vez
+ * de trocar de lado de uma vez quando o cometa para. Escreve em `out` e o devolve.
+ */
+export function dustCurlAxis(dust: Vec3, velocity: Vec3, sense: number, out: Vec3): Vec3 {
+  const along = -(velocity[0] * dust[0] + velocity[1] * dust[1] + velocity[2] * dust[2])
+  let x = -velocity[0] - along * dust[0]
+  let y = -velocity[1] - along * dust[1]
+  let z = -velocity[2] - along * dust[2]
+  let l = Math.hypot(x, y, z)
+  if (l < 1e-12) {
+    // velocidade ao longo da cauda: qualquer perpendicular serve
+    x = 1 - dust[0] * dust[0]
+    y = -dust[0] * dust[1]
+    z = -dust[0] * dust[2]
+    l = Math.hypot(x, y, z) || 1
+  }
+  x /= l
+  y /= l
+  z /= l
+  // o outro eixo da base (dust × x) e a rotação de 0 (para a frente) a π (ao contrário)
+  const bx = dust[1] * z - dust[2] * y
+  const by = dust[2] * x - dust[0] * z
+  const bz = dust[0] * y - dust[1] * x
+  const angle = (Math.PI * (1 - Math.max(-1, Math.min(1, sense)))) / 2
+  const c = Math.cos(angle)
+  const s = Math.sin(angle)
+  out[0] = c * x + s * bx
+  out[1] = c * y + s * by
+  out[2] = c * z + s * bz
+  return out
 }

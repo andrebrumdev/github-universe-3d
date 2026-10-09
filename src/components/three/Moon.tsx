@@ -5,6 +5,7 @@ import { useReducedMotion } from 'framer-motion'
 import type * as THREE from 'three'
 import { selectedPlanet } from '@/lib/interaction'
 import type { Vec3 } from '@/lib/universe/orbits'
+import { clockDirection } from '@/lib/universe/clock'
 import { focusMoonStep, moonPosition, type MoonSpec } from '@/lib/universe/planets'
 import { simClock } from '@/store/simClock'
 import { useUniverse } from '@/store/universe'
@@ -25,7 +26,8 @@ export function Moon({ spec, planet }: { spec: MoonSpec; planet: string }) {
 
   // Órbita de Kepler em volta do planeta (no plano do equador, inclinada): rápida no periapse, lenta na apoapse.
   useFrame((_, dt) => {
-    focusTime.current = focusMoonStep(focusTime.current, dt, focused, simClock.scale, reduced)
+    // no modo disco, as luas em foco também andam ao contrário
+    focusTime.current = focusMoonStep(focusTime.current, dt, focused, simClock.scale, reduced, clockDirection(simClock))
     moonPosition(spec, simClock.time + focusTime.current, pos)
     mesh.current?.position.set(pos[0], pos[1], pos[2])
   })
