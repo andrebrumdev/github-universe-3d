@@ -11,12 +11,14 @@ import type { OctocatExpression } from '@/lib/octocat/expression'
 import {
   bankAngle,
   escortFraming,
-  escortOffset,
+  escortPlacement,
   keepAway,
+  type Knock,
   KNOCK_DURATION,
   knockOffset,
   knockPose,
   MIN_SHIP_DISTANCE,
+  placementOffset,
   SHIP_SCALE,
   SHIP_WORLD_HEIGHT,
   SHIP_WORLD_WIDTH,
@@ -27,11 +29,11 @@ import {
 } from '@/lib/ship/escort'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
 import { bezierPoint, bezierTangent, planTravel, travelProgress, travelVelocity } from '@/lib/ship/travel'
-import { lerp3 } from '@/lib/ship/vec'
 import type { Repo } from '@/lib/types'
+import { reservedRects } from '@/lib/uiLayout'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
-import { INITIAL_SHIP_POSE, shipPose } from '@/store/shipPose'
+import { resetShipPose, shipPose } from '@/store/shipPose'
 import { simClock } from '@/store/simClock'
 import { useTutorial } from '@/store/tutorial'
 import { useUniverse } from '@/store/universe'
@@ -61,7 +63,8 @@ const TRAIL_WIDTH = 1.6
 // `profileName` segue na assinatura (o Scene passa); o balão visível agora é DOM, no OctocatSpeech.
 export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[]; profileName: string }) {
   const group = useRef<THREE.Group>(null)
-  const machine = useRef<ShipState>(INITIAL_SHIP)
+  // Cópia própria: na escolta e na visita o tick só avança `elapsed` no lugar (ver o useFrame).
+  const machine = useRef<ShipState>({ ...INITIAL_SHIP })
   const trailHead = useRef<THREE.Mesh>(null)
   const lastTangent = useRef<Vec3>([0, 0, 1])
   const [mode, setMode] = useState<ShipMode>('entering')
@@ -71,17 +74,27 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
   useCursor(hovered)
   const camera = useThree((s) => s.camera)
   const size = useThree((s) => s.size)
-  const aspect = size.width / size.height
-  const latestAspect = useRef(aspect)
-  useEffect(() => {
-    latestAspect.current = aspect
-  })
+  const fov = (camera as THREE.PerspectiveCamera).fov
   const reduced = useReducedMotion() ?? false
   const visitSide = VISIT_SIDE[useMediaQuery(MOBILE_QUERY) ? 'bottom' : 'side']
   const selection = useUniverse((s) => s.selection)
   const bubble = useUniverse((s) => s.bubble)
   const step = useTutorial((s) => s.step)
   const startTutorial = useTutorial((s) => s.start)
+  const tutorialOpen = step !== null
+
+  // Posição da escolta: calculada só quando a tela, o fov ou o cartão do tutorial mudam (não por frame).
+  // Em pixels, longe do botão "? Tutorial" e do cartão (medidas compartilhadas em uiLayout).
+  const escort = useMemo(() => {
+    const { width, height } = size
+    const framing = escortFraming(width, height)
+    const placement = escortPlacement({ width, height, reserved: reservedRects(width, height, tutorialOpen) }, framing)
+    return { side: framing.side, base: placementOffset(placement, width, height, fov) }
+  }, [size, fov, tutorialOpen])
+  const latestEscort = useRef(escort)
+  useEffect(() => {
+    latestEscort.current = escort
+  })
 
   const up = useMemo(() => new THREE.Vector3(), [])
   const right = useMemo(() => new THREE.Vector3(), [])
@@ -93,8 +106,15 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
   const invQuat = useMemo(() => new THREE.Quaternion(), [])
   const scratch = useMemo(() => new THREE.Vector3(), [])
   const speech = useMemo(() => new THREE.Vector3(), [])
-  /** Posição atual da nave no referencial atrasado da câmera, enquanto na escolta (null fora dela). */
-  const escortLocal = useRef<Vec3 | null>(null)
+  // Rascunhos reaproveitados a cada frame: o caminho da escolta não aloca.
+  const knock = useMemo<Knock>(() => ({ closer: 0, bob: 0, waving: false }), [])
+  const goalArr = useMemo<Vec3>(() => [0, 0, 0], [])
+  const goal = useMemo(() => new THREE.Vector3(), [])
+  const posArr = useMemo<Vec3>(() => [0, 0, 0], [])
+  const camArr = useMemo<Vec3>(() => [0, 0, 0], [])
+  /** Posição atual da nave no referencial atrasado da câmera, válida enquanto `hasLocal` (escolta/entrada). */
+  const escortLocal = useMemo(() => new THREE.Vector3(), [])
+  const hasLocal = useRef(false)
 
   // Quarta parede: de vez em quando (inatividade), a nave chega perto da lente e bate no vidro.
   const knockRequest = useRef(false)
@@ -105,11 +125,6 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     knockRequest.current = true
   }, [])
   useIdle(onIdle)
-
-  const viewportOf = (a: number) => ({ aspect: a, fov: (camera as THREE.PerspectiveCamera).fov })
-  const toWorld = (local: Vec3): Vec3 => scratch.set(...local).applyQuaternion(lagQuat).add(camera.position).toArray() as Vec3
-  const toLocal = (world: THREE.Vector3): Vec3 =>
-    scratch.copy(world).sub(camera.position).applyQuaternion(invQuat.copy(lagQuat).invert()).toArray() as Vec3
 
   const target: ShipTarget | null = useMemo(() => {
     if (step === 'welcome') return { kind: 'sun' }
@@ -128,19 +143,16 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
   // Só na montagem (e se a câmera mudar): um resize não pode reposicionar a nave no meio do voo.
   useEffect(() => {
     lagQuat.copy(camera.quaternion)
-    const fov = (camera as THREE.PerspectiveCamera).fov
-    const local = escortOffset({ aspect: latestAspect.current, fov })
+    const local = latestEscort.current.base
     const spawn = scratch
-      .set(local[0], local[1] + enterRise(local, fov), local[2])
+      .set(local[0], local[1] + enterRise(local, (camera as THREE.PerspectiveCamera).fov), local[2])
       .applyQuaternion(lagQuat)
       .add(camera.position)
       .toArray() as Vec3
     group.current?.position.set(...spawn)
-    Object.assign(shipPose, INITIAL_SHIP_POSE, { position: spawn })
+    resetShipPose(spawn)
     // Remontagem (HMR) não deixa a câmera perseguindo uma nave parada.
-    return () => {
-      Object.assign(shipPose, INITIAL_SHIP_POSE)
-    }
+    return () => resetShipPose()
   }, [camera, lagQuat, scratch])
 
   // Destino mudou: planeja a viagem até onde o alvo vai estar quando o tempo parar.
@@ -179,15 +191,16 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     const g = group.current
     if (!g) return
     const dt = Math.min(rawDt, 0.1)
-    const s = shipReducer(machine.current, { type: 'tick', dt })
+    // Escolta e visita não mudam de modo com o tempo: avança no lugar, sem alocar um estado novo por frame.
+    let s = machine.current
+    if (s.mode === 'escort' || s.mode === 'visiting') s.elapsed += dt
+    else s = shipReducer(s, { type: 'tick', dt })
     if (s.mode !== renderedMode.current) {
       renderedMode.current = s.mode
       setMode(s.mode)
     }
     machine.current = s
 
-    const viewport = viewportOf(aspect)
-    const framing = escortFraming(viewport)
     lagQuat.slerp(camera.quaternion, reduced ? 1 : 1 - Math.exp(-ESCORT_FOLLOW * dt))
 
     // Batida no vidro: só parada na escolta e com movimento normal; dura KNOCK_DURATION e acaba sozinha.
@@ -198,45 +211,49 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     if (s.mode !== 'escort' || reduced) knockStart.current = null
     const kt = knockStart.current === null ? -1 : clock.elapsedTime - knockStart.current
     if (kt >= KNOCK_DURATION) knockStart.current = null
-    const knock = knockPose(kt)
+    knockPose(kt, knock)
     if (knock.waving !== knockingRef.current) {
       knockingRef.current = knock.waving
       setKnocking(knock.waving)
     }
-    const escortGoal = knockOffset(escortOffset(viewport, framing), knock)
+    goal.fromArray(knockOffset(escort.base, knock, goalArr))
     let tangent: Vec3 | null = null
 
     if (s.mode === 'traveling' && s.path) {
-      escortLocal.current = null
+      hasLocal.current = false
       const p = travelProgress(s.elapsed, s.path.duration)
       g.position.set(...bezierPoint(s.path.points, p))
       tangent = bezierTangent(s.path.points, p)
     } else if (s.mode === 'entering' && !reduced) {
       // Desce de fora da imagem até o canto, no referencial da câmera.
       const k = Math.min(1, s.elapsed / ENTER_DURATION)
-      const local: Vec3 = [escortGoal[0], escortGoal[1] + (1 - k) ** 2 * enterRise(escortGoal, viewport.fov), escortGoal[2]]
-      escortLocal.current = local
-      g.position.set(...toWorld(local))
+      escortLocal.copy(goal).setY(goal.y + (1 - k) ** 2 * enterRise(goalArr, fov))
+      hasLocal.current = true
+      g.position.copy(escortLocal).applyQuaternion(lagQuat).add(camera.position)
     } else if (s.mode === 'escort' || s.mode === 'entering') {
       // Perto da lente, preso ao referencial atrasado da câmera: girar a câmera não deixa a nave para trás no mundo
       // (nem a joga contra a lente). Vindo da volta, parte de onde está e assenta no canto.
-      const from = escortLocal.current ?? toLocal(g.position)
-      const settle = reduced || knockStart.current !== null ? 1 : 1 - Math.exp(-ESCORT_SETTLE * dt)
-      escortLocal.current = lerp3(from, escortGoal, settle)
-      g.position.set(...toWorld(escortLocal.current))
+      if (!hasLocal.current) {
+        escortLocal.copy(g.position).sub(camera.position).applyQuaternion(invQuat.copy(lagQuat).invert())
+        hasLocal.current = true
+      }
+      escortLocal.lerp(goal, reduced || knockStart.current !== null ? 1 : 1 - Math.exp(-ESCORT_SETTLE * dt))
+      g.position.copy(escortLocal).applyQuaternion(lagQuat).add(camera.position)
     } else {
-      escortLocal.current = null
-      let goal = toWorld(escortGoal)
+      hasLocal.current = false
+      look.copy(goal).applyQuaternion(lagQuat).add(camera.position)
       if (s.mode === 'visiting' && s.target) {
         const anchor = targetAnchor(s.target, system, simClock.time)
-        if (anchor) goal = visitPosition(anchor.position, anchor.radius, camera.position.toArray() as Vec3, visitSide)
+        if (anchor) look.fromArray(visitPosition(anchor.position, anchor.radius, camera.position.toArray(camArr), visitSide))
       }
       const rate = s.mode === 'returning' ? 3 / RETURN_DURATION : 4
-      look.set(...goal)
       g.position.lerp(look, reduced ? 1 : 1 - Math.exp(-rate * dt))
     }
     // Nada da nave encosta no plano próximo, nem com a câmera chegando perto dela.
-    if (!tangent) g.position.set(...keepAway(g.position.toArray() as Vec3, camera.position.toArray() as Vec3, MIN_SHIP_DISTANCE))
+    if (!tangent) {
+      keepAway(g.position.toArray(posArr), camera.position.toArray(camArr), MIN_SHIP_DISTANCE, posArr)
+      g.position.fromArray(posArr)
+    }
 
     // Orientação: na viagem, a frente (+z) segue a tangente e inclina nas curvas. Parada, olha para quem vê:
     // na escolta em três-quartos (nariz para o centro da tela) e, na batida, inclinada para a lente.
@@ -253,7 +270,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
       helper.up.copy(up)
       helper.lookAt(camera.position)
       if (s.mode !== 'visiting') {
-        helper.rotateY(-framing.side * THREE_QUARTER_YAW)
+        helper.rotateY(-escort.side * THREE_QUARTER_YAW)
         helper.rotateX(KNOCK_LEAN * knock.closer)
       }
     }
@@ -262,16 +279,17 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
 
     // Apoio do balão (DOM, no OctocatSpeech): acima da nave, puxado para o centro da tela, projetado em pixels.
     right.set(1, 0, 0).applyQuaternion(camera.quaternion)
-    speech.copy(g.position).addScaledVector(up, BUBBLE_UP).addScaledVector(right, -framing.side * BUBBLE_IN).project(camera)
+    speech.copy(g.position).addScaledVector(up, BUBBLE_UP).addScaledVector(right, -escort.side * BUBBLE_IN).project(camera)
     shipPose.speechX = ((speech.x + 1) / 2) * size.width
     shipPose.speechY = ((1 - speech.y) / 2) * size.height
     shipPose.speechOnScreen = speech.z < 1 && Math.abs(speech.x) < 1.2 && Math.abs(speech.y) < 1.2
 
     trailHead.current?.position.set(...THRUSTER_ORIGIN)
     if (trailHead.current) g.localToWorld(trailHead.current.position)
-    shipPose.position = g.position.toArray() as Vec3
+    g.position.toArray(shipPose.position)
     shipPose.tangent = tangent ?? shipPose.tangent
-    shipPose.velocity = s.mode === 'traveling' && s.path ? travelVelocity(s.path, s.elapsed) : [0, 0, 0]
+    if (s.mode === 'traveling' && s.path) shipPose.velocity = travelVelocity(s.path, s.elapsed)
+    else shipPose.velocity.fill(0)
     shipPose.mode = s.mode
   })
 

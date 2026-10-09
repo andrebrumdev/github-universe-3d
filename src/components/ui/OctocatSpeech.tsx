@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useIdle } from '@/hooks/useIdle'
 import { formatLine, LINE_DURATION_MS } from '@/lib/octocat/lines'
+import { DESKTOP_MIN_WIDTH, SIDE_PANEL_WIDTH, UI_GAP } from '@/lib/uiLayout'
 import { shipPose } from '@/store/shipPose'
 import { useUniverse } from '@/store/universe'
 
@@ -30,7 +31,12 @@ export function OctocatSpeech({ profileName }: { profileName: string }) {
     const follow = () => {
       const el = balloon.current
       if (el) {
-        el.style.transform = `translate(${shipPose.speechX}px, ${shipPose.speechY}px) translate(-50%, -100%)`
+        // Dentro da tela e, com o painel lateral aberto no desktop, à esquerda dele (senão o painel corta o balão).
+        const half = el.offsetWidth / 2
+        const panelOpen = useUniverse.getState().selection.kind !== 'none' && window.innerWidth >= DESKTOP_MIN_WIDTH
+        const maxX = window.innerWidth - UI_GAP - half - (panelOpen ? SIDE_PANEL_WIDTH : 0)
+        const x = Math.max(UI_GAP + half, Math.min(maxX, shipPose.speechX))
+        el.style.transform = `translate(${x}px, ${shipPose.speechY}px) translate(-50%, -100%)`
         el.style.visibility = shipPose.speechOnScreen ? 'visible' : 'hidden'
       }
       frame = requestAnimationFrame(follow)

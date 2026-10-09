@@ -6,7 +6,7 @@ import {
   chasePose,
   ESCORT_LEAN_DEPTH,
   escortFraming,
-  escortOffset,
+  escortPlacement,
   keepAway,
   KNOCK_DURATION,
   knockOffset,
@@ -14,6 +14,11 @@ import {
   MAX_BANK,
   MAX_CHASE_LEAD,
   MIN_SHIP_DISTANCE,
+  placementOffset,
+  SHIP_BOX_CENTER_Y,
+  SHIP_BOX_SHIFT,
+  shipFaceBox,
+  shipScreenBox,
   SHIP_WORLD_HEIGHT,
   SHIP_WORLD_WIDTH,
   springLead,
@@ -23,6 +28,7 @@ import {
 } from './escort'
 import { bezierPoint, planTravel, travelProgress, travelVelocity } from './travel'
 import { SUN_SAFE_DISTANCE } from './travel'
+import { reservedRects, type Rect } from '../uiLayout'
 import { cross, dot, length, sub } from './vec'
 
 const system = buildOrbits(Array.from({ length: 12 }, (_, i) => ({ name: `p${i}`, radius: 2.2 })))
@@ -172,56 +178,62 @@ describe('antecipação da perseguição limitada', () => {
   })
 })
 
-describe('escortOffset (perto da lente, derivado do frustum)', () => {
-  const desktop = { aspect: 16 / 10, fov: 50 }
-  const wide = { aspect: 21 / 9, fov: 50 }
-  const phone = { aspect: 390 / 844, fov: 50 }
-  const t = Math.tan((50 * Math.PI) / 360)
-  /** Caixa da nave em NDC (−1..1), a partir do offset no referencial da câmera. */
-  const ndcBox = (o: [number, number, number], aspect: number) => {
-    const depth = -o[2]
-    const sx = (v: number) => v / (depth * t * aspect)
-    const sy = (v: number) => v / (depth * t)
-    return {
-      left: sx(o[0] - SHIP_WORLD_WIDTH / 2),
-      right: sx(o[0] + SHIP_WORLD_WIDTH / 2),
-      bottom: sy(o[1] - SHIP_WORLD_HEIGHT / 2),
-      top: sy(o[1] + SHIP_WORLD_HEIGHT / 2),
-      cx: sx(o[0]),
-      heightFraction: SHIP_WORLD_HEIGHT / (2 * depth * t),
+describe('escortPlacement (em pixels, sem cobrir o botão nem o cartão do tutorial)', () => {
+  const desktops: [number, number][] = [
+    [1280, 800],
+    [1920, 1080],
+    [1366, 768],
+    [2560, 1440],
+  ]
+  const phones: [number, number][] = [
+    [390, 844],
+    [375, 667],
+    [412, 915],
+  ]
+  const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+  const inside = (a: Rect, w: number, h: number) => a.x >= 0 && a.y >= 0 && a.x + a.w <= w && a.y + a.h <= h
+
+  for (const [w, h] of [...desktops, ...phones]) {
+    for (const open of [false, true]) {
+      it(`${w}×${h}${open ? ' com o cartão' : ''}: nada coberto, rosto na tela, tamanho dentro dos limites`, () => {
+        const reserved = reservedRects(w, h, open)
+        const framing = escortFraming(w, h)
+        const p = escortPlacement({ width: w, height: h, reserved })
+        const box = shipScreenBox(p, h)
+        expect(p.fits).toBe(true)
+        for (const r of reserved) expect(overlaps(box, r)).toBe(false)
+        expect(inside(shipFaceBox(p, h), w, h)).toBe(true)
+        expect(p.heightFraction).toBeLessThanOrEqual(framing.heightFraction)
+        expect(p.heightFraction).toBeGreaterThanOrEqual(framing.minHeightFraction)
+        expect(box.y + box.h).toBeGreaterThan(h * 0.6) // embaixo
+        if (w < h) {
+          // celular: a nave inteira dentro da tela (nenhuma ponta de asa cortada), à esquerda
+          expect(inside(box, w, h)).toBe(true)
+          expect(p.centerX).toBeLessThan(w / 2)
+        } else {
+          expect(p.centerX).toBeGreaterThan(w / 2)
+        }
+      })
     }
   }
 
-  it('desktop: canto inferior direito, 22–28% da altura, rosto (centro) dentro da tela', () => {
-    for (const vp of [desktop, wide]) {
-      const b = ndcBox(escortOffset(vp), vp.aspect)
-      expect(b.heightFraction).toBeGreaterThanOrEqual(0.22)
-      expect(b.heightFraction).toBeLessThanOrEqual(0.28)
-      expect(b.cx).toBeGreaterThan(0.4)
-      expect(b.right).toBeGreaterThan(0.95) // encostada na borda direita (pode cortar um pouco a asa)
-      expect(b.right - 1).toBeLessThan(0.25 * (b.right - b.left)) // corta no máximo uma ponta de asa
-      expect(b.bottom).toBeGreaterThan(-1)
-      expect(b.bottom).toBeLessThan(-0.85)
-      // abaixo do cartão do tutorial no desktop (bottom-56 = 224 px de 800 → 28% da altura)
-      expect((b.top + 1) / 2).toBeLessThanOrEqual(0.29)
+  it('desktop sem o cartão fica no tamanho cheio (25% da altura)', () => {
+    expect(escortPlacement({ width: 1280, height: 800, reserved: reservedRects(1280, 800, false) }).heightFraction).toBeCloseTo(0.25)
+  })
+
+  it('o offset no referencial da câmera reproduz a caixa da tela e fica longe do plano próximo', () => {
+    const t = Math.tan((50 * Math.PI) / 360)
+    for (const [w, h] of [...desktops, ...phones]) {
+      const p = escortPlacement({ width: w, height: h, reserved: reservedRects(w, h, true) })
+      const o = placementOffset(p, w, h, 50)
+      const depth = -o[2]
+      expect(depth).toBeGreaterThan(MIN_SHIP_DISTANCE + SHIP_WORLD_WIDTH)
+      expect(SHIP_WORLD_HEIGHT / (2 * depth * t)).toBeCloseTo(p.heightFraction)
+      // a origem do modelo fica deslocada da caixa para o centro da tela (a silhueta em três-quartos pende para o canto)
+      const side = p.centerX > w / 2 ? 1 : -1
+      expect(((o[0] / (depth * t * (w / h)) + 1) / 2) * w).toBeCloseTo(p.centerX - side * SHIP_BOX_SHIFT * p.heightFraction * h)
+      expect(((1 - (o[1] + SHIP_BOX_CENTER_Y) / (depth * t)) / 2) * h).toBeCloseTo(p.centerY)
     }
-  })
-
-  it('celular em pé: menor (~16–18%), no canto de baixo, sob o cartão do tutorial e longe do botão', () => {
-    const b = ndcBox(escortOffset(phone), phone.aspect)
-    expect(b.heightFraction).toBeGreaterThanOrEqual(0.15)
-    expect(b.heightFraction).toBeLessThanOrEqual(0.18)
-    expect(b.bottom).toBeGreaterThan(-1)
-    // cartão do tutorial no celular: bottom-36 = 144 px de 844 → 17% da altura
-    expect((b.top + 1) / 2).toBeLessThanOrEqual(144 / 844)
-    // lado esquerdo: o botão "? Tutorial" fica no canto inferior direito
-    expect(escortFraming(phone).side).toBe(-1)
-    expect(b.cx).toBeLessThan(0)
-    expect(b.cx).toBeGreaterThan(-1)
-  })
-
-  it('longe do plano próximo (0,1) com folga para a nave inteira', () => {
-    for (const vp of [desktop, wide, phone]) expect(-escortOffset(vp)[2]).toBeGreaterThan(MIN_SHIP_DISTANCE + SHIP_WORLD_WIDTH)
   })
 })
 
@@ -255,7 +267,7 @@ describe('knockPose (bater no vidro)', () => {
 })
 
 describe('knockOffset', () => {
-  const base = escortOffset({ aspect: 16 / 10, fov: 50 })
+  const base = placementOffset(escortPlacement({ width: 1280, height: 800, reserved: [] }), 1280, 800, 50)
 
   it('sem batida, é a escolta', () => {
     expect(knockOffset(base, knockPose(-1))).toEqual(base)
@@ -278,5 +290,24 @@ describe('keepAway', () => {
     expect(keepAway([1, 2, 10], cam, 1)).toEqual([1, 2, 10])
     expect(length(sub(keepAway([1, 2, 3.2], cam, 1), cam))).toBeCloseTo(1)
     expect(length(sub(keepAway(cam, cam, 1), cam))).toBeCloseTo(1)
+  })
+})
+
+describe('sem alocação: parâmetros de saída', () => {
+  it('knockPose, knockOffset e keepAway escrevem no objeto dado e o devolvem', () => {
+    const k = { closer: 9, bob: 9, waving: true }
+    expect(knockPose(1.125, k)).toBe(k)
+    expect(k.closer).toBeCloseTo(1)
+    expect(knockPose(-1, k)).toBe(k)
+    expect(k).toEqual({ closer: 0, bob: 0, waving: false })
+    const base: Vec3 = [1, -1, -2]
+    const out: Vec3 = [0, 0, 0]
+    expect(knockOffset(base, knockPose(1.125), out)).toBe(out)
+    expect(out).toEqual(knockOffset(base, knockPose(1.125)))
+    expect(knockOffset(base, knockPose(-1), out)).toBe(out)
+    expect(out).toEqual(base)
+    const pos: Vec3 = [0, 0, 0.1]
+    expect(keepAway(pos, [0, 0, 0], 1, pos)).toBe(pos)
+    expect(length(pos)).toBeCloseTo(1)
   })
 })

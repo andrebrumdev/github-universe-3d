@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type CSSProperties } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { formatLine } from '@/lib/octocat/lines'
+import { TUTORIAL_CARD } from '@/lib/uiLayout'
 import { TUTORIAL_COPY, TUTORIAL_STEPS } from '@/lib/tutorial'
 import { useTutorial } from '@/store/tutorial'
 
@@ -69,7 +70,17 @@ export function Tutorial({ profileName }: { profileName: string }) {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0 }}
           transition={reduced ? instant : undefined}
-          className="fixed inset-x-4 bottom-36 z-40 rounded-2xl border border-neon/40 bg-panel/95 p-4 text-sm shadow-xl backdrop-blur md:inset-x-auto md:bottom-56 md:right-4 md:w-[340px]"
+          // Posição pelas medidas compartilhadas (uiLayout): a nave da escolta fica abaixo da borda de baixo do cartão.
+          style={
+            {
+              '--card-inset': `${TUTORIAL_CARD.phoneInset}px`,
+              '--card-bottom': `${TUTORIAL_CARD.phoneBottom}px`,
+              '--card-right-md': `${TUTORIAL_CARD.desktopRight}px`,
+              '--card-bottom-md': `${TUTORIAL_CARD.desktopBottom}px`,
+              '--card-width-md': `${TUTORIAL_CARD.desktopWidth}px`,
+            } as CSSProperties
+          }
+          className="fixed left-(--card-inset) right-(--card-inset) bottom-(--card-bottom) z-40 rounded-2xl border border-neon/40 bg-panel/95 p-4 text-sm shadow-xl backdrop-blur md:left-auto md:right-(--card-right-md) md:bottom-(--card-bottom-md) md:w-(--card-width-md)"
         >
           <p className="text-xs text-slate-400">
             {TUTORIAL_STEPS.indexOf(step) + 1}/{TUTORIAL_STEPS.length}

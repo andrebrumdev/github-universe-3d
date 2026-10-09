@@ -27,4 +27,18 @@ export const INITIAL_SHIP_POSE: Readonly<ShipPose> = {
 }
 
 /** Mutável de propósito: escrito pela nave a cada frame, lido pela câmera e pelo balão da fala. */
-export const shipPose: ShipPose = { ...INITIAL_SHIP_POSE }
+export const shipPose: ShipPose = freshPose(INITIAL_SHIP_POSE.position)
+
+/** Estado inicial com vetores próprios (a nave escreve neles no lugar, sem alocar por frame). */
+function freshPose(position: Vec3): ShipPose {
+  return {
+    ...INITIAL_SHIP_POSE,
+    position: [...position],
+    tangent: [...INITIAL_SHIP_POSE.tangent],
+    velocity: [...INITIAL_SHIP_POSE.velocity],
+  }
+}
+
+export function resetShipPose(position: Vec3 = INITIAL_SHIP_POSE.position): void {
+  Object.assign(shipPose, freshPose(position))
+}
