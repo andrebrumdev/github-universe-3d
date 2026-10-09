@@ -23,10 +23,11 @@ import {
 
 /**
  * Trava de regressão do pior caso (40 planetas máximos com 6 luas): alcance ≈ 392 com as luas em órbitas de Kepler
- * (mais folga entre as cascas) e ≈ 403 com as ressonâncias (cada anel sobe até a próxima razão simples).
+ * (mais folga entre as cascas), ≈ 403 com as ressonâncias dos anéis (cada anel sobe até a próxima razão simples) e
+ * ≈ 1253 com as luas em ressonância (1:2:4:6:12:24: a sexta lua fica a 24^(2/3) ≈ 8,3× a interna, alcance 9,4 → 32,6).
  * O enquadramento é testado em cameraPoses.test.
  */
-const REACH_LIMIT = 410
+const REACH_LIMIT = 1280
 const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2])
 const dist = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 

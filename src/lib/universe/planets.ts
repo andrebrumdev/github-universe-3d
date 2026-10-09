@@ -99,20 +99,56 @@ function semiMajorForPeriapsis(peri: number): number {
 }
 
 /**
- * Cascas das luas: cada lua i tem semieixo a e excentricidade máxima eMax, e a periapse dela fica além da apoapse
- * da anterior com dois raios máximos de lua e folga. Cascas radiais disjuntas: nenhuma lua encosta noutra, em
- * qualquer inclinação ou fase. Depende só do raio do planeta (o alcance não precisa do nome).
+ * Ressonância orbital das luas, como Io, Europa e Ganimedes (1 : 2 : 4, a ressonância de Laplace): o período de cada
+ * lua é um múltiplo inteiro do da lua interna. Depois da terceira, razões simples (6, 12, 24) que dividem a da última:
+ * o sistema todo volta ao mesmo desenho a cada volta da lua mais lenta. Cada lista usa o menor último possível (com 4
+ * luas, 1:2:4:8; com 5, 1:2:4:6:12; com 6, 1:2:4:6:12:24): a última lua fica a N^(2/3) vezes a distância da interna.
+ */
+const MOON_RESONANCE: readonly (readonly number[])[] = [[], [1], [1, 2], [1, 2, 4], [1, 2, 4, 8], [1, 2, 4, 6, 12], [1, 2, 4, 6, 12, 24]]
+
+/** Razões dos períodos das `n` luas de um planeta ao da lua interna (inteiros; cada um divide o último). */
+export function moonResonance(n: number): number[] {
+  return [...MOON_RESONANCE[Math.min(MAX_MOONS, Math.max(0, Math.floor(n)))]]
+}
+
+/** As cascas com a lua interna em a0: aₖ = a0·Nₖ^(2/3) (3ª lei de Kepler, T ∝ a^1,5) e a excentricidade máxima de cada. */
+function resonantShells(a0: number, chain: number[]): { a: number; eMax: number }[] {
+  return chain.map((ratio) => {
+    const a = a0 * Math.pow(ratio, 2 / 3)
+    return { a, eMax: moonEccentricityCap(a) }
+  })
+}
+
+/** A periapse de cada lua fica além da apoapse da anterior, com dois raios máximos de lua e folga. */
+function shellsApart(shells: { a: number; eMax: number }[]): boolean {
+  for (let i = 1; i < shells.length; i++) {
+    const prev = shells[i - 1]
+    const cur = shells[i]
+    if (cur.a * (1 - cur.eMax) < prev.a * (1 + prev.eMax) + 2 * MAX_MOON_RADIUS + MOON_GAP) return false
+  }
+  return true
+}
+
+/**
+ * Cascas das luas, em ressonância: a lua interna fica o mais perto que a superfície do planeta deixa, e as outras saem
+ * da 3ª lei com as razões de `moonResonance`. Cada periapse fica além da apoapse anterior com dois raios máximos de
+ * lua e folga (cascas radiais disjuntas: nenhuma lua encosta noutra, em qualquer inclinação ou fase). Num planeta
+ * pequeno o 2:1 ficaria apertado demais: em vez de quebrar a cadeia, a lua interna se afasta (a folga cresce com a0)
+ * até caber, por bissecção. Depende só do raio do planeta (o alcance não precisa do nome).
  */
 function moonShells(planetR: number, n: number): { a: number; eMax: number }[] {
-  const shells: { a: number; eMax: number }[] = []
-  let peri = MOON_ORBIT_SCALE * planetR + MOON_ORBIT_OFFSET
-  for (let i = 0; i < n; i++) {
-    const a = semiMajorForPeriapsis(peri)
-    const eMax = moonEccentricityCap(a)
-    shells.push({ a, eMax })
-    peri = a * (1 + eMax) + 2 * MAX_MOON_RADIUS + MOON_GAP
+  const chain = moonResonance(n)
+  if (chain.length === 0) return []
+  let lo = semiMajorForPeriapsis(MOON_ORBIT_SCALE * planetR + MOON_ORBIT_OFFSET)
+  if (shellsApart(resonantShells(lo, chain))) return resonantShells(lo, chain)
+  let hi = lo * 2
+  while (!shellsApart(resonantShells(hi, chain))) hi *= 2
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2
+    if (shellsApart(resonantShells(mid, chain))) hi = mid
+    else lo = mid
   }
-  return shells
+  return resonantShells(hi, chain)
 }
 
 /** Período (s de simulação) pela 3ª lei de Kepler em volta de um planeta de raio r (massa ∝ r³). */
@@ -131,28 +167,49 @@ export function bodyExtent(planetR: number, moonCount: number): number {
   return last.a * (1 + last.eMax) + MAX_MOON_RADIUS
 }
 
-/** `languages` deve vir ordenado por bytes (decrescente), como sai do normalize. `seed` (o nome do repo) varia a órbita. */
+/**
+ * `languages` deve vir ordenado por bytes (decrescente), como sai do normalize. `seed` (o nome do repo) varia a órbita.
+ * Períodos em ressonância (ver `moonResonance`): Tₖ = Nₖ·T₀ exatamente, com T₀ o da lua interna pela 3ª lei.
+ * Fases travadas pela longitude média λ = Ω + ω + M: em t = 0 as luas ficam alinhadas num lado λ* (sorteado por
+ * planeta); com 3 ou mais, a interna fica do lado oposto, como na relação de Laplace (λ₁ − 3λ₂ + 2λ₃ = 180°, que a
+ * cadeia 1:2:4 conserva para sempre). Como todo período divide o da última, o alinhamento volta a cada volta dela.
+ */
 export function moonOrbits(planetR: number, languages: Language[], seed = ''): MoonSpec[] {
   const langs = languages.slice(0, MAX_MOONS)
   if (langs.length === 0) return []
   const maxBytes = Math.max(...langs.map((l) => l.bytes), 1)
-  const shells = moonShells(planetR, langs.length)
+  const n = langs.length
+  const shells = moonShells(planetR, n)
+  const chain = moonResonance(n)
+  const innerPeriod = moonPeriod(shells[0].a, planetR)
+  const side = seededRandom(`moons-${seed}`)() * Math.PI * 2
   return langs.map((l, i) => {
     const rng = seededRandom(`moon-${seed}-${i}`)
     const { a, eMax } = shells[i]
+    const e = MIN_MOON_ECCENTRICITY + rng() * (eMax - MIN_MOON_ECCENTRICITY)
+    const inclination = (rng() < 0.5 ? -1 : 1) * (MOON_MIN_INCLINATION + rng() * (MOON_MAX_INCLINATION - MOON_MIN_INCLINATION))
+    const node = rng() * Math.PI * 2
+    const periapsis = rng() * Math.PI * 2
+    const longitude = side + (n >= 3 && i === 0 ? Math.PI : 0)
     return {
       language: l.name,
       color: l.color,
       radius: MIN_MOON_RADIUS + (MAX_MOON_RADIUS - MIN_MOON_RADIUS) * Math.sqrt(l.bytes / maxBytes),
       a,
-      e: MIN_MOON_ECCENTRICITY + rng() * (eMax - MIN_MOON_ECCENTRICITY),
-      inclination: (rng() < 0.5 ? -1 : 1) * (MOON_MIN_INCLINATION + rng() * (MOON_MAX_INCLINATION - MOON_MIN_INCLINATION)),
-      node: rng() * Math.PI * 2,
-      periapsis: rng() * Math.PI * 2,
-      period: moonPeriod(a, planetR),
-      phase: i * 2.399 + rng(),
+      e,
+      inclination,
+      node,
+      periapsis,
+      period: innerPeriod * chain[i],
+      // M em t = 0 que põe a lua na longitude média do alinhamento
+      phase: longitude - node - periapsis,
     }
   })
+}
+
+/** Longitude média λ = Ω + ω + M da lua no instante t (rad, sem levar a [0, 2π)): o ângulo que as ressonâncias travam. */
+export function moonLongitude(m: MoonSpec, t: number): number {
+  return m.node + m.periapsis + m.phase + (2 * Math.PI * t) / m.period
 }
 
 /**

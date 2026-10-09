@@ -133,8 +133,11 @@ export const PORTRAIT_VIEWPORT: Viewport = { aspect: 9 / 19.5, fov: 50 }
 export const STARFIELD_MIN_RADIUS = 260
 /** Espessura da casca de estrelas. */
 export const STARFIELD_DEPTH = 80
-/** Plano far da câmera: passa da borda externa da casca no pior caso (40 planetas máximos com 6 luas, celular em pé). */
-export const CAMERA_FAR = 6000
+/**
+ * Plano far da câmera: passa da borda externa da casca no pior caso (40 planetas máximos com 6 luas em ressonância,
+ * celular em pé: ~14 160). A precisão do depth perto da câmera depende do near, não do far.
+ */
+export const CAMERA_FAR = 16000
 
 /**
  * Raio interno da casca de estrelas. A casca acompanha a câmera (o StarField se prende ao observador), então
