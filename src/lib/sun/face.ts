@@ -17,6 +17,8 @@ export const PUPIL: Record<SunExpression, { r: number; x: number; y: number }> =
   veryHappy: { r: 9.5, x: 0, y: 0 },
   surprised: { r: 7.5, x: 0, y: 0 },
   sad: { r: 9, x: 0, y: 3 },
+  // pupila maior e um pouco para cima: olhar encantado
+  admiring: { r: 10, x: 0, y: -1 },
 }
 /** As pupilas adiantam o olhar para a câmera enquanto a mola do rosto ainda está virando: unidades por radiano. */
 export const PUPIL_GAIN = 14

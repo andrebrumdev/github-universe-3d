@@ -1,5 +1,6 @@
 export type SunMode = 'idle' | 'hover' | 'click' | 'away'
-export type SunExpression = 'happy' | 'veryHappy' | 'surprised' | 'sad'
+/** `admiring`: olhando um planeta (ver `gaze.ts`), não vem de um modo. */
+export type SunExpression = 'happy' | 'veryHappy' | 'surprised' | 'sad' | 'admiring'
 
 export interface SunState {
   mode: SunMode

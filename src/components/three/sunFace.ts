@@ -16,6 +16,8 @@ const BROW: Record<SunExpression, { lift: number; arch: number; tilt: number }> 
   veryHappy: { lift: 30, arch: 7, tilt: -1 },
   surprised: { lift: 34, arch: 9, tilt: 0 },
   sad: { lift: 25, arch: 2, tilt: 6 },
+  // sobrancelhas altas e macias, a ponta de dentro um pouco erguida: encantado
+  admiring: { lift: 32, arch: 8, tilt: 3 },
 }
 const BROW_HALF = 14
 const BROW_WIDTH = 6.5
@@ -85,6 +87,10 @@ export function drawSunFace(ctx: CanvasRenderingContext2D, expression: SunExpres
       break
     case 'sad':
       ctx.arc(cx, cy + 34, 7, 1.2 * Math.PI, 1.8 * Math.PI)
+      ctx.stroke()
+      break
+    case 'admiring':
+      ctx.arc(cx, cy + 18, 8, 0.15 * Math.PI, 0.85 * Math.PI)
       ctx.stroke()
       break
   }

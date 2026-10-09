@@ -50,7 +50,7 @@ export function Scene({ universe }: { universe: Universe }) {
       <Starfield radius={starRadius} />
       <SimClockDriver />
       <PlanetGlowDriver />
-      <Sun system={system} />
+      <Sun system={system} repos={universe.repos} />
       <OrbitLines rings={system.rings} />
       {system.orbits.map((orbit, i) => (
         <Planet key={orbit.name} repo={universe.repos[i]} ring={system.rings[orbit.ring]} orbit={orbit} />

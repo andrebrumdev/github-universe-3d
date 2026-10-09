@@ -24,7 +24,7 @@ function recorder() {
   return { ctx: ctx as unknown as CanvasRenderingContext2D, ops }
 }
 
-const EXPRESSIONS: SunExpression[] = ['happy', 'veryHappy', 'surprised', 'sad']
+const EXPRESSIONS: SunExpression[] = ['happy', 'veryHappy', 'surprised', 'sad', 'admiring']
 
 describe('rosto do sol no estilo do Sphere (emoji em LED)', () => {
   it('canvas com resolução para o close-up (pelo menos 1024×512, 2:1 equirretangular)', () => {

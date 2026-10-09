@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { EYE, PUPIL, PUPIL_REACH, pupilLook } from './face'
 import type { SunExpression } from './sunMachine'
 
-const EXPRESSIONS: SunExpression[] = ['happy', 'veryHappy', 'surprised', 'sad']
+const EXPRESSIONS: SunExpression[] = ['happy', 'veryHappy', 'surprised', 'sad', 'admiring']
 
 describe('pupilas que olham para a câmera', () => {
   it('sem atraso da mola (rosto já de frente para a câmera): pupila no repouso da expressão', () => {
