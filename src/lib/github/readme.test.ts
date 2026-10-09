@@ -61,4 +61,22 @@ Roteia, autentica e limita requisições.`
     expect(summarizeReadme('![a](b.svg)\n[![c](d.svg)](e)\n')).toBeNull()
     expect(summarizeReadme('# Só título')).toBeNull()
   })
+
+  it('descarta blocos de código com várias linhas (``` e ~~~), inclusive sem fechar', () => {
+    const md = 'Intro do projeto.\n\n```bash\n$ npm install\n\n$ npm run dev\n```\n\n~~~js\nconst x = 1\n\nconsole.log(x)\n~~~\n\nDepois do código.\n\n```sh\nnunca fecha\n\nainda código'
+    expect(summarizeReadme(md)).toBe('Intro do projeto. Depois do código.')
+  })
+
+  it('entrada adversarial termina rápido', () => {
+    for (const input of ['<'.repeat(200000), '['.repeat(100000), '<!--'.repeat(50000), '`'.repeat(100000), '*'.repeat(100000), '<h1>'.repeat(50000), '!['.repeat(50000)]) {
+      const t0 = performance.now()
+      summarizeReadme(input)
+      expect(performance.now() - t0).toBeLessThan(200)
+    }
+  })
+
+  it('só lê o começo do README', () => {
+    const md = 'Começo útil.\n\n' + 'x '.repeat(20000) + '\n\nFIM'
+    expect(summarizeReadme(md, 100_000)).not.toContain('FIM')
+  })
 })

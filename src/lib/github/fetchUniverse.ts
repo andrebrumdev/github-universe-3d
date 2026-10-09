@@ -4,7 +4,7 @@ import { rankRepos } from '../universe/planets'
 import { gql } from './client'
 import { MAX_HISTORY_PAGES, MAX_PLANETS, TOP_REAL } from './config'
 import { normalizeProfile, normalizeRepo, type RawUser } from './normalize'
-import { HISTORY_QUERY, USER_QUERY } from './queries'
+import { HISTORY_QUERY, readmesQuery, USER_QUERY } from './queries'
 
 export interface FetchDeps {
   token: string
@@ -21,6 +21,44 @@ interface HistoryResponse {
       } | null
     } | null
   } | null
+}
+
+/** Repos por consulta de README: mantém cada consulta pequena. */
+const README_CHUNK = 20
+
+type ReadmeData = Record<string, { object: { text?: string | null } | null } | null>
+
+/**
+ * Texto bruto dos READMEs (nome → texto). Tenta README.md e, só para quem veio nulo, readme.md.
+ * Qualquer falha avisa e segue sem README para os repos afetados.
+ */
+export async function fetchReadmes(
+  fetchImpl: typeof fetch,
+  token: string,
+  owner: string,
+  names: string[],
+  warn: (message: string) => void,
+): Promise<Map<string, string>> {
+  const texts = new Map<string, string>()
+  for (const path of ['HEAD:README.md', 'HEAD:readme.md']) {
+    const pending = names.filter((n) => !texts.has(n))
+    for (let i = 0; i < pending.length; i += README_CHUNK) {
+      const chunk = pending.slice(i, i + README_CHUNK)
+      const variables: Record<string, unknown> = { owner, path }
+      chunk.forEach((name, j) => (variables[`n${j}`] = name))
+      try {
+        const data = await gql<ReadmeData>(fetchImpl, token, readmesQuery(chunk.length), variables)
+        chunk.forEach((name, j) => {
+          const text = data[`r${j}`]?.object?.text
+          if (text) texts.set(name, text)
+        })
+      } catch (e) {
+        warn(`READMEs não carregados (${reasonOf(e)}); seguindo sem eles`)
+        return texts
+      }
+    }
+  }
+  return texts
 }
 
 const reasonOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -69,8 +107,14 @@ export async function fetchUniverse(login: string, deps: FetchDeps): Promise<Uni
   const { user } = await gql<{ user: RawUser | null }>(f, deps.token, USER_QUERY, { login })
   if (!user) throw new Error(`Usuário GitHub "${login}" não encontrado`)
 
-  const all = user.repositories.nodes.map(normalizeRepo)
-  const ranked = rankRepos(all, now).slice(0, MAX_PLANETS)
+  const all = user.repositories.nodes.map((raw) => normalizeRepo(raw))
+  const top = rankRepos(all, now).slice(0, MAX_PLANETS)
+  const readmes = await fetchReadmes(f, deps.token, user.login, top.map((r) => r.name), warn)
+  const rawByName = new Map(user.repositories.nodes.map((r) => [r.name, r]))
+  const ranked = top.map((repo) => {
+    const raw = rawByName.get(repo.name)
+    return raw ? normalizeRepo(raw, readmes.get(repo.name)) : repo
+  })
   const since = startOfGrid(now).toISOString()
 
   // Sequencial de propósito: disparar as 10 em paralelo estoura os limites secundários do GitHub.

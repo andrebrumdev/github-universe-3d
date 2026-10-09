@@ -7,7 +7,7 @@ export function ActivityTooltip() {
   return (
     <div
       role="tooltip"
-      className="pointer-events-none fixed z-40 rounded-md border border-grid/40 bg-space/90 px-2 py-1 text-xs text-slate-100"
+      className="pointer-events-none fixed z-50 rounded-md border border-grid/40 bg-space/90 px-2 py-1 text-xs text-slate-100"
       style={{ left: cell.x + 12, top: cell.y + 12 }}
     >
       {formatDate(cell.date)} · {commitsLabel(cell.count)}

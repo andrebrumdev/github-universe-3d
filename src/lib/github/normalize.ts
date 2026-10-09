@@ -6,9 +6,6 @@ export interface RawHistory {
   nodes: { committedDate: string; messageHeadline: string }[]
 }
 
-/** `object(expression:)` devolve {} quando não é Blob, ou null quando não existe. */
-export type RawBlob = { text?: string | null } | null
-
 export interface RawRepo {
   name: string
   description: string | null
@@ -19,9 +16,6 @@ export interface RawRepo {
   pushedAt: string | null
   primaryLanguage: { name: string } | null
   languages: { edges: { size: number; node: { name: string; color: string | null } }[] } | null
-  readme?: RawBlob
-  readmeLower?: RawBlob
-  readmePlain?: RawBlob
   defaultBranchRef: { target: { history?: RawHistory } | null } | null
 }
 
@@ -37,13 +31,14 @@ export interface RawUser {
 
 export const FALLBACK_LANGUAGE_COLOR = '#8b949e'
 
-export function normalizeRepo(raw: RawRepo): RepoBase {
+/** `readmeText` é o README bruto (só vive aqui; guardamos apenas o resumo). */
+export function normalizeRepo(raw: RawRepo, readmeText?: string | null): RepoBase {
   const languages = (raw.languages?.edges ?? [])
     .map((e) => ({ name: e.node.name, color: e.node.color ?? FALLBACK_LANGUAGE_COLOR, bytes: e.size }))
     .sort((a, b) => b.bytes - a.bytes)
   const history = raw.defaultBranchRef?.target?.history
   const head = history?.nodes[0]
-  const readme = summarizeReadme(raw.readme?.text || raw.readmeLower?.text || raw.readmePlain?.text || '', 280, raw.name)
+  const readme = summarizeReadme(readmeText ?? '', 280, raw.name)
   return {
     name: raw.name,
     description: raw.description ?? '',

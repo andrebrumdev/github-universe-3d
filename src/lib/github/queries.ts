@@ -17,9 +17,6 @@ export const USER_QUERY = /* GraphQL */ `
           forkCount
           pushedAt
           watchers { totalCount }
-          readme: object(expression: "HEAD:README.md") { ... on Blob { text } }
-          readmeLower: object(expression: "HEAD:readme.md") { ... on Blob { text } }
-          readmePlain: object(expression: "HEAD:README") { ... on Blob { text } }
           primaryLanguage { name }
           languages(first: 10, orderBy: { field: SIZE, direction: DESC }) {
             edges { size node { name color } }
@@ -53,3 +50,13 @@ export const HISTORY_QUERY = /* GraphQL */ `
     }
   }
 `
+
+/** READMEs em lote: um alias por repo (`r0`, `r1`, ...), com o caminho do arquivo em `$path`. */
+export function readmesQuery(count: number): string {
+  const vars = Array.from({ length: count }, (_, i) => `$n${i}: String!`).join(', ')
+  const fields = Array.from(
+    { length: count },
+    (_, i) => `r${i}: repository(owner: $owner, name: $n${i}) { object(expression: $path) { ... on Blob { text } } }`,
+  ).join('\n  ')
+  return `query Readmes($owner: String!, $path: String!, ${vars}) {\n  ${fields}\n}`
+}

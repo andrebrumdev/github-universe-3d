@@ -159,3 +159,67 @@ describe('fetchUniverse: limites e truncamento', () => {
     expect(warnings[0]).toContain('502')
   })
 })
+
+describe('fetchUniverse: READMEs', () => {
+  const readmeReply = (vars: Record<string, unknown>, texts: Record<string, Record<string, string>>): Reply => {
+    const data: Record<string, unknown> = {}
+    for (let j = 0; vars[`n${j}`] !== undefined; j++) {
+      const text = texts[String(vars.path)]?.[String(vars[`n${j}`])]
+      data[`r${j}`] = { object: text ? { text } : null }
+    }
+    return { body: { data } }
+  }
+
+  function withReadmes(texts: Record<string, Record<string, string>>, fail = false) {
+    const queries: string[] = []
+    const { impl, calls } = fakeFetch((query, vars) => {
+      if (query.includes('repositories(')) return { body: { data: { user: rawUser(repos(3)) } } }
+      if (query.includes('Readmes')) {
+        queries.push(query)
+        return fail ? { status: 502 } : readmeReply(vars, texts)
+      }
+      return historyPage([])
+    })
+    return { impl, calls, queries }
+  }
+
+  it('resume README.md e cai para readme.md só nos repos que vieram nulos', async () => {
+    const { impl, calls } = withReadmes({
+      'HEAD:README.md': { r0: '# r0\n\nPrimeiro projeto.' },
+      'HEAD:readme.md': { r1: 'Segundo projeto.' },
+    })
+    const u = await fetchUniverse('andre', { token: 't', fetchImpl: impl, now: NOW })
+    expect(u.repos.map((r) => r.readme)).toEqual(['Primeiro projeto.', 'Segundo projeto.', undefined])
+    const second = calls.filter((v) => v.path === 'HEAD:readme.md')
+    expect(second).toHaveLength(1)
+    expect(second[0]).toMatchObject({ n0: 'r1', n1: 'r2' })
+  })
+
+  it('USER_QUERY não busca README e só o top MAX_PLANETS é consultado, em lotes', async () => {
+    const seen: string[] = []
+    const { impl, calls } = fakeFetch((query, vars) => {
+      if (query.includes('repositories(')) {
+        seen.push(query)
+        return { body: { data: { user: rawUser(repos(45)) } } }
+      }
+      if (query.includes('Readmes')) return readmeReply(vars, {})
+      return historyPage([])
+    })
+    await fetchUniverse('andre', { token: 't', fetchImpl: impl, now: NOW })
+    expect(seen[0]).not.toContain('Blob')
+    const readmeCalls = calls.filter((v) => 'path' in v && v.path === 'HEAD:README.md')
+    expect(readmeCalls).toHaveLength(2)
+    const asked = readmeCalls.flatMap((v) => Object.keys(v).filter((k) => /^n\d+$/.test(k)))
+    expect(asked).toHaveLength(MAX_PLANETS)
+  })
+
+  it('falha na consulta de README avisa e segue sem READMEs', async () => {
+    const warnings: string[] = []
+    const { impl } = withReadmes({}, true)
+    const u = await fetchUniverse('andre', { token: 't', fetchImpl: impl, now: NOW, onWarning: (m) => warnings.push(m) })
+    expect(u.repos).toHaveLength(3)
+    expect(u.repos.every((r) => r.readme === undefined)).toBe(true)
+    expect(warnings).toEqual([expect.stringContaining('READMEs')])
+  })
+})
+
