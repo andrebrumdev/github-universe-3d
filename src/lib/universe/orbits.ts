@@ -83,6 +83,16 @@ export function minChordFactor(e: number, n: number): number {
   return min
 }
 
+/** Maior denominador das razões de ressonância (p:q) com o anel 0. */
+export const RESONANCE_MAX_DENOMINATOR = 3
+
+/** A menor razão simples p/q (q ≤ RESONANCE_MAX_DENOMINATOR) que não fica abaixo de `min` (mínimo duro). */
+export function resonantRatio(min: number): number {
+  let best = Infinity
+  for (let q = 1; q <= RESONANCE_MAX_DENOMINATOR; q++) best = Math.min(best, Math.ceil(min * q) / q)
+  return best
+}
+
 /** `extent` (planeta + luas) é o que entra no espaçamento; se faltar, vale o próprio `radius`. */
 export function buildOrbits(planets: { name: string; radius: number; extent?: number }[]): OrbitSystem {
   const rings: Ring[] = []
@@ -107,8 +117,12 @@ export function buildOrbits(planets: { name: string; radius: number; extent?: nu
       : SUN_RADIUS + SUN_CLEARANCE + maxRadius
     // Vizinhos no mesmo anel: a corda entre eles encolhe perto do afélio; 2% de margem sobre a amostragem.
     const sameRing = n > 1 ? (2 * maxRadius + RING_GAP) / (0.98 * minChordFactor(e, n)) : 0
-    const a = Math.max(minPeri / (1 - e), sameRing)
-    const period = rings.length ? INNER_PERIOD * Math.pow(a / rings[0].a, 1.5) : INNER_PERIOD
+    const minA = Math.max(minPeri / (1 - e), sameRing)
+    // Ressonância com o anel 0: o período vira uma fração simples do interno (2:1, 7:3, 5:2, 3:1…). O espaçamento é
+    // um mínimo duro, então a razão sobe até a próxima fração cujo a (3ª lei: a ∝ razão^(2/3)) cabe.
+    const ratio = rings.length ? resonantRatio(Math.pow(minA / rings[0].a, 1.5)) : 1
+    const a = rings.length ? rings[0].a * Math.pow(ratio, 2 / 3) : minA
+    const period = INNER_PERIOD * ratio
 
     const apsidalRate = (2 * Math.PI) / (APSIDAL_TURN_PERIODS * period)
     rings.push({ index: k, a, e, inclination, node, periapsis, period, apsidalRate, maxRadius })

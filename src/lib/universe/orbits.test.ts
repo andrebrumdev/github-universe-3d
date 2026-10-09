@@ -13,6 +13,7 @@ import {
   orbitPath,
   periapsisAt,
   planetPosition,
+  resonantRatio,
   type Ring,
   RING_GAP,
   solveKepler,
@@ -21,10 +22,11 @@ import {
 } from './orbits'
 
 /**
- * Trava de regressão do pior caso (40 planetas máximos com 6 luas, alcance ≈ 392 com as luas em órbitas de Kepler,
- * que pedem mais folga entre as cascas). O enquadramento é testado em cameraPoses.test.
+ * Trava de regressão do pior caso (40 planetas máximos com 6 luas): alcance ≈ 392 com as luas em órbitas de Kepler
+ * (mais folga entre as cascas) e ≈ 403 com as ressonâncias (cada anel sobe até a próxima razão simples).
+ * O enquadramento é testado em cameraPoses.test.
  */
-const REACH_LIMIT = 400
+const REACH_LIMIT = 410
 const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2])
 const dist = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
@@ -120,6 +122,33 @@ describe('precessão do periélio', () => {
     }
     for (let k = 1; k < rings.length; k++) expect(rings[k].apsidalRate).toBeLessThan(rings[k - 1].apsidalRate)
     expect(APSIDAL_TURN_PERIODS).toBe(20)
+  })
+})
+
+describe('ressonâncias orbitais', () => {
+  it('resonantRatio: a menor fração simples (denominador até 3) que não fica abaixo do mínimo', () => {
+    expect(resonantRatio(1.9)).toBe(2)
+    expect(resonantRatio(2)).toBe(2)
+    expect(resonantRatio(2.01)).toBeCloseTo(7 / 3, 12)
+    expect(resonantRatio(2.4)).toBe(2.5)
+    expect(resonantRatio(1.05)).toBeCloseTo(4 / 3, 12)
+    expect(resonantRatio(10.2)).toBeCloseTo(31 / 3, 12)
+  })
+
+  it.each([
+    ['amostra (14)', Array.from({ length: 14 }, (_, i) => ({ name: `p${i}`, radius: 3 - i * 0.18, extent: bodyExtent(3 - i * 0.18, i % 4) }))],
+    ['40 máximos com 6 luas', Array.from({ length: 40 }, (_, i) => ({ name: `p${i}`, radius: MAX_PLANET_RADIUS, extent: bodyExtent(MAX_PLANET_RADIUS, MAX_MOONS) }))],
+  ])('%s: o período de cada anel é uma razão simples (p/q, q ≤ 3) do anel 0, bem abaixo de 1 por cento de erro', (_, planets) => {
+    const { rings } = buildOrbits(planets)
+    for (const r of rings.slice(1)) {
+      const ratio = r.period / rings[0].period
+      // exata (até o arredondamento), o que é bem mais forte que "a menos de 1%"; em razões grandes, frações de
+      // denominador 3 ficam a menos de 1% de qualquer número, então só a tolerância fina testa alguma coisa
+      const near = [1, 2, 3].some((q) => Math.abs(Math.round(ratio * q) / q - ratio) / ratio < 1e-9)
+      expect(near).toBe(true)
+      // a vem da 3ª lei: a = a₀ · razão^(2/3)
+      expect(r.a / rings[0].a).toBeCloseTo(Math.pow(ratio, 2 / 3), 9)
+    }
   })
 })
 
