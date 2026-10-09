@@ -1,16 +1,33 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Html, Trail, useCursor } from '@react-three/drei'
+import { Trail, useCursor } from '@react-three/drei'
 import { useReducedMotion } from 'framer-motion'
 import * as THREE from 'three'
 import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
+import { useIdle } from '@/hooks/useIdle'
 import { showcasePlanet } from '@/lib/cameraPoses'
 import { selectedPlanet } from '@/lib/interaction'
 import type { OctocatExpression } from '@/lib/octocat/expression'
-import { formatLine } from '@/lib/octocat/lines'
-import { bankAngle, escortPosition, targetAnchor, visitPosition, type ShipTarget } from '@/lib/ship/escort'
+import {
+  bankAngle,
+  escortFraming,
+  escortOffset,
+  keepAway,
+  KNOCK_DURATION,
+  knockOffset,
+  knockPose,
+  MIN_SHIP_DISTANCE,
+  SHIP_SCALE,
+  SHIP_WORLD_HEIGHT,
+  SHIP_WORLD_WIDTH,
+  targetAnchor,
+  THREE_QUARTER_YAW,
+  visitPosition,
+  type ShipTarget,
+} from '@/lib/ship/escort'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
 import { bezierPoint, bezierTangent, planTravel, travelProgress, travelVelocity } from '@/lib/ship/travel'
+import { lerp3 } from '@/lib/ship/vec'
 import type { Repo } from '@/lib/types'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
@@ -21,13 +38,18 @@ import { useUniverse } from '@/store/universe'
 import { OctocatShip, type ArmMode } from './OctocatShip'
 import { THRUSTER_ORIGIN } from './shipParts'
 
-/**
- * Modelo: 5,6 de envergadura × 4,1 de comprimento × 2,8 de altura (frente em +z, bocal em −z).
- * Em 0,18: ~1,0 × 0,74 — menor que o diâmetro do menor planeta (1,2) e ~15% da largura da tela na escolta.
- */
-const SHIP_SCALE = 0.18
-/** A entrada desce de 6 unidades acima da escolta. */
-const ENTER_DROP = 6
+/** Taxa (1/s) com que o referencial da escolta acompanha o giro da câmera: a nave fica um instante para trás. */
+const ESCORT_FOLLOW = 5
+/** Taxa (1/s) com que a nave assenta no canto da escolta (vindo da volta ou de um resize). */
+const ESCORT_SETTLE = 8
+/** Inclinação (rad) para a frente, em direção à lente, no auge da batida no vidro. */
+const KNOCK_LEAN = 0.35
+/** Apoio do balão: logo acima da nave e puxado para o centro da tela, em unidades do mundo (perto da nave a qualquer distância). */
+const BUBBLE_UP = SHIP_WORLD_HEIGHT * 0.6
+const BUBBLE_IN = SHIP_WORLD_WIDTH * 0.3
+
+/** Quanto a entrada começa acima do canto: uma altura de tela inteira (desce de fora da imagem). */
+const enterRise = (local: Vec3, fov: number) => -local[2] * Math.tan((fov * Math.PI) / 360) * 2
 /**
  * Lado em que a nave paira, na visão da câmera: no desktop, à direita do alvo (entre ele e o painel lateral,
  * já que a pose de foco põe o alvo à esquerda); no celular, perto do alvo para não sair da tela estreita.
@@ -36,7 +58,8 @@ const VISIT_SIDE = { side: 1, bottom: 0.35 } as const
 /** Largura do rastro (o Trail do drei usa 0,1 × width em unidades do mundo): ~ o diâmetro do bocal. */
 const TRAIL_WIDTH = 1.6
 
-export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; repos: Repo[]; profileName: string }) {
+// `profileName` segue na assinatura (o Scene passa); o balão visível agora é DOM, no OctocatSpeech.
+export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[]; profileName: string }) {
   const group = useRef<THREE.Group>(null)
   const machine = useRef<ShipState>(INITIAL_SHIP)
   const trailHead = useRef<THREE.Mesh>(null)
@@ -47,7 +70,12 @@ export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; r
   const [hovered, setHovered] = useState(false)
   useCursor(hovered)
   const camera = useThree((s) => s.camera)
-  const aspect = useThree((s) => s.size.width / s.size.height)
+  const size = useThree((s) => s.size)
+  const aspect = size.width / size.height
+  const latestAspect = useRef(aspect)
+  useEffect(() => {
+    latestAspect.current = aspect
+  })
   const reduced = useReducedMotion() ?? false
   const visitSide = VISIT_SIDE[useMediaQuery(MOBILE_QUERY) ? 'bottom' : 'side']
   const selection = useUniverse((s) => s.selection)
@@ -55,11 +83,33 @@ export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; r
   const step = useTutorial((s) => s.step)
   const startTutorial = useTutorial((s) => s.start)
 
-  const forward = useMemo(() => new THREE.Vector3(), [])
   const up = useMemo(() => new THREE.Vector3(), [])
+  const right = useMemo(() => new THREE.Vector3(), [])
   const look = useMemo(() => new THREE.Vector3(), [])
   const targetQuat = useMemo(() => new THREE.Quaternion(), [])
   const helper = useMemo(() => new THREE.Object3D(), [])
+  /** Orientação da câmera com atraso: a escolta vive nesse referencial (gira junto, sem ficar para trás no mundo). */
+  const lagQuat = useMemo(() => new THREE.Quaternion(), [])
+  const invQuat = useMemo(() => new THREE.Quaternion(), [])
+  const scratch = useMemo(() => new THREE.Vector3(), [])
+  const speech = useMemo(() => new THREE.Vector3(), [])
+  /** Posição atual da nave no referencial atrasado da câmera, enquanto na escolta (null fora dela). */
+  const escortLocal = useRef<Vec3 | null>(null)
+
+  // Quarta parede: de vez em quando (inatividade), a nave chega perto da lente e bate no vidro.
+  const knockRequest = useRef(false)
+  const knockStart = useRef<number | null>(null)
+  const [knocking, setKnocking] = useState(false)
+  const knockingRef = useRef(false)
+  const onIdle = useCallback(() => {
+    knockRequest.current = true
+  }, [])
+  useIdle(onIdle)
+
+  const viewportOf = (a: number) => ({ aspect: a, fov: (camera as THREE.PerspectiveCamera).fov })
+  const toWorld = (local: Vec3): Vec3 => scratch.set(...local).applyQuaternion(lagQuat).add(camera.position).toArray() as Vec3
+  const toLocal = (world: THREE.Vector3): Vec3 =>
+    scratch.copy(world).sub(camera.position).applyQuaternion(invQuat.copy(lagQuat).invert()).toArray() as Vec3
 
   const target: ShipTarget | null = useMemo(() => {
     if (step === 'welcome') return { kind: 'sun' }
@@ -74,19 +124,24 @@ export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; r
   }, [selection, step, repos])
 
   // Ponto de partida real antes de qualquer viagem (este efeito roda antes do de baixo): onde a entrada
-  // começa, acima da escolta. Sem isso, um passo do tutorial que chega antes do 1º frame partiria do centro do sol.
+  // começa, acima do canto da escolta. Sem isso, um passo do tutorial que chega antes do 1º frame partiria do sol.
+  // Só na montagem (e se a câmera mudar): um resize não pode reposicionar a nave no meio do voo.
   useEffect(() => {
-    camera.getWorldDirection(forward)
-    up.set(0, 1, 0).applyQuaternion(camera.quaternion)
-    const escort = escortPosition(camera.position.toArray() as Vec3, forward.toArray() as Vec3, up.toArray() as Vec3)
-    const spawn: Vec3 = [escort[0], escort[1] + ENTER_DROP, escort[2]]
+    lagQuat.copy(camera.quaternion)
+    const fov = (camera as THREE.PerspectiveCamera).fov
+    const local = escortOffset({ aspect: latestAspect.current, fov })
+    const spawn = scratch
+      .set(local[0], local[1] + enterRise(local, fov), local[2])
+      .applyQuaternion(lagQuat)
+      .add(camera.position)
+      .toArray() as Vec3
     group.current?.position.set(...spawn)
     Object.assign(shipPose, INITIAL_SHIP_POSE, { position: spawn })
     // Remontagem (HMR) não deixa a câmera perseguindo uma nave parada.
     return () => {
       Object.assign(shipPose, INITIAL_SHIP_POSE)
     }
-  }, [camera, forward, up])
+  }, [camera, lagQuat, scratch])
 
   // Destino mudou: planeja a viagem até onde o alvo vai estar quando o tempo parar.
   // O modo vai para o shipPose já aqui: a câmera decide no próximo frame se persegue a nave.
@@ -120,7 +175,7 @@ export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; r
     shipPose.velocity = [0, 0, 0]
   }, [target, system, camera, reduced, step, visitSide])
 
-  useFrame((_, rawDt) => {
+  useFrame(({ clock }, rawDt) => {
     const g = group.current
     if (!g) return
     const dt = Math.min(rawDt, 0.1)
@@ -131,22 +186,47 @@ export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; r
     }
     machine.current = s
 
-    camera.getWorldDirection(forward)
-    up.set(0, 1, 0).applyQuaternion(camera.quaternion)
-    const viewport = { aspect, fov: (camera as THREE.PerspectiveCamera).fov }
-    const escort = escortPosition(camera.position.toArray() as Vec3, forward.toArray() as Vec3, up.toArray() as Vec3, viewport)
+    const viewport = viewportOf(aspect)
+    const framing = escortFraming(viewport)
+    lagQuat.slerp(camera.quaternion, reduced ? 1 : 1 - Math.exp(-ESCORT_FOLLOW * dt))
+
+    // Batida no vidro: só parada na escolta e com movimento normal; dura KNOCK_DURATION e acaba sozinha.
+    if (knockRequest.current) {
+      knockRequest.current = false
+      if (!reduced && s.mode === 'escort' && knockStart.current === null) knockStart.current = clock.elapsedTime
+    }
+    if (s.mode !== 'escort' || reduced) knockStart.current = null
+    const kt = knockStart.current === null ? -1 : clock.elapsedTime - knockStart.current
+    if (kt >= KNOCK_DURATION) knockStart.current = null
+    const knock = knockPose(kt)
+    if (knock.waving !== knockingRef.current) {
+      knockingRef.current = knock.waving
+      setKnocking(knock.waving)
+    }
+    const escortGoal = knockOffset(escortOffset(viewport, framing), knock)
     let tangent: Vec3 | null = null
 
     if (s.mode === 'traveling' && s.path) {
+      escortLocal.current = null
       const p = travelProgress(s.elapsed, s.path.duration)
       g.position.set(...bezierPoint(s.path.points, p))
       tangent = bezierTangent(s.path.points, p)
     } else if (s.mode === 'entering' && !reduced) {
+      // Desce de fora da imagem até o canto, no referencial da câmera.
       const k = Math.min(1, s.elapsed / ENTER_DURATION)
-      const drop = (1 - k) ** 2 * 6
-      g.position.set(escort[0], escort[1] + drop, escort[2])
+      const local: Vec3 = [escortGoal[0], escortGoal[1] + (1 - k) ** 2 * enterRise(escortGoal, viewport.fov), escortGoal[2]]
+      escortLocal.current = local
+      g.position.set(...toWorld(local))
+    } else if (s.mode === 'escort' || s.mode === 'entering') {
+      // Perto da lente, preso ao referencial atrasado da câmera: girar a câmera não deixa a nave para trás no mundo
+      // (nem a joga contra a lente). Vindo da volta, parte de onde está e assenta no canto.
+      const from = escortLocal.current ?? toLocal(g.position)
+      const settle = reduced || knockStart.current !== null ? 1 : 1 - Math.exp(-ESCORT_SETTLE * dt)
+      escortLocal.current = lerp3(from, escortGoal, settle)
+      g.position.set(...toWorld(escortLocal.current))
     } else {
-      let goal = escort
+      escortLocal.current = null
+      let goal = toWorld(escortGoal)
       if (s.mode === 'visiting' && s.target) {
         const anchor = targetAnchor(s.target, system, simClock.time)
         if (anchor) goal = visitPosition(anchor.position, anchor.radius, camera.position.toArray() as Vec3, visitSide)
@@ -155,18 +235,37 @@ export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; r
       look.set(...goal)
       g.position.lerp(look, reduced ? 1 : 1 - Math.exp(-rate * dt))
     }
+    // Nada da nave encosta no plano próximo, nem com a câmera chegando perto dela.
+    if (!tangent) g.position.set(...keepAway(g.position.toArray() as Vec3, camera.position.toArray() as Vec3, MIN_SHIP_DISTANCE))
 
-    // Orientação: na viagem, a frente (+z) segue a tangente e inclina nas curvas; parada, vira para a câmera.
+    // Orientação: na viagem, a frente (+z) segue a tangente e inclina nas curvas. Parada, olha para quem vê:
+    // na escolta em três-quartos (nariz para o centro da tela) e, na batida, inclinada para a lente.
+    // Parada, o "para cima" é o da câmera: perto da lente, no canto, o para-cima do mundo a deixaria tombada
+    // na tela (perspectiva com a câmera olhando para baixo).
+    up.set(0, 1, 0).applyQuaternion(camera.quaternion)
     helper.position.copy(g.position)
     if (tangent) {
+      helper.up.set(0, 1, 0)
       helper.lookAt(look.set(...tangent).add(g.position))
       helper.rotateZ(bankAngle(lastTangent.current, tangent, dt))
       lastTangent.current = tangent
     } else {
+      helper.up.copy(up)
       helper.lookAt(camera.position)
+      if (s.mode !== 'visiting') {
+        helper.rotateY(-framing.side * THREE_QUARTER_YAW)
+        helper.rotateX(KNOCK_LEAN * knock.closer)
+      }
     }
     targetQuat.copy(helper.quaternion)
     g.quaternion.slerp(targetQuat, reduced ? 1 : 1 - Math.exp(-6 * dt))
+
+    // Apoio do balão (DOM, no OctocatSpeech): acima da nave, puxado para o centro da tela, projetado em pixels.
+    right.set(1, 0, 0).applyQuaternion(camera.quaternion)
+    speech.copy(g.position).addScaledVector(up, BUBBLE_UP).addScaledVector(right, -framing.side * BUBBLE_IN).project(camera)
+    shipPose.speechX = ((speech.x + 1) / 2) * size.width
+    shipPose.speechY = ((1 - speech.y) / 2) * size.height
+    shipPose.speechOnScreen = speech.z < 1 && Math.abs(speech.x) < 1.2 && Math.abs(speech.y) < 1.2
 
     trailHead.current?.position.set(...THRUSTER_ORIGIN)
     if (trailHead.current) g.localToWorld(trailHead.current.position)
@@ -176,14 +275,17 @@ export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; r
     shipPose.mode = s.mode
   })
 
-  const expression: OctocatExpression = hovered ? 'wink' : (bubble?.line.expression ?? (mode === 'traveling' ? 'happy' : 'neutral'))
-  const armMode: ArmMode = hovered || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
+  const expression: OctocatExpression = hovered
+    ? 'wink'
+    : (bubble?.line.expression ?? (mode === 'traveling' || knocking ? 'happy' : 'neutral'))
+  const armMode: ArmMode = hovered || knocking || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
   const thrusterLevel = mode === 'traveling' ? 1 : mode === 'entering' ? 0.8 : 0.25
 
   return (
     <>
-      {/* rastro em coordenadas do mundo, montado depois da entrada (o Trail semeia os pontos na posição inicial) */}
-      {!reduced && mode !== 'entering' && (
+      {/* rastro em coordenadas do mundo, só em voo (perto da lente ele viraria uma faixa grossa; o Trail
+          semeia os pontos na posição de montagem, que é a da nave) */}
+      {!reduced && (mode === 'traveling' || mode === 'returning') && (
         <Trail width={TRAIL_WIDTH} length={6} color="#C4B5FD" attenuation={(w) => w * w}>
           <mesh ref={trailHead} position={shipPose.position}>
             <sphereGeometry args={[0.01, 4, 2]} />
@@ -205,18 +307,6 @@ export function ShipRig({ system, repos, profileName }: { system: OrbitSystem; r
         onPointerOut={() => setHovered(false)}
       >
         <OctocatShip expression={expression} armMode={armMode} thrusterLevel={thrusterLevel} floating={mode !== 'traveling'} />
-        {bubble && (
-          // Tamanho fixo em pixels (legível na escolta e de perto) e abaixo dos painéis (z-20).
-          <Html position={[0, 3.4, 0]} center zIndexRange={[15, 0]}>
-            {/* o texto chega aos leitores de tela pelo espelho aria-live do OctocatSpeech */}
-            <p
-              aria-hidden="true"
-              className="pointer-events-none w-max max-w-[220px] rounded-2xl border border-neon/30 bg-space/90 px-4 py-2 text-sm text-slate-100 shadow-lg"
-            >
-              {formatLine(bubble.line.text, profileName)}
-            </p>
-          </Html>
-        )}
       </group>
     </>
   )

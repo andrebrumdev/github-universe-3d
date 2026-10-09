@@ -8,6 +8,10 @@ export interface ShipPose {
   velocity: Vec3
   mode: ShipMode
   userTravel: boolean
+  /** Ponto da tela (px, como o canvas: tela cheia) onde o balão da fala se apoia; escrito pela nave a cada frame. */
+  speechX: number
+  speechY: number
+  speechOnScreen: boolean
 }
 
 /** Estado inicial: fora do raio do sol (o ShipRig põe a nave no ponto de entrada ao montar). */
@@ -17,7 +21,10 @@ export const INITIAL_SHIP_POSE: Readonly<ShipPose> = {
   velocity: [0, 0, 0],
   mode: 'entering',
   userTravel: false,
+  speechX: 0,
+  speechY: 0,
+  speechOnScreen: false,
 }
 
-/** Mutável de propósito: escrito pela nave a cada frame, lido pela câmera. */
+/** Mutável de propósito: escrito pela nave a cada frame, lido pela câmera e pelo balão da fala. */
 export const shipPose: ShipPose = { ...INITIAL_SHIP_POSE }
