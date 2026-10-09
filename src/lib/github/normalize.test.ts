@@ -22,6 +22,14 @@ describe('normalizeRepo', () => {
     expect(normalizeRepo(rawRepo({ name: 'alpha' }), md).readme).toBe('Um app simples de notas.')
   })
 
+  it('guarda os tópicos do repo, sem a chave quando não há nenhum', () => {
+    const repo = normalizeRepo(rawRepo({ name: 'til', repositoryTopics: { nodes: [{ topic: { name: 'notes' } }, { topic: { name: 'til' } }] } }))
+    expect(repo.topics).toEqual(['notes', 'til'])
+    expect('topics' in normalizeRepo(rawRepo({ name: 'a' }))).toBe(false)
+    expect('topics' in normalizeRepo(rawRepo({ name: 'a', repositoryTopics: { nodes: [] } }))).toBe(false)
+    expect('topics' in normalizeRepo(rawRepo({ name: 'a', repositoryTopics: null }))).toBe(false)
+  })
+
   it('omite readme quando ausente ou sem conteúdo útil', () => {
     expect('readme' in normalizeRepo(rawRepo({ name: 'a' }))).toBe(false)
     expect('readme' in normalizeRepo(rawRepo({ name: 'a' }), null)).toBe(false)
@@ -83,6 +91,25 @@ describe('perfil', () => {
   it('o último commit do perfil é o mais recente entre os repos', () => {
     expect(latestCommit(repos)).toEqual({ date: '2026-10-05T08:00:00Z', message: 'fix: b' })
     expect(latestCommit([])).toBeNull()
+  })
+
+  it('repos fixados no perfil: só os do próprio dono, na ordem do GitHub', () => {
+    const pinnedItems = {
+      nodes: [
+        { name: 'b', owner: { login: 'andre' } },
+        { name: 'alheio', owner: { login: 'outra' } },
+        {},
+        null,
+        { name: 'a', owner: { login: 'Andre' } },
+      ],
+    }
+    expect(normalizeProfile(rawUser([], { pinnedItems }), repos).pinned).toEqual(['b', 'a'])
+  })
+
+  it('sem repos fixados, o perfil não ganha a chave (schemaVersion 1 segue igual)', () => {
+    expect('pinned' in normalizeProfile(rawUser([]), repos)).toBe(false)
+    expect('pinned' in normalizeProfile(rawUser([], { pinnedItems: { nodes: [] } }), repos)).toBe(false)
+    expect('pinned' in normalizeProfile(rawUser([], { pinnedItems: null }), repos)).toBe(false)
   })
 
   it('normaliza o perfil com totais e fallback de nome', () => {

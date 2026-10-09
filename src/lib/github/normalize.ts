@@ -15,6 +15,8 @@ export interface RawRepo {
   watchers: { totalCount: number }
   pushedAt: string | null
   primaryLanguage: { name: string } | null
+  /** Opcional nos dados antigos (fixtures, respostas sem o campo). */
+  repositoryTopics?: { nodes: { topic: { name: string } }[] } | null
   languages: { edges: { size: number; node: { name: string; color: string | null } }[] } | null
   defaultBranchRef: { target: { history?: RawHistory } | null } | null
 }
@@ -26,6 +28,8 @@ export interface RawUser {
   bio: string | null
   avatarUrl: string
   followers: { totalCount: number }
+  /** Itens fixados no perfil; com `types: REPOSITORY`, nós sem `name` não acontecem, mas o tipo aceita (gist, nulo). */
+  pinnedItems?: { nodes: ({ name?: string; owner?: { login: string } } | null)[] } | null
   repositories: { totalCount: number; nodes: RawRepo[] }
 }
 
@@ -39,6 +43,7 @@ export function normalizeRepo(raw: RawRepo, readmeText?: string | null): RepoBas
   const history = raw.defaultBranchRef?.target?.history
   const head = history?.nodes[0]
   const readme = summarizeReadme(readmeText ?? '', 280, raw.name)
+  const topics = (raw.repositoryTopics?.nodes ?? []).map((n) => n.topic.name)
   return {
     name: raw.name,
     description: raw.description ?? '',
@@ -52,7 +57,18 @@ export function normalizeRepo(raw: RawRepo, readmeText?: string | null): RepoBas
     lastCommit: head ? { date: head.committedDate, message: head.messageHeadline } : null,
     totalCommits: history?.totalCount ?? 0,
     ...(readme ? { readme } : {}),
+    ...(topics.length > 0 ? { topics } : {}),
   }
+}
+
+/** Nomes dos repos fixados que são do próprio perfil (fixar repo alheio é possível; ele não vira planeta). */
+export function pinnedRepos(raw: RawUser): string[] {
+  const owner = raw.login.toLowerCase()
+  const names: string[] = []
+  for (const node of raw.pinnedItems?.nodes ?? []) {
+    if (node?.name && node.owner?.login.toLowerCase() === owner) names.push(node.name)
+  }
+  return names
 }
 
 export function topLanguages(repos: Pick<RepoBase, 'languages'>[], limit = 5): Language[] {
@@ -76,6 +92,7 @@ export function latestCommit(repos: Pick<RepoBase, 'lastCommit'>[]): CommitRef |
 }
 
 export function normalizeProfile(raw: RawUser, repos: RepoBase[]): Profile {
+  const pinned = pinnedRepos(raw)
   return {
     login: raw.login,
     name: raw.name ?? raw.login,
@@ -87,5 +104,6 @@ export function normalizeProfile(raw: RawUser, repos: RepoBase[]): Profile {
     totalForks: repos.reduce((sum, r) => sum + r.forks, 0),
     topLanguages: topLanguages(repos),
     lastCommit: latestCommit(repos),
+    ...(pinned.length > 0 ? { pinned } : {}),
   }
 }

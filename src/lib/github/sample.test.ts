@@ -18,4 +18,19 @@ describe('buildSampleUniverse', () => {
     expect(u.repos.every((r) => (r.readme ?? '').length <= 280)).toBe(true)
     expect(u.repos.some((r) => r.readme === undefined)).toBe(true)
   })
+
+  it('cobre o roteiro do Octocat: favorito fixado, caderno, muitos commits sem star, vazio e um commit de madrugada', () => {
+    const u = buildSampleUniverse()
+    const names = new Set(u.repos.map((r) => r.name))
+    expect(u.profile.pinned?.length).toBeGreaterThan(0)
+    expect(u.profile.pinned?.every((n) => names.has(n))).toBe(true)
+    // o favorito fixado não é o de mais stars (mostra que o fixado manda)
+    const mostStars = [...u.repos].sort((a, b) => b.stars - a.stars)[0].name
+    expect(u.profile.pinned?.[0]).not.toBe(mostStars)
+    expect(u.repos.some((r) => r.name === 'notes')).toBe(true)
+    expect(u.repos.some((r) => r.totalCommits >= 50 && r.stars === 0)).toBe(true)
+    expect(u.repos.some((r) => r.totalCommits <= 1)).toBe(true)
+    // 06:12 UTC = 03:12 em São Paulo
+    expect(u.repos.some((r) => r.lastCommit?.date.endsWith('T06:12:00.000Z'))).toBe(true)
+  })
 })

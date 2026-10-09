@@ -54,6 +54,22 @@ describe('fetchUniverse', () => {
     expect(calls.find((v) => 'authorId' in v)).toMatchObject({ owner: 'andre', authorId: 'U_1' })
   })
 
+  it('pede os repos fixados e leva os do próprio dono para o perfil', async () => {
+    const pinnedItems = { nodes: [{ name: 'r1', owner: { login: 'andre' } }, { name: 'x', owner: { login: 'mona' } }] }
+    let asked = ''
+    const { impl } = fakeFetch((query) => {
+      if (query.includes('repositories(')) {
+        asked = query
+        return { body: { data: { user: rawUser(repos(2), { pinnedItems }) } } }
+      }
+      return historyPage([])
+    })
+    const u = await fetchUniverse('andre', { token: 't', fetchImpl: impl, now: NOW })
+    expect(asked).toContain('pinnedItems(first: 6, types: REPOSITORY)')
+    expect(u.profile.pinned).toEqual(['r1'])
+    expect(u.schemaVersion).toBe(1)
+  })
+
   it('limita a MAX_PLANETS, mas os totais do perfil contam todos os repos', async () => {
     const { impl } = setup(rawUser(repos(45)), () => historyPage([]))
     const u = await fetchUniverse('andre', { token: 't', fetchImpl: impl, now: NOW })

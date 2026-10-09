@@ -7,6 +7,9 @@ export const USER_QUERY = /* GraphQL */ `
       bio
       avatarUrl
       followers { totalCount }
+      pinnedItems(first: 6, types: REPOSITORY) {
+        nodes { ... on Repository { name owner { login } } }
+      }
       repositories(first: 100, ownerAffiliations: OWNER, isFork: false, privacy: PUBLIC, orderBy: { field: PUSHED_AT, direction: DESC }) {
         totalCount
         nodes {
@@ -18,6 +21,7 @@ export const USER_QUERY = /* GraphQL */ `
           pushedAt
           watchers { totalCount }
           primaryLanguage { name }
+          repositoryTopics(first: 10) { nodes { topic { name } } }
           languages(first: 10, orderBy: { field: SIZE, direction: DESC }) {
             edges { size node { name color } }
           }

@@ -33,6 +33,12 @@ const SAMPLE_README: Record<string, string> = {
   'game-jam': 'Protótipo de jogo feito em 48 horas durante uma game jam, em JavaScript puro e canvas.',
 }
 
+/** Fixados no perfil: o primeiro é o xodó do Octocat (de propósito, não o de mais stars). */
+const SAMPLE_PINNED = ['design-tokens', 'universe-3d', 'api-gateway']
+const SAMPLE_TOPICS: Record<string, string[]> = { notes: ['notes', 'til'] }
+/** O último commit do game-jam foi de madrugada (03:12 em São Paulo): o "commit das 3 da manhã" é verdade no exemplo. */
+const NIGHT_COMMIT = 'game-jam'
+
 const SAMPLE: [name: string, stars: number, forks: number, langs: L[]][] = [
   ['universe-3d', 320, 41, [b(TS, 90_000), b(CSS, 8_000), b(HTML, 2_000)]],
   ['api-gateway', 210, 30, [b(GO, 120_000), b(SH, 3_000)]],
@@ -46,7 +52,8 @@ const SAMPLE: [name: string, stars: number, forks: number, langs: L[]][] = [
   ['legacy-site', 12, 1, [b(JS, 50_000), b(HTML, 20_000), b(CSS, 10_000)]],
   ['notes', 3, 0, []],
   ['algorithms', 8, 1, [b(JAVA, 25_000), b(PY, 5_000)]],
-  ['game-jam', 5, 0, [b(JS, 15_000)]],
+  // muitos commits e nenhuma star: o "mas o conteúdo é ouro" do Octocat
+  ['game-jam', 0, 0, [b(JS, 15_000)]],
   ['empty-repo', 0, 0, []],
 ]
 
@@ -54,6 +61,7 @@ export function buildSampleUniverse(now = new Date('2026-10-08T12:00:00Z')): Uni
   const base: RepoBase[] = SAMPLE.map(([name, stars, forks, langs], i) => {
     const pushedAt = new Date(now.getTime() - i * 9 * 86_400_000).toISOString()
     const isEmpty = name === 'empty-repo'
+    const committedAt = name === NIGHT_COMMIT ? `${pushedAt.slice(0, 10)}T06:12:00.000Z` : pushedAt
     return {
       name,
       description: isEmpty ? '' : `Repositório de exemplo: ${name}`,
@@ -64,9 +72,10 @@ export function buildSampleUniverse(now = new Date('2026-10-08T12:00:00Z')): Uni
       pushedAt,
       primaryLanguage: langs[0]?.[0] ?? null,
       languages: langs.map(([n, color, bytes]) => ({ name: n, color, bytes })),
-      lastCommit: isEmpty ? null : { date: pushedAt, message: `feat: atualiza ${name}` },
+      lastCommit: isEmpty ? null : { date: committedAt, message: `feat: atualiza ${name}` },
       totalCommits: isEmpty ? 0 : 40 + i * 13,
       ...(SAMPLE_README[name] ? { readme: SAMPLE_README[name] } : {}),
+      ...(SAMPLE_TOPICS[name] ? { topics: SAMPLE_TOPICS[name] } : {}),
     }
   })
   const repos = rankRepos(base, now).map((repo, i) => {
@@ -88,6 +97,7 @@ export function buildSampleUniverse(now = new Date('2026-10-08T12:00:00Z')): Uni
       totalForks: repos.reduce((s, r) => s + r.forks, 0),
       topLanguages: topLanguages(repos),
       lastCommit: latestCommit(repos),
+      pinned: SAMPLE_PINNED,
     },
     repos,
   }

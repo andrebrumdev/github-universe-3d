@@ -34,6 +34,8 @@ export interface RepoBase {
   totalCommits: number
   /** Resumo do README em texto simples (nunca o README bruto). Opcional: schemaVersion 1 segue compatível. */
   readme?: string
+  /** Tópicos do repo no GitHub (omitido quando não há nenhum). Opcional: schemaVersion 1 segue compatível. */
+  topics?: string[]
 }
 
 export interface Repo extends RepoBase {
@@ -51,6 +53,11 @@ export interface Profile {
   totalForks: number
   topLanguages: Language[]
   lastCommit: CommitRef | null
+  /**
+   * Repos fixados no perfil (`pinnedItems`), na ordem do GitHub, só os do próprio dono; omitido quando não há nenhum.
+   * Opcional: schemaVersion 1 segue compatível.
+   */
+  pinned?: string[]
 }
 
 export interface Universe {
