@@ -16,6 +16,8 @@ import {
 } from '@/lib/universe/comets'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
 import { seededRandom } from '@/lib/universe/random'
+import { DUST_MATERIAL, ION_MATERIAL } from './cometLook'
+import { bloomLook, useBloom } from '@/store/bloom'
 import { simClock } from '@/store/simClock'
 import { useUniverse } from '@/store/universe'
 
@@ -71,21 +73,8 @@ function tailGeometry(curve: number): THREE.BufferGeometry {
 
 const ION_GEOMETRY = tailGeometry(0)
 const DUST_GEOMETRY = tailGeometry(0.22)
-const tailMaterial = (color: string, opacity: number) =>
-  new THREE.MeshBasicMaterial({
-    color,
-    vertexColors: true,
-    transparent: true,
-    opacity,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-    toneMapped: false,
-  })
-/** Íons: azulada, fina e reta. Poeira: esbranquiçada, larga e curva. */
-const ION_MATERIAL = tailMaterial('#7cc8ff', 0.9)
-const DUST_MATERIAL = tailMaterial('#fff1dc', 0.55)
 const UP = new THREE.Vector3(0, 1, 0)
+const BLOOM_LOOK_PLAIN_COMA = bloomLook(false).coma
 
 function Comet({ comet, system }: { comet: CometSpec; system: OrbitSystem }) {
   const root = useRef<THREE.Group>(null)
@@ -94,8 +83,11 @@ function Comet({ comet, system }: { comet: CometSpec; system: OrbitSystem }) {
   const [hovered, setHovered] = useState(false)
   useCursor(hovered)
   const select = useUniverse((s) => s.select)
-  const halo = useMemo(() => new GlowHalo({ color: '#bfe9ff', size: 2.2, opacity: 0.6 }), [])
+  const halo = useMemo(() => new GlowHalo({ color: '#bfe9ff', size: 2.2, opacity: BLOOM_LOOK_PLAIN_COMA }), [])
   useEffect(() => () => halo.dispose(), [halo])
+  // com o bloom, a coma (aditiva) cai como o halo do sol
+  const comaOpacity = bloomLook(useBloom((s) => s.active)).coma
+  useEffect(() => halo.setOpacity(comaOpacity), [halo, comaOpacity])
   const scratch = useMemo(
     () => ({
       pos: [0, 0, 0] as Vec3,

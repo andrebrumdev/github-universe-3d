@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { buildSampleUniverse } from './github/sample'
 import { buildOrbits, orbitPath, planetPosition, type OrbitSystem, type Vec3 } from './universe/orbits'
 import { barycenterOffset } from './universe/barycenter'
-import { bodyExtent, MAX_MOONS, MAX_PLANET_RADIUS, MIN_PLANET_RADIUS } from './universe/planets'
+import { bodyExtent, MAX_MOONS, MAX_PLANET_RADIUS, MIN_PLANET_RADIUS, maxPlanetWeight, planetRadius } from './universe/planets'
 import {
   CAMERA_FAR,
   DEFAULT_VIEWPORT,
@@ -20,13 +21,21 @@ import {
 
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2])
+/**
+ * Distância da visão geral na amostra pública, medida com o encaixe exato e o alvo à frente do sol (119,4), mais
+ * ~2% de folga. Antes desta série era 126,4; com o encaixe por fórmula da precessão, 171.
+ */
+const OVERVIEW_SAMPLE_MAX_D = 122
 const system = buildOrbits(Array.from({ length: 8 }, (_, i) => ({ name: `p${i}`, radius: 1 + (i % 3) * 0.5 })))
 
 describe('overviewPose', () => {
-  it('enquadra o anel externo e olha para o sol', () => {
+  it('enquadra o anel externo, mirando um pouco à frente do sol (do lado da câmera)', () => {
     const pose = overviewPose(system)
     const outer = system.rings[system.rings.length - 1]
-    expect(pose.target).toEqual([0, 0, 0])
+    const reach = outer.a * (1 + outer.e) + outer.maxRadius
+    expect(pose.target[0]).toBe(0)
+    expect(pose.target[1]).toBe(0)
+    expect(pose.target[2]).toBeCloseTo(0.3 * reach, 12)
     expect(len(pose.position)).toBeGreaterThan(outer.a * (1 + outer.e))
     expect(maxCameraDistance(system)).toBeGreaterThan(len(pose.position))
   })
@@ -55,7 +64,8 @@ function worstScreenExtent(sys: OrbitSystem, viewport: { aspect: number; fov: nu
   let worst = 0
   // a precessão gira cada elipse no próprio plano: o enquadramento vale em qualquer fase dela
   for (const ring of sys.rings) {
-    for (const t of [0, 0.25, 0.5, 0.75].map((f) => (f * 2 * Math.PI) / ring.apsidalRate))
+    // 13 fases (não alinhadas com as 8 que o overviewPose amostra) e 96 pontos por elipse
+    for (const t of Array.from({ length: 13 }, (_, k) => ((k / 13) * 2 * Math.PI) / ring.apsidalRate))
     for (const p of orbitPath(ring, t, 96)) {
       const v = sub(p, eye)
       const depth = dot(v, f)
@@ -78,6 +88,30 @@ describe('overviewPose enquadra o sistema inteiro (alcance com luas e inclinaç�
   it.each(systems)('%s: tudo dentro da tela, no desktop e no celular em pé', (_, sys) => {
     expect(worstScreenExtent(sys, DEFAULT_VIEWPORT)).toBeLessThanOrEqual(1)
     expect(worstScreenExtent(sys, { aspect: 390 / 844, fov: 50 })).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('overviewPose na amostra pública (a mesma do public/universe.json)', () => {
+  const universe = buildSampleUniverse()
+  const maxWeight = maxPlanetWeight(universe.repos)
+  // como o Scene monta o sistema
+  const sample = buildOrbits(
+    universe.repos.map((r) => {
+      const radius = planetRadius(r.stars, r.forks, maxWeight)
+      return { name: r.name, radius, extent: bodyExtent(radius, Math.min(MAX_MOONS, r.languages.length)), trojans: r.forks > 0 }
+    }),
+  )
+
+  it('enquadra justo no desktop: nada cortado em fase nenhuma da precessão, mas sem sobra (pior ponto ≥ 0,9 da borda)', () => {
+    const w = worstScreenExtent(sample, DEFAULT_VIEWPORT)
+    expect(w).toBeLessThanOrEqual(1)
+    expect(w).toBeGreaterThanOrEqual(0.9)
+    expect(worstScreenExtent(sample, { aspect: 390 / 844, fov: 50 })).toBeLessThanOrEqual(1)
+  })
+
+  it('limite superior da distância no desktop: d ≤ OVERVIEW_SAMPLE_MAX_D (a visão geral não volta a se afastar)', () => {
+    const { position, target } = overviewPose(sample, DEFAULT_VIEWPORT)
+    expect(position[2] - target[2]).toBeLessThanOrEqual(OVERVIEW_SAMPLE_MAX_D)
   })
 })
 
@@ -125,24 +159,19 @@ describe('overviewPose com proporção de tela', () => {
   const reach = outer.a * (1 + outer.e) + outer.maxRadius
   const portrait = { aspect: 390 / 844, fov: 50 }
 
-  it('em tela vertical, o anel externo cabe na largura', () => {
+  it('em tela vertical, tudo cabe na largura e a câmera fica mais longe que no desktop', () => {
     const pose = overviewPose(system, portrait)
-    const dist = Math.hypot(...pose.position)
-    const cos = pose.position[2] / dist // câmera olha para a origem; o anel está em z ≈ 0..reach
-    const halfTan = Math.tan((portrait.fov * Math.PI) / 360) * portrait.aspect
-    for (const ring of system.rings) {
-      const r = ring.a * (1 + ring.e)
-      expect(r / (dist * cos - 0) / halfTan).toBeLessThanOrEqual(1)
-    }
-    expect(reach / (dist * cos) / halfTan).toBeLessThanOrEqual(1)
-    expect(maxCameraDistance(system, portrait)).toBeGreaterThan(dist)
+    expect(worstScreenExtent(system, portrait)).toBeLessThanOrEqual(1)
+    expect(len(pose.position)).toBeGreaterThan(len(overviewPose(system).position))
+    expect(maxCameraDistance(system, portrait)).toBeGreaterThan(len(pose.position))
+    expect(reach).toBeGreaterThan(0)
   })
 
-  it('em tela de desktop, quem manda é o encaixe vertical (não depende da proporção) e nunca fica mais perto que antes', () => {
-    const [x, y, d] = overviewPose(system, DEFAULT_VIEWPORT).position
-    expect([x, y]).toEqual([0, d * 0.6])
-    expect(d).toBeGreaterThanOrEqual(reach * 1.5 + 10)
-    expect(overviewPose(system, { aspect: 1.78, fov: 50 }).position).toEqual([0, d * 0.6, d])
+  it('a câmera mantém a elevação: posição = alvo + (0, 0,6·d, d)', () => {
+    const { position, target } = overviewPose(system, DEFAULT_VIEWPORT)
+    const d = position[2] - target[2]
+    expect(position[0]).toBe(0)
+    expect(position[1]).toBeCloseTo(0.6 * d, 12)
   })
 
   it('selectionPose repassa o viewport para a visão geral', () => {
