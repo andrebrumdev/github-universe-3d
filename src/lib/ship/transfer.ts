@@ -5,14 +5,16 @@
  *
  * 1. **Transferência.** Em coordenadas esféricas em torno do sol `S` (que bamboleia no baricentro): distância r,
  *    azimute φ (no plano horizontal, crescendo no sentido das órbitas, o de momento angular +y) e latitude β.
- *    O arco varre Δ em azimute, de φ₁ a φ₂. A distância segue uma **cônica com apsides nas pontas**:
- *    r(ν) = p / (1 + e·cos ν), com ν = π·s (s ∈ [0, 1] ao longo do arco), e = (r₂ − r₁)/(r₁ + r₂) e
- *    p = 2·r₁·r₂/(r₁ + r₂). Com Δ = 180° é exatamente a meia elipse de Hohmann (periélio numa ponta, afélio na outra);
- *    com outros Δ é a mesma lei de distância com a anomalia esticada (ν = π·θ/Δ). Assim r vai de r₁ a r₂ de modo
- *    monótono, dr/dθ = 0 nas duas pontas (tangente às órbitas, quase circulares, de saída e de chegada) e o arco
- *    nunca chega mais perto do sol que min(r₁, r₂). A latitude interpola a da saída e a da chegada (o plano
- *    orbital inclina aos poucos de um anel para o outro), mais uma subida de altura limitada (o arco "lê" acima do
- *    plano dos anéis). A distância ao sol é r(ν) exatamente: a subida muda a latitude, não o raio.
+ *    O arco varre Δ em azimute, de φ₁ a φ₂, e a distância segue sempre **cônicas de verdade com o sol no foco**
+ *    (ver `transferRadial`), com r monótono de r₁ a r₂:
+ *    - |Δ| ≤ 180°: a cônica tangente à órbita de fora (afélio lá) que passa pela de dentro. Com Δ = 180° é a meia
+ *      elipse de Hohmann, tangente às duas órbitas.
+ *    - |Δ| > 180°: nenhuma cônica monótona varre isso; a nave espera na órbita de saída (círculo) por Δ − 180°, como
+ *      uma sonda esperando a janela, e então faz a meia elipse de Hohmann.
+ *    Assim o caminho sempre se curva para o lado do sol (u″ + u > 0, u = 1/r), nunca em S, e nunca chega mais perto
+ *    do sol que min(r₁, r₂). A latitude interpola a da saída e a da chegada (o plano orbital inclina aos poucos de um
+ *    anel para o outro), mais uma subida de altura limitada (o arco "lê" acima do plano dos anéis); a subida muda a
+ *    latitude, não o raio.
  *    Um planeta no caminho (qualquer um, com OBSTACLE_MARGIN) faz a subida crescer até o arco passar por cima dele,
  *    como fazia o arco antigo.
  * 2. **Sentido.** Δ é o ângulo no sentido das órbitas (progrado). Se ele passa de MAX_PROGRADE_SWEEP (o alvo está
@@ -22,20 +24,18 @@
  *    A integral é feita por Gauss–Legendre e invertida por Newton, de modo que posição e velocidade analítica
  *    concordam. O tempo físico é mapeado na duração limitada de sempre (`travelDuration`, 1,5–3 s): o perfil de
  *    velocidade é o de Kepler, com queimas suaves só nas pontas (BURN_FRACTION da viagem em cada uma).
- * 4. **Estilingue** (no máximo um por viagem):
- *    - **Sol.** Quando o destino está do outro lado do sol (a corda passa perto dele) e o sobrevoo resultante
- *      passa perto do raio seguro, o arco vira uma cônica de verdade com foco no sol, passando pelas duas pontas,
- *      com periélio ≥ SUN_FLYBY_PERIAPSIS: a nave mergulha, acelera e contorna o sol.
- *    - **Planeta grande** (raio ≥ ASSIST_MIN_RADIUS) que o arco direto atravessaria ou rasparia: um trecho curto de
- *      hipérbole com foco no planeta (periápside = alcance do planeta + FLYBY_MARGIN), deflexão
- *      δ = 2·asin(1/(1 + r_p·v∞²/μ)) com μ = MU_PER_MASS·r³ e v∞ = velocidade de cruzeiro, costurado (C¹) entre duas
- *      transferências: até a entrada da hipérbole e da saída até o destino.
- *    Se o caminho com estilingue falhar em alguma garantia (sol, colisão, volta brusca), fica o direto.
+ * 4. **Estilingue** (no máximo um por viagem, só por planeta grande, raio ≥ ASSIST_MIN_RADIUS): quando o arco
+ *    planejado passa a menos de FLYBY_REACH × o alcance do planeta (planeta + luas), aquele trecho vira uma hipérbole
+ *    com foco no planeta, com periápside onde a nave já passaria (no mínimo alcance + FLYBY_MARGIN, se ela ia raspar) e
+ *    deflexão da física, δ = 2·asin(1/(1 + r_p·v∞²/μ)), μ = MU_PER_MASS·r³, v∞ = velocidade de cruzeiro. A hipérbole é
+ *    costurada (C¹) entre duas transferências: até a entrada e da saída até o destino. Se o caminho com estilingue
+ *    falhar em alguma garantia (sol, colisão, volta brusca, desvio > FLYBY_MAX_DETOUR), fica o direto. O sol não dá
+ *    estilingue: no referencial dele, passar perto não ganha velocidade nenhuma.
  * 5. **Costura.** Um trecho pode receber uma correção de Hermite curta (BLEND_SECONDS) que leva a velocidade da ponta
  *    à pedida sem mexer na posição das pontas: a troca de destino no meio do voo parte com a velocidade atual (sem
  *    quina) e os trechos do estilingue se emendam com C¹.
  */
-import { planetMass, SUN_MASS } from '../universe/barycenter'
+import { planetMass } from '../universe/barycenter'
 import { SCALE_RATE, type ClockState } from '../universe/clock'
 import { planetPosition, type OrbitSystem, type Vec3 } from '../universe/orbits'
 import { LAUNCH_MARGIN, minSunDistance, SUN_SAFE_DISTANCE, travelDuration, type GravityAssist, type TravelPath } from './travel'
@@ -61,25 +61,25 @@ const LIFT_STEPS = [1, 1.7, 2.8, 4.5]
 export const ASSIST_MIN_RADIUS = 2
 /** Folga do periápside além do alcance do planeta (planeta + luas). */
 export const FLYBY_MARGIN = 1.2
-/** O arco direto passa a menos disto do alcance de um planeta grande: estilingue. */
-export const FLYBY_TRIGGER = 3
+/**
+ * O arco planejado passa a menos de FLYBY_REACH × o alcance (planeta + luas) de um planeta grande: estilingue.
+ * Afinado no perfil de exemplo (4 planetas com raio ≥ 2) para ~10% das viagens; com 2,5× seria ~3,6%.
+ */
+export const FLYBY_REACH = 4.5
 /** Raio da janela do sobrevoo, em periápsides: onde a hipérbole começa e termina. */
-export const FLYBY_WINDOW = 2.5
+export const FLYBY_WINDOW = 1.6
+/** O sobrevoo não pode virar desvio: o caminho com estilingue fica até este múltiplo do direto. */
+export const FLYBY_MAX_DETOUR = 1.3
 /** μ = MU_PER_MASS × massa (massa ∝ raio³, como no baricentro); afinado para δ de ~20° a ~60° nos planetas grandes. */
-export const MU_PER_MASS = 800
-export const MIN_DEFLECTION = (10 * Math.PI) / 180
-export const MAX_DEFLECTION = (100 * Math.PI) / 180
-/** Menor periélio de um sobrevoo do sol. */
-export const SUN_FLYBY_PERIAPSIS = SUN_SAFE_DISTANCE + 1.5
-/** A corda até o destino passa a menos disto do sol (destino do outro lado) e o sobrevoo cabe aqui dentro: estilingue. */
-export const SUN_ASSIST_DISTANCE = SUN_SAFE_DISTANCE + 3.5
+export const MU_PER_MASS = 200
+/** Teto de segurança da deflexão (e ≥ 1,15): a física quase nunca chega aqui. */
+export const MAX_DEFLECTION = (120 * Math.PI) / 180
 
 const TAU = Math.PI * 2
 const ORIGIN: Vec3 = [0, 0, 0]
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
 const wrapPi = (x: number) => x - TAU * Math.round(x / TAU)
 const dist = (a: Vec3, b: Vec3) => length(sub(a, b))
-const angleBetween = (a: Vec3, b: Vec3) => Math.acos(clamp(dot(normalize(a), normalize(b)), -1, 1))
 
 /** Deflexão (rad) de um sobrevoo hiperbólico: cresce com μ (massa) e cai com o periápside e a velocidade. */
 export function flybyDeflection(periapsis: number, speed: number, mu: number): number {
@@ -129,7 +129,10 @@ interface Radial {
   dr(s: number): number
 }
 
-/** Cônica com apsides nas pontas: r₁ em s = 0, r₂ em s = 1, dr/ds = 0 nas duas. */
+/**
+ * Apsides nas pontas: r₁ em s = 0, r₂ em s = 1, dr/ds = 0 nas duas (ν = π·s). É a meia elipse de Hohmann quando o
+ * arco varre 180°; fora disso só é usada para a espera + Hohmann e para varreduras quase nulas.
+ */
 function hohmannRadial(r1: number, r2: number): Radial {
   const e = (r2 - r1) / (r1 + r2)
   const p = (2 * r1 * r2) / (r1 + r2)
@@ -156,6 +159,41 @@ function conicRadial(rp: number, e: number, psi1: number, psi2: number): Radial 
   }
 }
 
+/**
+ * Lei radial da transferência, sempre de cônicas de verdade com o sol no foco e r monótono:
+ * - |Δ| ≤ π: a cônica com o afélio na ponta de fora (tangente à órbita de lá) que passa pela de dentro;
+ *   e = (r_o − r_i)/(r_o − r_i·cos Δ), p = r_o·r_i·(1 − cos Δ)/(r_o − r_i·cos Δ). Com Δ = π é a meia elipse de Hohmann
+ *   (tangente nas duas). Na ponta de dentro a nave sai (ou chega) com componente radial, como numa partida de Lambert;
+ *   é ali que fica a queima.
+ * - |Δ| > π: nenhuma cônica monótona varre mais de 180°. A nave espera na órbita de saída (círculo, r = r₁) por
+ *   |Δ| − π, como uma sonda esperando a janela, e faz a meia elipse de Hohmann (tangente nas duas pontas).
+ * - |Δ| quase zero (só radial): a lei antiga de apsides nas pontas, que também é monótona.
+ * `breaks`: onde a lei muda de trecho (o relógio de Kepler integra cada trecho separado).
+ */
+function transferRadial(r1: number, r2: number, sweep: number): { radial: Radial; breaks: number[] } {
+  const span = Math.abs(sweep)
+  if (span < 1e-3) return { radial: hohmannRadial(r1, r2), breaks: [] }
+  if (span <= Math.PI) {
+    const ro = Math.max(r1, r2)
+    const ri = Math.min(r1, r2)
+    const c = Math.cos(span)
+    const e = (ro - ri) / (ro - ri * c)
+    const p = (ro * ri * (1 - c)) / (ro - ri * c)
+    // para fora: de π − Δ (ponta de dentro) até π (afélio); para dentro: de π até π + Δ
+    const psi1 = r2 >= r1 ? Math.PI - span : Math.PI
+    return { radial: conicRadial(p / (1 + e), e, psi1, psi1 + span), breaks: [] }
+  }
+  const sc = (span - Math.PI) / span
+  const h = hohmannRadial(r1, r2)
+  return {
+    radial: {
+      r: (s) => (s <= sc ? r1 : h.r((s - sc) / (1 - sc))),
+      dr: (s) => (s <= sc ? 0 : h.dr((s - sc) / (1 - sc)) / (1 - sc)),
+    },
+    breaks: [sc],
+  }
+}
+
 const liftHeight = (chord: number) => clamp(LIFT_PER_UNIT * chord, MIN_LIFT, MAX_LIFT)
 
 /**
@@ -172,8 +210,10 @@ class PolarArc {
   readonly beta1: number
   readonly lift: number
   readonly radial: Radial
+  /** Onde a lei radial muda de trecho (s). */
+  readonly breaks: readonly number[]
 
-  constructor(sun: Vec3, start: Vec3, end: Vec3, phi0: number, sweep: number, beta0: number, beta1: number, lift: number, radial: Radial) {
+  constructor(sun: Vec3, start: Vec3, end: Vec3, phi0: number, sweep: number, beta0: number, beta1: number, lift: number, radial: Radial, breaks: readonly number[] = []) {
     this.sun = sun
     this.start = start
     this.end = end
@@ -183,6 +223,7 @@ class PolarArc {
     this.beta1 = beta1
     this.lift = lift
     this.radial = radial
+    this.breaks = breaks
   }
 
   private beta(s: number, r: number, dr: number): [number, number] {
@@ -261,22 +302,36 @@ function gauss(f: (s: number) => number, a: number, b: number): number {
 
 const PANELS = 16
 
-/** τ(s) = ∫₀ˢ f / ∫₀¹ f (tempo de Kepler normalizado) e a inversa, consistentes com a derivada exata f/A. */
+/**
+ * τ(s) = ∫₀ˢ f / ∫₀¹ f (tempo de Kepler normalizado) e a inversa, consistentes com a derivada exata f/A.
+ * Os painéis também quebram em `breaks` (onde f não é suave), para a quadratura continuar exata.
+ */
 class ArealClock {
-  private readonly cum = new Float64Array(PANELS + 1)
+  private readonly edges: number[]
+  private readonly cum: Float64Array
   private readonly total: number
   private readonly f: (s: number) => number
 
-  constructor(f: (s: number) => number) {
+  constructor(f: (s: number) => number, breaks: readonly number[] = []) {
     this.f = f
-    for (let k = 0; k < PANELS; k++) this.cum[k + 1] = this.cum[k] + gauss(f, k / PANELS, (k + 1) / PANELS)
-    this.total = this.cum[PANELS]
+    const edges = Array.from({ length: PANELS + 1 }, (_, k) => k / PANELS)
+    for (const b of breaks) if (b > 0 && b < 1) edges.push(b)
+    this.edges = [...new Set(edges)].sort((x, y) => x - y)
+    this.cum = new Float64Array(this.edges.length)
+    for (let k = 0; k < this.edges.length - 1; k++) this.cum[k + 1] = this.cum[k] + gauss(f, this.edges[k], this.edges[k + 1])
+    this.total = this.cum[this.edges.length - 1]
+  }
+
+  private panel(s: number): number {
+    let k = 0
+    while (k < this.edges.length - 2 && this.edges[k + 1] <= s) k++
+    return k
   }
 
   tau(s: number): number {
     const x = clamp(s, 0, 1)
-    const k = Math.min(PANELS - 1, Math.floor(x * PANELS))
-    return (this.cum[k] + gauss(this.f, k / PANELS, x)) / this.total
+    const k = this.panel(x)
+    return (this.cum[k] + gauss(this.f, this.edges[k], x)) / this.total
   }
 
   /** dτ/ds. */
@@ -289,11 +344,12 @@ class ArealClock {
     if (tau <= 0) return 0
     if (tau >= 1) return 1
     const target = tau * this.total
+    const last = this.edges.length - 2
     let k = 0
-    while (k < PANELS - 1 && this.cum[k + 1] <= target) k++
-    const a = k / PANELS
+    while (k < last && this.cum[k + 1] <= target) k++
+    const a = this.edges[k]
     let lo = a
-    let hi = (k + 1) / PANELS
+    let hi = this.edges[k + 1]
     let s = lo + ((target - this.cum[k]) / (this.cum[k + 1] - this.cum[k])) * (hi - lo)
     for (let i = 0; i < 40; i++) {
       const g = this.cum[k] + gauss(this.f, a, s) - target
@@ -381,7 +437,7 @@ class ArcSegment implements Segment {
   constructor(arc: PolarArc, duration: number, ease: { start: boolean; end: boolean }, match: Match = {}) {
     this.arc = arc
     this.duration = duration
-    this.clock = new ArealClock((s) => arc.areal(s))
+    this.clock = new ArealClock((s) => arc.areal(s), arc.breaks)
     this.burn = new Burn(ease.start, ease.end)
     this.tb = Math.min(match.blend ?? BLEND_SECONDS, 0.45 * duration)
     this.dStart = match.start ? sub(match.start, this.baseVelocity(0, [0, 0, 0])) : null
@@ -559,7 +615,8 @@ function transferArc(from: Vec3, to: Vec3, sun: Vec3, sweep?: number, liftScale 
   const phiA = a.rho > 1e-9 ? a.phi : b.phi
   const phiB = b.rho > 1e-9 ? b.phi : phiA
   const d = sweep ?? chooseSweep(phiB - phiA)
-  return new PolarArc(sun, from, to, phiA, d, a.beta, b.beta, liftScale * liftHeight(dist(from, to)), hohmannRadial(Math.max(a.r, 1e-6), Math.max(b.r, 1e-6)))
+  const { radial, breaks } = transferRadial(Math.max(a.r, 1e-6), Math.max(b.r, 1e-6), d)
+  return new PolarArc(sun, from, to, phiA, d, a.beta, b.beta, liftScale * liftHeight(dist(from, to)), radial, breaks)
 }
 
 /** Nenhuma virada brusca: direções de velocidade vizinhas nunca se afastam mais de 60°. */
@@ -573,29 +630,6 @@ function smooth(path: TravelPath, n = 300): boolean {
     prev = v
   }
   return true
-}
-
-/** Janela do sobrevoo medida no caminho final: entrada, passagem mais perto e saída. */
-function describeAssist(path: TravelPath, body: string, center: Vec3, window: number, periapsis: number): GravityAssist {
-  const n = 600
-  let peak = 0
-  let best = Infinity
-  let start = -1
-  let end = -1
-  for (let i = 0; i <= n; i++) {
-    const t = (i / n) * path.duration
-    const d = dist(path.point(t), center)
-    if (d < best) {
-      best = d
-      peak = t
-    }
-    if (d <= window) {
-      if (start < 0) start = t
-      end = t
-    }
-  }
-  if (start < 0) start = end = peak
-  return { body, center, periapsis, deflection: angleBetween(path.velocity(start), path.velocity(end)), start, peak, end }
 }
 
 interface Plan {
@@ -647,69 +681,6 @@ function direct(plan: Plan): TravelPath {
   return fallback!
 }
 
-/** e da cônica com foco no sol, periélio rp, que liga as distâncias r1 e r2 varrendo `span`; null se não houver. */
-function conicThrough(rp: number, r1: number, r2: number, span: number): number | null {
-  if (rp >= Math.min(r1, r2)) return null
-  const spanOf = (e: number) =>
-    Math.acos(clamp((rp * (1 + e)) / r1 - 1, -e, e) / e) + Math.acos(clamp((rp * (1 + e)) / r2 - 1, -e, e) / e)
-  // e mínimo: a ponta mais distante no afélio; e enorme: quase reta passando a rp
-  let lo = Math.max((r1 - rp) / (r1 + rp), (r2 - rp) / (r2 + rp))
-  let hi = 1e3
-  if (!(span < spanOf(lo) && span > spanOf(hi))) return null
-  for (let i = 0; i < 100; i++) {
-    const mid = (lo + hi) / 2
-    if (spanOf(mid) > span) lo = mid
-    else hi = mid
-  }
-  return (lo + hi) / 2
-}
-
-/**
- * Periélio e excentricidade do sobrevoo do sol. A física diz e = 1 + rp·v²/μ (massa do sol do baricentro, quase
- * parabólico); a geometria diz qual e liga as pontas com aquele rp. Quando a física curvaria demais, o periélio sobe
- * até as duas concordarem; quando curvaria de menos, fica no mínimo seguro e vale a geometria.
- */
-function sunConic(r1: number, r2: number, span: number, cruise: number): { rp: number; e: number } | null {
-  const mu = MU_PER_MASS * SUN_MASS
-  const physics = (rp: number) => 1 + (rp * cruise * cruise) / mu
-  const eMin = conicThrough(SUN_FLYBY_PERIAPSIS, r1, r2, span)
-  if (eMin === null) return null
-  if (eMin <= physics(SUN_FLYBY_PERIAPSIS)) return { rp: SUN_FLYBY_PERIAPSIS, e: eMin }
-  let lo = SUN_FLYBY_PERIAPSIS
-  let hi = Math.min(r1, r2) - 1e-3
-  for (let i = 0; i < 60; i++) {
-    const mid = (lo + hi) / 2
-    const e = conicThrough(mid, r1, r2, span)
-    if (e === null || e < physics(mid)) hi = mid
-    else lo = mid
-  }
-  const e = conicThrough(lo, r1, r2, span)
-  return e === null ? null : { rp: lo, e }
-}
-
-function sunFlyby(plan: Plan): TravelPath | null {
-  const { from, to, sun, base, cruise, v0 } = plan
-  const a = polar(from, sun)
-  const b = polar(to, sun)
-  if (Math.min(a.r, b.r) < SUN_FLYBY_PERIAPSIS + 3) return null
-  // destino do outro lado: a corda passa perto do sol
-  const d = sub(to, from)
-  const u = clamp(dot(sub(sun, from), d) / dot(d, d), 0, 1)
-  if (u < 0.1 || u > 0.9 || dist(add(from, scale(d, u)), sun) >= SUN_ASSIST_DISTANCE) return null
-  const shape = sunConic(a.r, b.r, Math.abs(base.sweep), cruise)
-  if (!shape || shape.rp > SUN_ASSIST_DISTANCE) return null
-  const { rp, e } = shape
-  const psi = (r: number) => Math.acos(clamp((rp * (1 + e)) / r - 1, -e, e) / e)
-  // Sem a subida: dentro do anel interno não há o que contornar, e a cônica fica no plano (a aceleração no periélio
-  // não se mistura com o sobe-e-desce).
-  const arc = new PolarArc(sun, from, to, base.phi0, base.sweep, a.beta, b.beta, 0, conicRadial(rp, e, -psi(a.r), psi(b.r)))
-  const T = travelDuration(arcLength(arc))
-  const path = compose([new ArcSegment(arc, T, { start: !v0, end: true }, { start: v0 })], null)
-  if (minSunDistance(path, sun, 400) < SUN_SAFE_DISTANCE || !smooth(path) || hitsPlanet(path, plan.obstacles)) return null
-  // janela: do meio do caminho entre a ponta mais próxima e o periélio para dentro
-  return { ...path, assist: describeAssist(path, 'sun', sun, (rp + Math.min(a.r, b.r)) / 2, rp) }
-}
-
 /** Componente de v perpendicular a d, unitária (ou o "para cima" perpendicular, se v ∥ d). */
 function perpendicular(v: Vec3, d: Vec3): Vec3 {
   const p = sub(v, scale(d, dot(v, d)))
@@ -727,12 +698,9 @@ function planetFlyby(plan: Plan, bodies: readonly TravelBody[], exclude: string 
   const { from, to, sun, base, cruise, v0, baseLength, minSun } = plan
   const n = 160
   const pts = Array.from({ length: n + 1 }, (_, i) => base.point(i / n))
-  let pick: { body: TravelBody; s: number; clearance: number } | null = null
+  let pick: { body: TravelBody; s: number; pass: number } | null = null
   for (const body of bodies) {
     if (body.radius < ASSIST_MIN_RADIUS || body.name === exclude) continue
-    const window = FLYBY_WINDOW * (body.extent + FLYBY_MARGIN)
-    // perto de uma das pontas não há espaço para a hipérbole (é o planeta de onde a nave sai, por exemplo)
-    if (dist(from, body.position) < 1.3 * window || dist(to, body.position) < 1.3 * window) continue
     let best = Infinity
     let at = 0
     pts.forEach((p, i) => {
@@ -742,24 +710,30 @@ function planetFlyby(plan: Plan, bodies: readonly TravelBody[], exclude: string 
         at = i / n
       }
     })
-    const clearance = best - body.extent
-    if (clearance >= FLYBY_TRIGGER || at < 0.15 || at > 0.85) continue
-    if (!pick || clearance < pick.clearance) pick = { body, s: at, clearance }
+    if (best > FLYBY_REACH * body.extent || at < 0.1 || at > 0.9) continue
+    // perto de uma das pontas não há espaço para a hipérbole (é o planeta de onde a nave sai, por exemplo)
+    const window = FLYBY_WINDOW * Math.max(body.extent + FLYBY_MARGIN, best)
+    if (dist(from, body.position) < window + 2 || dist(to, body.position) < window + 2) continue
+    if (!pick || best / body.extent < pick.pass / pick.body.extent) pick = { body, s: at, pass: best }
   }
   if (!pick) return null
 
-  const { body, s } = pick
+  const { body, s, pass } = pick
   const B = body.position
-  const rp = body.extent + FLYBY_MARGIN
+  // Periápside onde a nave já ia passar (a gravidade só curva o caminho); se ela ia raspar, o mínimo seguro.
+  const rp = Math.max(body.extent + FLYBY_MARGIN, pass)
   const window = FLYBY_WINDOW * rp
   const dIn = normalize(base.derivative(s))
-  // Passa do lado oposto ao destino: a gravidade curva a nave na direção dele.
+  const offset = sub(base.point(s), B)
+  const clears = pass >= body.extent + FLYBY_MARGIN
+  // Passa do lado em que já passava; se ia raspar, do lado oposto ao destino (a gravidade curva para ele).
   const toTarget = sub(to, B)
   const across = sub(toTarget, scale(dIn, dot(toTarget, dIn)))
-  const side = length(across) > 0.2 * length(toTarget) ? scale(normalize(across), -1) : perpendicular(sub(base.point(s), B), dIn)
+  const side = clears || length(across) < 0.2 * length(toTarget) ? perpendicular(offset, dIn) : scale(normalize(across), -1)
   const axis = normalize(cross(side, dIn))
+  // δ = 2·asin(1/(1 + r_p·v∞²/μ)): cresce com a massa, cai com a distância e a velocidade (só um teto de segurança).
   const mu = MU_PER_MASS * planetMass(body.radius)
-  const delta = clamp(Math.min(flybyDeflection(rp, cruise, mu), angleBetween(dIn, toTarget) + (15 * Math.PI) / 180), MIN_DEFLECTION, MAX_DEFLECTION)
+  const delta = Math.min(flybyDeflection(rp, cruise, mu), MAX_DEFLECTION)
   const e = 1 / Math.sin(delta / 2)
   const a = rp / (e - 1)
   const dOut = rotate(dIn, axis, delta)
@@ -799,18 +773,19 @@ function planetFlyby(plan: Plan, bodies: readonly TravelBody[], exclude: string 
   const clear =
     minSunDistance(path, sun, 400) >= minSun && minSunDistance(path, B, 400) >= body.extent + FLYBY_MARGIN / 2 && !hitsPlanet(path, plan.obstacles, body.name)
   const length2 = arcLength({ point: (u: number, out?: Vec3) => path.point(u * path.duration, out) }, 200)
-  return clear && smooth(path) && length2 <= 1.8 * baseLength ? path : null
+  return clear && smooth(path) && length2 <= FLYBY_MAX_DETOUR * baseLength ? path : null
 }
 
 /**
  * Viagem de `rawFrom` até `to`: transferência de Hohmann (com o sol em `options.sun`), com no máximo um estilingue
- * (sol ou planeta grande de `options.bodies`). Uma saída de dentro do raio seguro é empurrada para fora antes.
+ * (planeta grande de `options.bodies`). Uma saída de dentro do raio seguro é empurrada para fora antes.
  * Garantias: começa em `from` e termina em `to`; posição e velocidade contínuas; nunca mais perto do sol que
- * min(SUN_SAFE_DISTANCE, distância do destino ao sol) — destinos vêm de `visitPosition`, que já ficam fora.
+ * SUN_SAFE_DISTANCE (um destino de dentro do raio seguro também é empurrado para fora).
  */
-export function planTransfer(rawFrom: Vec3, to: Vec3, options: TransferOptions = {}): TravelPath {
+export function planTransfer(rawFrom: Vec3, rawTo: Vec3, options: TransferOptions = {}): TravelPath {
   const sun = options.sun ?? ORIGIN
   const from = outsideSun(rawFrom, sun)
+  const to = outsideSun(rawTo, sun)
   const v0 = options.velocity && length(options.velocity) > 1e-6 ? ([...options.velocity] as Vec3) : null
   const base = transferArc(from, to, sun)
   const baseLength = arcLength(base)
@@ -822,10 +797,10 @@ export function planTransfer(rawFrom: Vec3, to: Vec3, options: TransferOptions =
     baseLength,
     cruise: baseLength / travelDuration(baseLength),
     v0,
-    minSun: Math.min(SUN_SAFE_DISTANCE, dist(to, sun)),
+    minSun: SUN_SAFE_DISTANCE,
     obstacles: options.bodies ?? [],
   }
-  return sunFlyby(plan) ?? (options.bodies?.length ? planetFlyby(plan, options.bodies, options.exclude ?? null) : null) ?? direct(plan)
+  return (options.bodies?.length ? planetFlyby(plan, options.bodies, options.exclude ?? null) : null) ?? direct(plan)
 }
 
 /**

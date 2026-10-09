@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planetMass, SUN_MASS } from '../universe/barycenter'
+import { planetMass } from '../universe/barycenter'
 import { advanceClock } from '../universe/clock'
 import { buildOrbits, planetPosition, type Vec3 } from '../universe/orbits'
 import {
@@ -13,12 +13,11 @@ import {
   OBSTACLE_MARGIN,
   planTransfer,
   planTransferTo,
-  SUN_FLYBY_PERIAPSIS,
   travelBodies,
   type TravelBody,
 } from './transfer'
 import { MAX_TRAVEL_SECONDS, MIN_TRAVEL_SECONDS, SUN_SAFE_DISTANCE, travelTangent, type TravelPath } from './travel'
-import { cross, dot, length, normalize, scale, sub } from './vec'
+import { add, cross, dot, length, normalize, scale, sub } from './vec'
 
 const ring = (r: number, angle: number, y = 0): Vec3 => [Math.cos(angle) * r, y, -Math.sin(angle) * r]
 const dist = (a: Vec3, b: Vec3) => length(sub(a, b))
@@ -69,6 +68,10 @@ const tripCases: [string, Vec3, Vec3][] = [
   ['mesma órbita, perto', ring(15, 1, 0.2), ring(15, 1.2, 0.4)],
   ['mesma órbita, coladinho', ring(15, 1, 0.2), ring(15, 1.01, 0.25)],
   ['lados opostos do sol', ring(8, 0), ring(8, Math.PI)],
+  ['mesma órbita, lados opostos (r = 10)', ring(10, 0), ring(10, Math.PI)],
+  ['de dentro para fora, varredura curta', ring(6, 0.4), ring(30, 0.4 + Math.PI / 6)],
+  ['de fora para dentro, varredura curta', ring(30, 0.4), ring(6, 0.4 + Math.PI / 6)],
+  ['varredura longa (mais de 180°)', ring(15, 0), ring(40, 1.15 * Math.PI)],
   ['lados opostos, raios diferentes', ring(6, 0.3, 0.5), ring(40, 0.3 + Math.PI)],
   ['alvo logo atrás na órbita', ring(20, 1), ring(20, 0.7)],
   ['da câmera, lá em cima', [0, 40, 70], ring(15, 1.2)],
@@ -169,6 +172,122 @@ describe('transferência de Hohmann', () => {
   })
 })
 
+/** Gerador com semente (mulberry32): os mesmos sorteios a cada execução. */
+function seeded(seed: number) {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/**
+ * Perfil radial do caminho fora de [skipFrom, skipTo] (s): distância ao sol e ângulo varrido (desenrolado).
+ * Uma órbita em volta do sol nunca se curva para longe dele: com u = 1/r, u'' + u ≥ 0 (em função do ângulo).
+ */
+function radialProfile(path: TravelPath, sun: Vec3 = ORIGIN, skipFrom = Infinity, skipTo = -Infinity, n = 1200) {
+  const r: number[] = []
+  const theta: number[] = []
+  let prev = 0
+  let unwrapped = 0
+  for (let i = 0; i <= n; i++) {
+    const t = (i / n) * path.duration
+    if (t >= skipFrom && t <= skipTo) continue
+    const p = sub(path.point(t), sun)
+    const phi = Math.atan2(-p[2], p[0])
+    if (r.length) unwrapped += Math.atan2(Math.sin(phi - prev), Math.cos(phi - prev))
+    prev = phi
+    r.push(length(p))
+    theta.push(Math.abs(unwrapped))
+  }
+  let minCurvature = Infinity
+  for (let i = 1; i < r.length - 1; i++) {
+    const h0 = theta[i] - theta[i - 1]
+    const h1 = theta[i + 1] - theta[i]
+    if (h0 < 1e-3 || h1 < 1e-3) continue
+    const u0 = 1 / r[i - 1]
+    const u1 = 1 / r[i]
+    const u2 = 1 / r[i + 1]
+    const upp = (2 * ((u2 - u1) / h1 - (u1 - u0) / h0)) / (h0 + h1)
+    minCurvature = Math.min(minCurvature, (upp + u1) * r[i])
+  }
+  return { r, minCurvature }
+}
+
+describe('órbitas de verdade: nunca se curvam para longe do sol', () => {
+  const rnd = seeded(20261009)
+  const trips = Array.from({ length: 300 }, () => {
+    const r1 = 5 + rnd() * 75
+    const r2 = 5 + rnd() * 75
+    const a1 = rnd() * 2 * Math.PI
+    return [ring(r1, a1, (rnd() - 0.5) * 6), ring(r2, a1 + rnd() * 2 * Math.PI, (rnd() - 0.5) * 6)] as [Vec3, Vec3]
+  })
+  const named: [Vec3, Vec3][] = [
+    [ring(6, 0), ring(30, Math.PI / 6)],
+    [ring(6, 0), ring(30, Math.PI / 3)],
+    [ring(30, 0), ring(6, Math.PI / 6)],
+    [ring(12, 0), ring(20, Math.PI / 6)],
+  ]
+
+  it('distância ao sol monótona: sem máximo no meio indo para fora, sem mínimo no meio indo para dentro', () => {
+    for (const [from, to] of [...named, ...trips]) {
+      const { r } = radialProfile(planTransfer(from, to))
+      const outward = length(to) >= length(from)
+      for (let i = 1; i < r.length; i++) {
+        const step = r[i] - r[i - 1]
+        expect(outward ? step : -step).toBeGreaterThanOrEqual(-1e-9 * r[i])
+      }
+    }
+  })
+
+  it('curvatura sempre para o lado do sol (u″ + u ≥ 0), sem S', () => {
+    for (const [from, to] of [...named, ...trips]) {
+      const { minCurvature } = radialProfile(planTransfer(from, to))
+      expect(minCurvature).toBeGreaterThan(-1e-4)
+    }
+  })
+
+  it('com planetas no caminho, vale o mesmo fora da janela do estilingue', () => {
+    const giants: TravelBody[] = Array.from({ length: 10 }, (_, i) => ({ name: `g${i}`, position: ring(12 + i * 6, i * 2.1, 0.5), radius: 2.5, extent: 4 }))
+    let assists = 0
+    for (const [from, to] of trips.slice(0, 120)) {
+      const path = planTransfer(from, to, { bodies: giants })
+      const a = path.assist
+      if (a) assists++
+      const skipFrom = a ? a.start - 0.6 : Infinity
+      const skipTo = a ? a.end + 0.6 : -Infinity
+      expect(radialProfile(path, ORIGIN, skipFrom, skipTo).minCurvature).toBeGreaterThan(-1e-4)
+    }
+    expect(assists).toBeGreaterThan(0)
+  })
+})
+
+describe('lados opostos do sol: transferência simples, sem estilingue', () => {
+  const cases: [string, Vec3, Vec3][] = [
+    ['mesma órbita, r = 9', ring(9, 0.3), ring(9, 0.3 + Math.PI)],
+    ['mesma órbita, r = 10', ring(10, 1), ring(10, 1 + Math.PI)],
+    ['mesma órbita, r = 14', ring(14, 2), ring(14, 2 + Math.PI)],
+    ['10 → 20', ring(10, 0.5), ring(20, 0.5 + Math.PI)],
+    ['14 → 18', ring(14, 4), ring(18, 4 + Math.PI)],
+  ]
+  it('meia elipse de Hohmann: sem flag, sem mergulho, tangente às duas órbitas', () => {
+    for (const [, from, to] of cases) {
+      const path = planTransfer(from, to)
+      expect(path.assist).toBeNull()
+      // não mergulha em direção ao sol: nunca abaixo da órbita de dentro
+      expect(minDistance(path, ORIGIN)).toBeGreaterThanOrEqual(Math.min(length(from), length(to)) - 1e-6)
+      for (const t of [path.duration * 0.002, path.duration * 0.998]) {
+        const dir = travelTangent(path, t)
+        const radial = normalize(path.point(t))
+        expect(Math.abs(dot([dir[0], 0, dir[2]], [radial[0], 0, radial[2]]))).toBeLessThan(0.05)
+      }
+    }
+  })
+})
+
 describe('troca de destino no meio do voo', () => {
   const first = planTransfer(ring(12, 0), ring(45, 2.6))
   const t = first.duration * 0.45
@@ -218,41 +337,6 @@ describe('estilingue gravitacional', () => {
     expect(flybyDeflection(6, 20, mu(3))).toBeCloseTo(2 * Math.asin(1 / (1 + (6 * 400) / mu(3))))
   })
 
-  it('massa do sol entra na mesma escala dos planetas', () => {
-    expect(flybyDeflection(SUN_FLYBY_PERIAPSIS, 20, MU_PER_MASS * SUN_MASS)).toBeGreaterThan(flybyDeflection(6, 20, MU_PER_MASS * planetMass(3)))
-  })
-
-  describe('pelo sol (destino do outro lado)', () => {
-    const from = ring(13, 0.2, 0.5)
-    const to = ring(14, 0.2 + Math.PI * 0.97, -0.5)
-    const path = planTransfer(from, to)
-
-    it('mergulha em volta do sol sem entrar no raio seguro', () => {
-      expect(path.assist?.body).toBe('sun')
-      expect(path.assist!.periapsis).toBeGreaterThanOrEqual(SUN_FLYBY_PERIAPSIS - 1e-9)
-      expect(minDistance(path, ORIGIN)).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
-      expect(minDistance(path, ORIGIN)).toBeLessThan(Math.min(length(from), length(to)) - 2)
-    })
-
-    it('acelera perto do sol', () => {
-      const { start, peak } = path.assist!
-      expect(start).toBeLessThan(peak)
-      // parabólico: v ∝ 1/√r, da entrada da janela (meio caminho até o periélio) ao periélio
-      expect(length(path.velocity(peak))).toBeGreaterThan(1.15 * length(path.velocity(start)))
-    })
-
-    it('liga as pontas, contínuo e com velocidade analítica', () => {
-      expect(dist(path.point(0), from)).toBeLessThan(1e-9)
-      expect(dist(path.point(path.duration), to)).toBeLessThan(1e-9)
-      expectContinuous(path)
-      expectVelocityMatchesFiniteDifferences(path)
-    })
-
-    it('não acontece quando o destino é o próprio sol', () => {
-      expect(planTransfer(ring(14, 0), ring(5.5, Math.PI, 1.5)).assist).toBeNull()
-    })
-  })
-
   describe('por um planeta grande no caminho', () => {
     const from = ring(12, 0)
     const to = ring(60, Math.PI)
@@ -296,6 +380,27 @@ describe('estilingue gravitacional', () => {
       expect(planTransfer(from, to, { bodies: [giant], exclude: 'gigante' }).assist).toBeNull()
       const twin = { ...giant, name: 'gêmeo', position: direct.point(direct.duration * 0.3) }
       expect(planTransfer(from, to, { bodies: [giant, twin] }).assist).not.toBeNull()
+    })
+
+    it('planeta grande que passa perto (sem raspar) também dá estilingue, com periápside na distância de passagem', () => {
+      const t = direct.duration * 0.5
+      const at = direct.point(t)
+      const across = normalize(cross(direct.velocity(t), [0, 1, 0]))
+      const near: TravelBody = { ...giant, name: 'vizinho', position: add(at, scale(across, 2 * giant.extent)) }
+      const path = planTransfer(from, to, { bodies: [near] })
+      expect(path.assist?.body).toBe('vizinho')
+      expect(path.assist!.periapsis).toBeGreaterThan(giant.extent + FLYBY_MARGIN)
+      expect(path.assist!.periapsis).toBeLessThanOrEqual(2 * giant.extent * 1.01) // distância de passagem amostrada
+      expect(minDistance(path, near.position)).toBeGreaterThanOrEqual(giant.extent + FLYBY_MARGIN / 2)
+      expectContinuous(path)
+      expectVelocityMatchesFiniteDifferences(path)
+    })
+
+    it('deflexão pela física: mesmo caminho, planeta mais massivo curva mais', () => {
+      const light = planTransfer(from, to, { bodies: [{ ...giant, radius: 2.1 }] }).assist!
+      const heavy = planTransfer(from, to, { bodies: [{ ...giant, radius: 3 }] }).assist!
+      expect(heavy.deflection).toBeGreaterThan(light.deflection)
+      expect(light.periapsis).toBeCloseTo(heavy.periapsis)
     })
 
     it('planeta longe do caminho não desvia nada', () => {
