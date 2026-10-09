@@ -10,6 +10,7 @@ import { length, sub } from '@/lib/ship/vec'
 import type { Repo } from '@/lib/types'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
+import { usePresentation } from '@/store/presentation'
 import { shipPose } from '@/store/shipPose'
 import { simClock } from '@/store/simClock'
 import { useTutorial } from '@/store/tutorial'
@@ -17,6 +18,8 @@ import { useUniverse } from '@/store/universe'
 
 /** Perto disso da pose final, a mola entrega a câmera ao CameraControls (que termina o resto suave). */
 const HANDOFF_DISTANCE = 0.3
+/** Arrasto "de verdade": a pose pedida pelo usuário andou mais que essa fração da distância da câmera ao alvo. */
+const REAL_DRAG = 0.02
 
 interface Drive {
   position: Spring3
@@ -47,6 +50,8 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
   /** Enquadrar a seleção atual assim que a nave não estiver em viagem do usuário. */
   const focusRequest = useRef(false)
   const scratch = useMemo(() => new Vector3(), [])
+  // Início do gesto do usuário na câmera (posição e alvo pedidos), para separar um arrasto de um clique.
+  const gesture = useRef({ from: new Vector3(), fromTarget: new Vector3(), now: new Vector3(), active: false })
 
   useEffect(() => {
     const { selection: sel, viewport: vp } = latest.current
@@ -130,6 +135,29 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
       maxDistance={maxCameraDistance(system, viewport)}
       smoothTime={0.6}
       dollyToCursor={false}
+      onControlStart={() => {
+        const c = controls.current
+        const g = gesture.current
+        if (!c) return
+        c.getPosition(g.from)
+        c.getTarget(g.fromTarget)
+        g.active = true
+      }}
+      onControl={() => {
+        // Arrastar (ou rolar) a câmera de verdade encerra a apresentação: a intenção do usuário vence.
+        const c = controls.current
+        const g = gesture.current
+        if (!c || !g.active || !usePresentation.getState().state) return
+        const reach = g.from.distanceTo(g.fromTarget) * REAL_DRAG
+        const moved = c.getPosition(g.now).distanceTo(g.from) + c.getTarget(g.now).distanceTo(g.fromTarget)
+        if (moved > reach) {
+          g.active = false
+          usePresentation.getState().interrupt()
+        }
+      }}
+      onControlEnd={() => {
+        gesture.current.active = false
+      }}
     />
   )
 }

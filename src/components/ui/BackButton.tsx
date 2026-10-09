@@ -1,9 +1,12 @@
+import { usePresentation } from '@/store/presentation'
 import { useUniverse } from '@/store/universe'
 
 export function BackButton() {
   const selection = useUniverse((s) => s.selection)
   const clearSelection = useUniverse((s) => s.clearSelection)
-  if (selection.kind === 'none') return null
+  const presenting = usePresentation((s) => s.state !== null)
+  // Na apresentação, quem sai é o ✕ do cartão.
+  if (selection.kind === 'none' || presenting) return null
   return (
     <button
       type="button"

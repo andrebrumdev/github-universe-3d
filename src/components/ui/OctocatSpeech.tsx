@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useIdle } from '@/hooks/useIdle'
 import { formatLine, LINE_DURATION_MS } from '@/lib/octocat/lines'
 import { DESKTOP_MIN_WIDTH, SIDE_PANEL_WIDTH, UI_GAP } from '@/lib/uiLayout'
+import { usePresentation } from '@/store/presentation'
 import { shipPose } from '@/store/shipPose'
 import { useUniverse } from '@/store/universe'
 
@@ -15,7 +16,11 @@ export function OctocatSpeech({ profileName }: { profileName: string }) {
   const dismissBubble = useUniverse((s) => s.dismissBubble)
   const emitGuide = useUniverse((s) => s.emitGuide)
 
-  useIdle(emitGuide)
+  // Assistindo à apresentação, ficar parado é o esperado: nada de "Oi, tá aí?".
+  const onIdle = useCallback((kind: 'idle' | 'longIdle') => {
+    if (!usePresentation.getState().state) emitGuide(kind)
+  }, [emitGuide])
+  useIdle(onIdle)
   const balloon = useRef<HTMLParagraphElement>(null)
 
   useEffect(() => {
@@ -31,9 +36,11 @@ export function OctocatSpeech({ profileName }: { profileName: string }) {
     const follow = () => {
       const el = balloon.current
       if (el) {
-        // Dentro da tela e, com o painel lateral aberto no desktop, à esquerda dele (senão o painel corta o balão).
+        // Dentro da tela e, com o painel lateral (ou o cartão da apresentação, na mesma coluna) aberto no desktop,
+        // à esquerda dele (senão o painel corta o balão).
         const half = el.offsetWidth / 2
-        const panelOpen = useUniverse.getState().selection.kind !== 'none' && window.innerWidth >= DESKTOP_MIN_WIDTH
+        const columnBusy = useUniverse.getState().selection.kind !== 'none' || usePresentation.getState().state !== null
+        const panelOpen = columnBusy && window.innerWidth >= DESKTOP_MIN_WIDTH
         const maxX = window.innerWidth - UI_GAP - half - (panelOpen ? SIDE_PANEL_WIDTH : 0)
         const x = Math.max(UI_GAP + half, Math.min(maxX, shipPose.speechX))
         el.style.transform = `translate(${x}px, ${shipPose.speechY}px) translate(-50%, -100%)`

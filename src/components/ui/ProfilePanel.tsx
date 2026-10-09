@@ -1,11 +1,14 @@
 import { formatCount, timeAgo } from '@/lib/format'
 import type { Profile } from '@/lib/types'
 import { languageShares } from '@/lib/universe/planets'
+import { usePresentation } from '@/store/presentation'
 import { useUniverse } from '@/store/universe'
 import { SidePanel } from './SidePanel'
 
 export function ProfilePanel({ profile }: { profile: Profile }) {
-  const open = useUniverse((s) => s.selection.kind === 'profile')
+  const selected = useUniverse((s) => s.selection.kind === 'profile')
+  // Durante a apresentação, o cartão dela substitui o painel.
+  const open = usePresentation((s) => selected && s.state === null)
   const clearSelection = useUniverse((s) => s.clearSelection)
   const stats: [string, number][] = [
     ['Stars', profile.totalStars],

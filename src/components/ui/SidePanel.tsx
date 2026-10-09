@@ -1,6 +1,10 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
+import { SIDE_PANEL_WIDTH } from '@/lib/uiLayout'
+
+/** Largura no desktop da fonte única (uiLayout): o balão do Octocat e a apresentação contam com ela. */
+const PANEL_STYLE = { '--panel-width-md': `${SIDE_PANEL_WIDTH}px` } as CSSProperties
 
 interface SidePanelProps {
   open: boolean
@@ -37,7 +41,8 @@ export function SidePanel({ open, onClose, title, children }: SidePanelProps) {
           animate={{ x: 0, y: 0, opacity: 1 }}
           exit={hidden}
           transition={{ type: 'spring', stiffness: 260, damping: 30 }}
-          className="fixed inset-x-0 bottom-0 z-20 max-h-[60vh] overflow-y-auto rounded-t-2xl border border-neon/20 bg-panel/90 p-5 backdrop-blur md:inset-y-0 md:left-auto md:right-0 md:max-h-none md:w-[380px] md:rounded-none md:rounded-l-2xl"
+          style={PANEL_STYLE}
+          className="fixed inset-x-0 bottom-0 z-20 max-h-[60vh] overflow-y-auto rounded-t-2xl border border-neon/20 bg-panel/90 p-5 backdrop-blur md:inset-y-0 md:left-auto md:right-0 md:max-h-none md:w-(--panel-width-md) md:rounded-none md:rounded-l-2xl"
         >
           <button
             ref={closeButton}

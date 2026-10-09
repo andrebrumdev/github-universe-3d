@@ -5,6 +5,8 @@ import { LoadError } from '@/components/ui/LoadError'
 import { Loader } from '@/components/ui/Loader'
 import { OctocatSpeech } from '@/components/ui/OctocatSpeech'
 import { PlanetPanel } from '@/components/ui/PlanetPanel'
+import { PresentationButton } from '@/components/ui/PresentationButton'
+import { PresentationCard } from '@/components/ui/PresentationCard'
 import { ProfilePanel } from '@/components/ui/ProfilePanel'
 import { StaticFallback } from '@/components/ui/StaticFallback'
 import { Tutorial } from '@/components/ui/Tutorial'
@@ -34,7 +36,9 @@ export function App() {
       <ProfilePanel profile={universe.profile} />
       <OctocatSpeech profileName={universe.profile.name} />
       <TutorialButton />
+      <PresentationButton universe={universe} />
       <Tutorial profileName={universe.profile.name} />
+      <PresentationCard universe={universe} />
     </main>
   )
 }

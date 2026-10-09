@@ -2,7 +2,9 @@ import { useEffect, useRef, type CSSProperties } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { formatLine } from '@/lib/octocat/lines'
 import { TUTORIAL_CARD } from '@/lib/uiLayout'
+import { presentationRequested } from '@/lib/presentation'
 import { TUTORIAL_COPY, TUTORIAL_STEPS } from '@/lib/tutorial'
+import { usePresentation } from '@/store/presentation'
 import { useTutorial } from '@/store/tutorial'
 
 const STORAGE_KEY = 'gu3d:tutorial-done'
@@ -34,8 +36,11 @@ export function Tutorial({ profileName }: { profileName: string }) {
   const instant = { duration: 0 }
 
   useEffect(() => {
-    if (tutorialDone()) return
-    const timer = window.setTimeout(start, 1500)
+    // Com a apresentação pedida no link (ou já rodando), o tutorial não se abre sozinho por cima dela.
+    if (tutorialDone() || presentationRequested(window.location.search)) return
+    const timer = window.setTimeout(() => {
+      if (!usePresentation.getState().state) start()
+    }, 1500)
     return () => window.clearTimeout(timer)
   }, [start])
 
