@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   axisAngles,
   bodyExtent,
+  FOCUS_MOON_RATE,
   FOCUS_SPIN_RATE,
+  focusMoonStep,
   focusSpinStep,
   languageShares,
   MAX_MOON_ECCENTRICITY,
@@ -276,5 +278,20 @@ describe('focusSpinStep', () => {
 
   it('limita o dt de uma aba que volta do segundo plano', () => {
     expect(focusSpinStep(0, 30, true, 0)).toBeCloseTo(FOCUS_SPIN_RATE * 0.1, 9)
+  })
+})
+
+describe('focusMoonStep', () => {
+  it('em foco e com o tempo parado, as luas seguem a órbita mais devagar que o normal', () => {
+    let t = 0
+    for (let i = 0; i < 60; i++) t = focusMoonStep(t, 1 / 60, true, 0)
+    expect(t).toBeCloseTo(FOCUS_MOON_RATE, 6)
+    expect(FOCUS_MOON_RATE).toBeGreaterThan(0)
+    expect(FOCUS_MOON_RATE).toBeLessThan(1)
+  })
+
+  it('fora de foco ou com movimento reduzido o tempo extra fica parado', () => {
+    expect(focusMoonStep(2, 0.1, false, 0)).toBe(2)
+    expect(focusMoonStep(2, 0.1, true, 0, true)).toBe(2)
   })
 })
