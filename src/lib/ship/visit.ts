@@ -151,3 +151,64 @@ export function visitPlacement(screen: VisitScreen, framing: VisitFraming = visi
 export function visitLocal(p: VisitPlacement, width: number, height: number, fov: number): Vec3 {
   return placementOffset(p, width, height, fov, p.side)
 }
+
+// ————— durante a visita: passagem para a câmera e reposicionamento —————
+
+/** Distância (unidades) da câmera à pose de foco a partir da qual a visita começa a passar para o referencial dela. */
+export const VISIT_HAND_RANGE = 12
+/** Ritmo máximo (1/s) da passagem: começa do zero na chegada, sem salto. */
+export const VISIT_HAND_RATE = 1.2
+/** A câmera chegou a essa fração do caminho até a pose: conta como chegada (ela nunca bate a pose bit a bit: o
+ * CameraControls a remonta em coordenadas esféricas). */
+export const VISIT_HAND_SNAP = 0.98
+/** O alvo andou na tela mais que essa fração da altura: a nave muda de lugar (quando a câmera assentar). */
+export const VISIT_REPLACE_SHIFT = 0.12
+/** O disco do alvo mudou de tamanho mais que isso (razão, em log): também muda de lugar. */
+export const VISIT_REPLACE_ZOOM = 0.35
+/** Câmera "parada": abaixo destas velocidades (unidades/s e rad/s) por SETTLE_SECONDS. */
+export const SETTLE_SPEED = 0.05
+export const SETTLE_TURN = 0.02
+export const SETTLE_SECONDS = 0.25
+
+export interface VisitWatch {
+  /** 0 = preso à pose de foco (mundo), 1 = preso à câmera atrasada. */
+  hand: number
+  /** Há quanto tempo (s) a câmera está parada. */
+  still: number
+}
+
+export const newVisitWatch = (): VisitWatch => ({ hand: 0, still: 0 })
+
+export interface VisitStepInput {
+  /** Distância da câmera à posição da pose de foco. */
+  far: number
+  /** Velocidade da câmera (unidades/s) e do giro dela (rad/s). */
+  cameraSpeed: number
+  cameraTurn: number
+  dt: number
+  /** Quanto o centro do alvo andou na tela desde o lugar atual, em fração da altura. */
+  discShift: number
+  /** Raio do disco agora / raio quando o lugar atual foi escolhido. */
+  radiusRatio: number
+  /** A interface reservada (painel, cartões, tamanho) mudou desde o lugar atual. */
+  layoutChanged: boolean
+}
+
+/**
+ * Um quadro da visita: avança a passagem (no ritmo limitado, rumo ao quanto a câmera já chegou na pose; com a câmera
+ * parada, completa mesmo longe dela, ex.: o usuário arrastou no meio) e diz se é hora de escolher outro lugar:
+ * na hora, se a interface mudou; com a câmera assentada, se o alvo andou ou mudou de tamanho na tela.
+ * Quem chama desliza a nave até o lugar novo (sem salto) e zera `discShift`/`radiusRatio`.
+ */
+export function visitStep(w: VisitWatch, input: VisitStepInput): { hand: number; replace: boolean } {
+  const { far, cameraSpeed, cameraTurn, dt } = input
+  w.still = cameraSpeed < SETTLE_SPEED && cameraTurn < SETTLE_TURN ? w.still + dt : 0
+  const settled = w.still >= SETTLE_SECONDS
+  // quase na pose conta como na pose (a câmera nunca bate a pose bit a bit); a passagem segue no ritmo até 1 exato
+  const near = Math.min(1, Math.max(0, 1 - far / VISIT_HAND_RANGE))
+  const reach = settled || near >= VISIT_HAND_SNAP ? 1 : near
+  w.hand = Math.max(w.hand, Math.min(reach, w.hand + VISIT_HAND_RATE * dt))
+  if (w.hand < 1) return { hand: w.hand, replace: false }
+  const moved = input.discShift > VISIT_REPLACE_SHIFT || Math.abs(Math.log(input.radiusRatio)) > VISIT_REPLACE_ZOOM
+  return { hand: w.hand, replace: input.layoutChanged || (settled && moved) }
+}

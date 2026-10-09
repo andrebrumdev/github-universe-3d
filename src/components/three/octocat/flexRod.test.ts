@@ -5,7 +5,7 @@ import { ESCORT_LEAN_DEPTH, knockPose, SHIP_SCALE, THREE_QUARTER_YAW } from '@/l
 import { COCKPIT, FREE_TENTACLE } from '@/lib/ship/geometry'
 import { hoverOffset } from '@/lib/ship/motion'
 import { applyImpulse, setRest } from '@/lib/ship/verlet'
-import { FlexRod, InertiaProbe, PILOT_INERTIA } from './flexRod'
+import { FlexRod, InertiaProbe, inertiaFrameFor, PILOT_INERTIA } from './flexRod'
 
 /** Tentáculo de teste: arco no plano xy, raiz na origem, varrido como os do piloto (hexágono afinando). */
 const POINTS: [number, number, number][] = Array.from({ length: 6 }, (_, i) => {
@@ -193,7 +193,7 @@ describe('InertiaProbe', () => {
  * fica em câmera + lagQuat·local (lagQuat seguindo a câmera a 5/s), olha para a câmera em três-quartos
  * (slerp a 6/s), flutua (OctocatShip) e o piloto entra pelo COCKPIT. A sonda lê o grupo do piloto.
  */
-function escortScene({ hover = false } = {}) {
+function escortScene({ hover = false, local: spot = [1.1, -0.7, -3] as [number, number, number], side = 1 } = {}) {
   const camera = new THREE.PerspectiveCamera(45, 1.4, 0.1, 1000)
   const rig = new THREE.Group()
   rig.scale.setScalar(SHIP_SCALE)
@@ -207,7 +207,8 @@ function escortScene({ hover = false } = {}) {
   cockpit.add(pilot)
   const lag = new THREE.Quaternion()
   const helper = new THREE.Object3D()
-  const local = new THREE.Vector3(1.1, -0.7, -3) // canto da escolta (ordem de grandeza do placementOffset)
+  // canto da escolta (ordem de grandeza do placementOffset) ou o ponto da visita em primeiro plano (visitLocal)
+  const local = new THREE.Vector3(...spot)
   const state = { azimuth: 0, azimuthVel: 0, azimuthGoal: 0, radius: 30, radiusVel: 0, radiusGoal: 30, closer: 0, t: 0 }
   const smooth = (x: number, v: number, goal: number, dt: number, time = 0.6) => {
     const omega = 2 / time
@@ -227,7 +228,7 @@ function escortScene({ hover = false } = {}) {
     helper.position.copy(rig.position)
     helper.up.set(0, 1, 0).applyQuaternion(camera.quaternion)
     helper.lookAt(camera.position)
-    helper.rotateY(-THREE_QUARTER_YAW)
+    helper.rotateY(-side * THREE_QUARTER_YAW)
     if (first) rig.quaternion.copy(helper.quaternion)
     else rig.quaternion.slerp(helper.quaternion, 1 - Math.exp(-6 * dt))
     const h = hover ? hoverOffset(state.t) : { y: 0, roll: 0 }
@@ -250,6 +251,50 @@ function escortScene({ hover = false } = {}) {
   place(1 / 60, true)
   return { state, run, camera, pilot }
 }
+
+describe('referencial da inércia por modo', () => {
+  it('entrada, escolta e visita (em primeiro plano, presa à câmera) contra a câmera; viagem e volta contra o mundo', () => {
+    expect(inertiaFrameFor('entering')).toBe('camera')
+    expect(inertiaFrameFor('escort')).toBe('camera')
+    expect(inertiaFrameFor('visiting')).toBe('camera')
+    expect(inertiaFrameFor('traveling')).toBe('world')
+    expect(inertiaFrameFor('returning')).toBe('world')
+  })
+})
+
+describe('InertiaProbe na visita em primeiro plano (contra a câmera)', () => {
+  // ponto da visita: à esquerda e abaixo, mais fundo que a escolta, nariz para o alvo (o outro lado)
+  const visit = { local: [-1.3, -0.8, -3.6] as [number, number, number], side: -1 }
+  const quiet = { linear: 0.15 * PILOT_INERTIA.maxLinear, angular: 0.15 * PILOT_INERTIA.maxAngular }
+
+  it('girar a câmera em volta do planeta (3°) quase não balança; contra o mundo bateria no teto', () => {
+    const scene = escortScene(visit)
+    const probe = new InertiaProbe(PILOT_INERTIA)
+    scene.run(probe, 2, 'camera')
+    scene.state.azimuthGoal += (3 * Math.PI) / 180
+    const peak = scene.run(probe, 3, 'camera')
+    expect(peak.linear).toBeLessThan(quiet.linear)
+    expect(peak.angular).toBeLessThan(quiet.angular)
+
+    const world = escortScene(visit)
+    const worldProbe = new InertiaProbe(PILOT_INERTIA)
+    world.run(worldProbe, 2, 'world')
+    world.state.azimuthGoal += (3 * Math.PI) / 180
+    expect(world.run(worldProbe, 3, 'world').linear).toBeGreaterThan(0.6 * PILOT_INERTIA.maxLinear)
+  })
+
+  it('entrar e sair da visita (troca de referencial) recomeça a sonda, sem tranco', () => {
+    const scene = escortScene(visit)
+    const probe = new InertiaProbe(PILOT_INERTIA)
+    scene.run(probe, 1, 'world')
+    // chega: passa a medir contra a câmera; sai: volta ao mundo
+    const into = probe.sample(scene.pilot, 1 / 60, scene.camera)
+    expect(Math.hypot(...into.linear) + Math.hypot(...into.angular)).toBe(0)
+    scene.run(probe, 1, 'camera')
+    const out = probe.sample(scene.pilot, 1 / 60, null)
+    expect(Math.hypot(...out.linear) + Math.hypot(...out.angular)).toBe(0)
+  })
+})
 
 describe('InertiaProbe na escolta (contra a câmera)', () => {
   const settled = (hover = false) => {

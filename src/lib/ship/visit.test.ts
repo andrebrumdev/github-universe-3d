@@ -6,7 +6,21 @@ import { buildOrbits, planetPosition, SUN_RADIUS, type Vec3 } from '../universe/
 import { blendFramesPoint, frameFromPose, frameToLocal } from './cameraFrame'
 import { MIN_SHIP_DISTANCE, shipFaceBox, shipScreenBox } from './escort'
 import { length, sub } from './vec'
-import { projectDisc, VISIT_DESKTOP, VISIT_PHONE, visitFraming, visitLocal, visitPlacement, type Disc } from './visit'
+import {
+  newVisitWatch,
+  projectDisc,
+  SETTLE_SECONDS,
+  VISIT_DESKTOP,
+  VISIT_HAND_RANGE,
+  VISIT_PHONE,
+  VISIT_REPLACE_SHIFT,
+  visitFraming,
+  visitLocal,
+  visitPlacement,
+  visitStep,
+  type Disc,
+  type VisitStepInput,
+} from './visit'
 
 const FOV = 50
 const system = buildOrbits(Array.from({ length: 12 }, (_, i) => ({ name: `p${i}`, radius: 0.8 + (i % 4) * 0.7 })))
@@ -119,5 +133,65 @@ describe('nave em primeiro plano ao apresentar um planeta', () => {
 
   it('alvo atrás da câmera não tem disco', () => {
     expect(projectDisc({ position: [0, 0, 0], target: [0, 0, -1] }, [0, 0, 5], 1, 800, 600, FOV)).toBeNull()
+  })
+})
+
+describe('visita: passagem para a câmera e reposicionamento ao assentar', () => {
+  const dt = 1 / 60
+  const base: VisitStepInput = { far: 0, cameraSpeed: 0, cameraTurn: 0, dt, discShift: 0, radiusRatio: 1, layoutChanged: false }
+
+  it('a passagem começa do zero, sobe no ritmo limitado e completa (≥ 0,98 vira 1) mesmo sem a câmera bater a pose', () => {
+    const w = newVisitWatch()
+    const hands: number[] = []
+    // a câmera reconstrói a posição por coordenadas esféricas: assenta a 1e-6 da pose, nunca exatamente nela
+    for (let i = 0; i < 120; i++) hands.push(visitStep(w, { ...base, far: 1e-6 }).hand)
+    expect(hands[0]).toBeLessThan(0.05)
+    for (let i = 1; i < hands.length; i++) expect(hands[i] - hands[i - 1]).toBeLessThanOrEqual(1.2 * dt + 1e-9)
+    expect(hands.at(-1)).toBe(1)
+  })
+
+  it('câmera ainda longe da pose: a passagem espera; parada (o usuário arrastou para longe), ela completa sem salto', () => {
+    const w = newVisitWatch()
+    for (let i = 0; i < 30; i++) visitStep(w, { ...base, far: VISIT_HAND_RANGE * 2, cameraSpeed: 30 })
+    expect(w.hand).toBe(0)
+    let prev = w.hand
+    for (let i = 0; i < 180; i++) {
+      const { hand } = visitStep(w, { ...base, far: VISIT_HAND_RANGE * 2 })
+      expect(hand - prev).toBeLessThanOrEqual(1.2 * dt + 1e-9)
+      prev = hand
+    }
+    expect(w.hand).toBe(1)
+  })
+
+  it('o alvo saiu do lugar com a câmera girando: espera assentar e então reposiciona (uma vez)', () => {
+    const w = newVisitWatch()
+    for (let i = 0; i < 120; i++) visitStep(w, base)
+    expect(w.hand).toBe(1)
+    const moved = { ...base, discShift: 2 * VISIT_REPLACE_SHIFT }
+    // girando: nada
+    for (let i = 0; i < 30; i++) expect(visitStep(w, { ...moved, cameraSpeed: 5, cameraTurn: 0.5 }).replace).toBe(false)
+    // parou: depois de SETTLE_SECONDS, reposiciona
+    const steps: boolean[] = []
+    for (let t = 0; t < SETTLE_SECONDS + 0.2; t += dt) steps.push(visitStep(w, moved).replace)
+    const first = steps.indexOf(true)
+    expect(first).toBeGreaterThan(0)
+    expect(first * dt).toBeGreaterThanOrEqual(SETTLE_SECONDS - dt)
+    // com o lugar novo (o chamador zera o deslocamento), não repete
+    for (let i = 0; i < 30; i++) expect(visitStep(w, base).replace).toBe(false)
+  })
+
+  it('giro pequeno (o alvo quase não anda) não mexe na nave; mudar a interface reposiciona na hora', () => {
+    const w = newVisitWatch()
+    for (let i = 0; i < 120; i++) visitStep(w, base)
+    for (let i = 0; i < 60; i++) expect(visitStep(w, { ...base, discShift: 0.5 * VISIT_REPLACE_SHIFT }).replace).toBe(false)
+    expect(visitStep(w, { ...base, cameraSpeed: 5, layoutChanged: true }).replace).toBe(true)
+  })
+
+  it('o disco mudou muito de tamanho (zoom) também reposiciona ao assentar', () => {
+    const w = newVisitWatch()
+    for (let i = 0; i < 120; i++) visitStep(w, base)
+    let replaced = false
+    for (let i = 0; i < 60; i++) replaced ||= visitStep(w, { ...base, radiusRatio: 1.8 }).replace
+    expect(replaced).toBe(true)
   })
 })

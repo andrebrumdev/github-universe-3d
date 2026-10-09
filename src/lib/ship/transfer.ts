@@ -39,12 +39,24 @@ import { planetMass } from '../universe/barycenter'
 import { SCALE_RATE, type ClockState } from '../universe/clock'
 import { planetPosition, type OrbitSystem, type Vec3 } from '../universe/orbits'
 import { LAUNCH_MARGIN, minSunDistance, SUN_SAFE_DISTANCE, travelDuration, type GravityAssist, type TravelPath } from './travel'
+import type { CameraFrame } from './cameraFrame'
 import { add, cross, dot, length, normalize, scale, sub } from './vec'
 
 /** Fração da viagem gasta em cada queima (partida e chegada): a aceleração fica só nas pontas. */
 export const BURN_FRACTION = 0.18
 /** Duração (s) da correção que costura a velocidade de um trecho à do vizinho (troca de destino, estilingue). */
 export const BLEND_SECONDS = 0.5
+/**
+ * Janela do empurrão de partida perto da lente (`lens`), em fração da viagem: longa, para a nave continuar se
+ * afastando enquanto a transferência assume (uma janela curta "devolveria" o empurrão e a faria voltar para a lente).
+ */
+export const DEPARTURE_WINDOW = 0.6
+/** Velocidade (unidades/s) do empurrão de partida para longe da lente. */
+export const DEPARTURE_KICK = 15
+/** A transferência sai voltando para a lente (cosseno com a frente da câmera abaixo disto): a saída abre para o lado. */
+const DEPARTURE_REVERSAL = -0.5
+/** Quanto a saída abre para o lado (ou para cima) nessa volta. */
+const DEPARTURE_SWING = 2
 /** Maior varredura no sentido das órbitas; além disso o alvo está logo atrás e a nave vai pelo caminho curto. */
 export const MAX_PROGRADE_SWEEP = 1.25 * Math.PI
 /** Subida acima do plano dos anéis (unidades): proporcional à distância, entre MIN_LIFT e MAX_LIFT. */
@@ -422,6 +434,8 @@ interface Match {
   start?: Vec3 | null
   end?: Vec3 | null
   blend?: number
+  /** Janela própria da correção do começo (s); sem ela, `blend`. */
+  blendStart?: number
 }
 
 /** Arco no tempo: Kepler + queimas, mais as correções que casam a velocidade das pontas com a pedida. */
@@ -429,6 +443,7 @@ class ArcSegment implements Segment {
   private readonly clock: ArealClock
   private readonly burn: Burn
   private readonly tb: number
+  private readonly tbStart: number
   private readonly dStart: Vec3 | null
   private readonly dEnd: Vec3 | null
   readonly arc: PolarArc
@@ -440,6 +455,7 @@ class ArcSegment implements Segment {
     this.clock = new ArealClock((s) => arc.areal(s), arc.breaks)
     this.burn = new Burn(ease.start, ease.end)
     this.tb = Math.min(match.blend ?? BLEND_SECONDS, 0.45 * duration)
+    this.tbStart = Math.min(match.blendStart ?? this.tb, (match.end ? 0.45 : 0.75) * duration)
     this.dStart = match.start ? sub(match.start, this.baseVelocity(0, [0, 0, 0])) : null
     this.dEnd = match.end ? sub(match.end, this.baseVelocity(duration, [0, 0, 0])) : null
   }
@@ -463,14 +479,14 @@ class ArcSegment implements Segment {
   point(t: number, out: Vec3): Vec3 {
     const [, s] = this.param(t)
     this.arc.point(s, out)
-    if (this.dStart) addScaled(out, this.dStart, blend(t, this.tb))
+    if (this.dStart) addScaled(out, this.dStart, blend(t, this.tbStart))
     if (this.dEnd) addScaled(out, this.dEnd, -blend(this.duration - t, this.tb))
     return out
   }
 
   velocity(t: number, out: Vec3): Vec3 {
     this.baseVelocity(t, out)
-    if (this.dStart) addScaled(out, this.dStart, blendRate(t, this.tb))
+    if (this.dStart) addScaled(out, this.dStart, blendRate(t, this.tbStart))
     if (this.dEnd) addScaled(out, this.dEnd, blendRate(this.duration - t, this.tb))
     return out
   }
@@ -592,6 +608,11 @@ export interface TransferOptions {
   sun?: Vec3
   /** Velocidade atual (troca de destino no meio do voo): a nova viagem parte com ela. */
   velocity?: Vec3 | null
+  /**
+   * Referencial da câmera, quando a nave parte (parada) perto da lente (ex.: da visita em primeiro plano): ela sai
+   * primeiro para longe da lente (`departureFromLens`) e só depois segue a transferência. Ignorado com `velocity`.
+   */
+  lens?: CameraFrame | null
   /** Planetas (ver `travelBodies`): obstáculos; os de raio ≥ ASSIST_MIN_RADIUS também dão o estilingue. */
   bodies?: readonly TravelBody[]
   /** Nome do planeta de destino (não serve de estilingue). */
@@ -640,7 +661,10 @@ interface Plan {
   /** Velocidade de cruzeiro do caminho direto (v∞ dos sobrevoos). */
   cruise: number
   baseLength: number
+  /** Velocidade de um voo em curso (troca de destino); a base então parte em cruzeiro. */
   v0: Vec3 | null
+  /** Partida parada perto da lente: o empurrão de partida sai deste referencial. */
+  lens: CameraFrame | null
   /** Distância mínima ao sol que o caminho precisa respeitar. */
   minSun: number
   /** Planetas que o caminho não pode atravessar. */
@@ -658,8 +682,33 @@ function hitsPlanet(path: TravelPath, obstacles: readonly TravelBody[], skip?: s
   return false
 }
 
+/**
+ * Empurrão de partida perto da lente: para a frente da câmera (longe dela) e para o lado em que a transferência vai.
+ * Se a transferência sai voltando para a lente, a saída abre bem para o lado (ou para cima): a volta vira um arco largo
+ * em volta da câmera, e a câmera de perseguição não precisa cruzar a nave.
+ */
+export function departureFromLens(lens: CameraFrame, tangent: Vec3, speed = DEPARTURE_KICK): Vec3 {
+  const forward = scale(lens.back, -1)
+  const t = normalize(tangent, forward)
+  const along = dot(t, forward)
+  let lateral = along < 0 ? sub(t, scale(forward, along)) : t
+  if (along < DEPARTURE_REVERSAL) {
+    const l = length(lateral)
+    const side = l > 0.3 ? normalize(lateral) : lens.up
+    lateral = add(l > 0.3 ? normalize(lateral) : [0, 0, 0], scale(side, DEPARTURE_SWING))
+  }
+  return scale(normalize(add(lateral, forward), forward), speed)
+}
+
+/** Como o trecho começa: com a velocidade do voo em curso, com o empurrão para longe da lente, ou da queima parada. */
+function startOf(plan: Plan, arc: PolarArc, duration: number): { v0: Vec3 | null; blendStart?: number } {
+  if (plan.v0) return { v0: plan.v0 }
+  if (!plan.lens) return { v0: null }
+  return { v0: departureFromLens(plan.lens, arc.derivative(0)), blendStart: DEPARTURE_WINDOW * duration }
+}
+
 function direct(plan: Plan): TravelPath {
-  const { from, to, sun, base, v0, minSun, obstacles } = plan
+  const { from, to, sun, base, minSun, obstacles } = plan
   let fallback: TravelPath | null = null
   // Um planeta no caminho: o arco sobe mais até passar por cima dele (como o arco antigo), até um limite.
   for (const lift of LIFT_STEPS) {
@@ -668,7 +717,8 @@ function direct(plan: Plan): TravelPath {
     // Partindo em movimento, a mistura que leva a velocidade atual à do arco é encurtada se chegar perto do sol.
     let path: TravelPath | null = null
     for (const k of [1, 0.5, 0.25, 0.1]) {
-      const attempt = compose([new ArcSegment(arc, T, { start: !v0, end: true }, { start: v0, blend: BLEND_SECONDS * k })], null)
+      const { v0, ...start } = startOf(plan, arc, T)
+      const attempt = compose([new ArcSegment(arc, T, { start: !plan.v0, end: true }, { start: v0, blend: BLEND_SECONDS * k, blendStart: start.blendStart && start.blendStart * k })], null)
       if (!v0 || minSunDistance(attempt, sun, 400) >= minSun) {
         path = attempt
         break
@@ -695,7 +745,7 @@ function rotate(v: Vec3, n: Vec3, a: number): Vec3 {
 }
 
 function planetFlyby(plan: Plan, bodies: readonly TravelBody[], exclude: string | null): TravelPath | null {
-  const { from, to, sun, base, cruise, v0, baseLength, minSun } = plan
+  const { from, to, sun, base, cruise, baseLength, minSun } = plan
   const n = 160
   const pts = Array.from({ length: n + 1 }, (_, i) => base.point(i / n))
   let pick: { body: TravelBody; s: number; pass: number } | null = null
@@ -752,9 +802,12 @@ function planetFlyby(plan: Plan, bodies: readonly TravelBody[], exclude: string 
   const sweepB = (1 - s) * base.sweep + wrapPi(phiEnd - (phiOut + (1 - s) * base.sweep))
   const arcA = transferArc(from, wIn, sun, sweepA)
   const arcB = transferArc(wOut, to, sun, sweepB)
+  // Partindo perto da lente com a primeira perna voltando para ela: o trecho até a hipérbole é curto demais para a
+  // saída abrir em volta da câmera; fica o caminho direto (que abre).
+  if (plan.lens && dot(normalize(arcA.derivative(0)), scale(plan.lens.back, -1)) < DEPARTURE_REVERSAL) return null
 
   // Durações que casam as velocidades nas costuras: cada trecho anda a k/T, então T ∝ k.
-  const kA = length(new ArcSegment(arcA, 1, { start: !v0, end: false }).baseVelocity(1, [0, 0, 0]))
+  const kA = length(new ArcSegment(arcA, 1, { start: !plan.v0, end: false }).baseVelocity(1, [0, 0, 0]))
   const kB = length(new ArcSegment(arcB, 1, { start: false, end: true }).baseVelocity(0, [0, 0, 0]))
   const kH = length(probe.velocity(0, [0, 0, 0]))
   const total = travelDuration(arcLength(arcA) + arcLength({ point: (u: number, out?: Vec3) => probe.point(u, out ?? [0, 0, 0]) }) + arcLength(arcB))
@@ -765,7 +818,8 @@ function planetFlyby(plan: Plan, bodies: readonly TravelBody[], exclude: string 
   const tH = total - tA - tB
 
   const hyper = new HyperbolaSegment(B, P, Q, a, e, fw, tH)
-  const legA = new ArcSegment(arcA, tA, { start: !v0, end: false }, { start: v0, end: hyper.velocity(0, [0, 0, 0]) })
+  const startA = startOf(plan, arcA, tA)
+  const legA = new ArcSegment(arcA, tA, { start: !plan.v0, end: false }, { start: startA.v0, blendStart: startA.blendStart, end: hyper.velocity(0, [0, 0, 0]) })
   const legB = new ArcSegment(arcB, tB, { start: false, end: true }, { start: hyper.velocity(tH, [0, 0, 0]) })
   const assist: GravityAssist = { body: body.name, center: B, periapsis: rp, deflection: delta, start: tA, peak: tA + tH / 2, end: tA + tH }
   const path = compose([legA, hyper, legB], assist, total)
@@ -786,7 +840,8 @@ export function planTransfer(rawFrom: Vec3, rawTo: Vec3, options: TransferOption
   const sun = options.sun ?? ORIGIN
   const from = outsideSun(rawFrom, sun)
   const to = outsideSun(rawTo, sun)
-  const v0 = options.velocity && length(options.velocity) > 1e-6 ? ([...options.velocity] as Vec3) : null
+  const moving = options.velocity && length(options.velocity) > 1e-6 ? ([...options.velocity] as Vec3) : null
+  const v0 = moving
   const base = transferArc(from, to, sun)
   const baseLength = arcLength(base)
   const plan: Plan = {
@@ -797,6 +852,7 @@ export function planTransfer(rawFrom: Vec3, rawTo: Vec3, options: TransferOption
     baseLength,
     cruise: baseLength / travelDuration(baseLength),
     v0,
+    lens: moving ? null : (options.lens ?? null),
     minSun: SUN_SAFE_DISTANCE,
     obstacles: options.bodies ?? [],
   }

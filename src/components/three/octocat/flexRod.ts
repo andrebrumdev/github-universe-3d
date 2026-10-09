@@ -382,15 +382,23 @@ export const PILOT_INERTIA: InertiaOptions = { gain: 15, maxLinear: 16, angularG
 /** Maior dt de quadro aceito pela sonda (s), o mesmo do ShipRig e da cadeia: acima disso, recomeça. */
 const MAX_FRAME = 0.1
 
-/** Modos em que o ShipRig põe a nave em relação à câmera (descendo até o canto, escolta e batida no vidro). */
-const CAMERA_ANCHORED: ReadonlySet<ShipMode> = new Set(['entering', 'escort'])
+/**
+ * Modos em que o ShipRig põe a nave em relação à câmera: descendo até o canto, escolta, batida no vidro e a visita em
+ * primeiro plano (presa à câmera atrasada; girar a câmera em volta do planeta não pode sacudir os tentáculos).
+ */
+const CAMERA_ANCHORED: ReadonlySet<ShipMode> = new Set(['entering', 'escort', 'visiting'])
+
+/** Contra o que a inércia é medida em cada modo (a troca recomeça a sonda, sem tranco). */
+export function inertiaFrameFor(mode: ShipMode): 'camera' | 'world' {
+  return CAMERA_ANCHORED.has(mode) ? 'camera' : 'world'
+}
 
 /** Referencial da inércia: `auto` segue o modo da nave (shipPose); `world` sempre o mundo (preview). */
 export type InertiaFrame = 'auto' | 'world'
 
 /**
  * Sonda de inércia ligada à cena: em `auto`, mede contra a câmera quando o ShipRig ancora a nave nela
- * (escolta, entrada) e contra o mundo no resto. Zera o histórico quando o referencial troca (na sonda), quando
+ * (escolta, entrada, visita) e contra o mundo no resto. Zera o histórico quando o referencial troca (na sonda), quando
  * o destino muda (a viagem recomeça de outro jeito) e quando a tela muda de tamanho (a escolta muda de canto).
  * O objeto devolvido é estável enquanto câmera, modo e sonda não mudam.
  */
@@ -407,7 +415,7 @@ export function useInertiaProbe(options: InertiaOptions, frame: InertiaFrame = '
           last.target = shipPose.target
           probe.reset()
         }
-        return probe.sample(object, dt, frame === 'auto' && CAMERA_ANCHORED.has(shipPose.mode) ? camera : null)
+        return probe.sample(object, dt, frame === 'auto' && inertiaFrameFor(shipPose.mode) === 'camera' ? camera : null)
       },
       reset: () => probe.reset(),
     }

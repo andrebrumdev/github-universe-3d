@@ -28,9 +28,9 @@ import {
 } from '@/lib/ship/escort'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
 import { blendFramesPoint, frameFromPose, frameToLocal, frameToWorld, type CameraFrame } from '@/lib/ship/cameraFrame'
-import { planReturn, returnFaceWeight, returnHeading, returnPoint, returnThrust, type ReturnPlan } from '@/lib/ship/returnFlight'
+import { planReturn, returnBlend, returnFaceWeight, returnHeading, returnPoint, returnThrust, type ReturnPlan } from '@/lib/ship/returnFlight'
 import { planTransferTo, travelBodies } from '@/lib/ship/transfer'
-import { projectDisc, visitLocal, visitPlacement, type Disc } from '@/lib/ship/visit'
+import { newVisitWatch, projectDisc, visitLocal, visitPlacement, visitStep, type Disc, type VisitWatch } from '@/lib/ship/visit'
 import { travelPoint, travelTangent, travelVelocity, type TravelPath } from '@/lib/ship/travel'
 import type { Repo } from '@/lib/types'
 import { reservedRects } from '@/lib/uiLayout'
@@ -58,14 +58,10 @@ const BUBBLE_IN = SHIP_WORLD_WIDTH * 0.3
 
 /** Quanto a entrada começa acima do canto: uma altura de tela inteira (desce de fora da imagem). */
 const enterRise = (local: Vec3, fov: number) => -local[2] * Math.tan((fov * Math.PI) / 360) * 2
-/** Distância (unidades) da câmera à pose de foco a partir da qual a visita começa a passar para o referencial dela. */
-const VISIT_HANDOFF_RANGE = 12
-/** Ritmo máximo (1/s) dessa passagem: começa do zero na chegada, sem salto. */
-const VISIT_HANDOFF_RATE = 1.2
-/** O alvo andou na tela mais que essa fração da altura (o usuário arrastou a câmera longe): a nave muda de lugar. */
-const VISIT_REPLACE_SHIFT = 0.12
-/** Ritmo (1/s) com que a nave desliza para o lugar novo. */
+/** Ritmo (1/s) com que a nave desliza para um lugar novo na visita. */
 const VISIT_REPLACE_RATE = 3
+/** O estilingue só é anunciado (fala) quando a curva se vê (deflexão em rad). */
+const SLINGSHOT_ANNOUNCE = (15 * Math.PI) / 180
 
 /** Visita em primeiro plano (lib/ship/visit): ponto no referencial da câmera, preso primeiro à pose de foco e depois à câmera. */
 interface VisitSpot {
@@ -79,9 +75,8 @@ interface VisitSpot {
   /** Disco do alvo que gerou o lugar atual (px), e a interface de então. */
   disc: Disc | null
   layoutKey: string
-  /** 0 = preso à pose de foco (mundo), 1 = preso à câmera atrasada. */
-  hand: number
-  checkAt: number
+  /** Passagem para a câmera e câmera parada (ver `visitStep`). */
+  watch: VisitWatch
 }
 /** No estilingue a curva é fechada e rápida: a nave inclina bem mais que numa curva comum. */
 const ASSIST_BANK = 1.8
@@ -145,6 +140,9 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     latestVisitUi.current = visitUi
   })
   const visit = useRef<VisitSpot | null>(null)
+  /** Câmera do quadro anterior (para saber se ela assentou). */
+  const lastCamPos = useMemo(() => new THREE.Vector3(), [])
+  const lastCamQuat = useMemo(() => new THREE.Quaternion(), [])
 
   // Posição da escolta: calculada só quando a tela, o fov ou um cartão (tutorial, apresentação) mudam (não por frame).
   // Em pixels, longe dos botões e dos cartões (medidas compartilhadas em uiLayout).
@@ -225,8 +223,10 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
   useEffect(() => {
     if (!target) {
       const from = machine.current.mode
-      returnPlan.current = null
       let duration: number | undefined
+      // Só uma saída de verdade (viagem ou visita) planeja a volta: um efeito que roda de novo no meio dela (resize,
+      // passo do tutorial) não a interrompe.
+      if (from === 'traveling' || from === 'visiting') returnPlan.current = null
       if (!reduced && (from === 'traveling' || from === 'visiting')) {
         // Volta: no referencial da câmera (atrasada) desta hora; sai pela tangente da órbita em volta do sol.
         writeFrame(returnFrame, camera.position, lagQuat, scratch)
@@ -276,7 +276,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     const placement = disc ? visitPlacement({ width, height, reserved: ui.reserved, disc }) : null
     const local: Vec3 = placement ? visitLocal(placement, width, height, pfov) : [...latestEscort.current.base]
     const goalFrame = frameFromPose(pose)
-    visit.current = { goal: goalFrame, local, targetLocal: [local[0], local[1], local[2]], side: placement?.side ?? 1, disc, layoutKey: ui.key, hand: reduced ? 1 : 0, checkAt: 0 }
+    visit.current = { goal: goalFrame, local, targetLocal: [local[0], local[1], local[2]], side: placement?.side ?? 1, disc, layoutKey: ui.key, watch: { ...newVisitWatch(), hand: reduced ? 1 : 0 } }
     const destination = frameToWorld(goalFrame, local)
     if (reduced) {
       machine.current = shipReducer(machine.current, { type: 'arrive', target })
@@ -286,10 +286,13 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
       // A viagem termina no lugar da visita, no referencial da pose de foco, que já é a do instante em que o tempo
       // para (o alvo não anda mais depois da chegada).
       const destinationAt = () => destination
+      // Saindo da visita em primeiro plano (perto da lente): primeiro para longe da câmera, depois a transferência.
+      const lens = machine.current.mode === 'visiting' ? writeFrame(newFrame(), camera.position, lagQuat, scratch) : null
       const path = planTransferTo(shipPose.position, destinationAt, {
         sun: barycenterOffset(system, stop),
         // Troca de destino em voo: parte com a velocidade atual (sem quina). Parada (escolta, visita): queima de partida.
         velocity: machine.current.mode === 'traveling' ? shipPose.velocity : null,
+        lens,
         bodies: travelBodies(system, stop),
         exclude: target.kind === 'planet' ? target.name : null,
       })
@@ -358,7 +361,10 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
         slingshot = true
         if (announced.current !== s.path) {
           announced.current = s.path
-          if (shipPose.userTravel && !usePresentation.getState().state) useUniverse.getState().emitGuide('slingshot')
+          // a fala só quando a curva se vê (passagens longe curvam pouco, por física)
+          if (assist.deflection >= SLINGSHOT_ANNOUNCE && shipPose.userTravel && !usePresentation.getState().state) {
+            useUniverse.getState().emitGuide('slingshot')
+          }
         }
       }
     } else if (plan && !reduced) {
@@ -366,9 +372,15 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
       hasLocal.current = false
       writeFrame(frameNow, camera.position, lagQuat, scratch)
       g.position.fromArray(returnPoint(plan, s.elapsed, returnFrame, frameNow, posArr))
+      // a frente no mesmo referencial misturado da posição (no começo, o da hora da volta)
       const h = returnHeading(plan, s.elapsed)
+      const w = returnBlend(plan, s.elapsed)
       heading = [0, 0, 0]
-      for (let k = 0; k < 3; k++) heading[k] = h[0] * frameNow.right[k] + h[1] * frameNow.up[k] + h[2] * frameNow.back[k]
+      for (let k = 0; k < 3; k++) {
+        const then = h[0] * returnFrame.right[k] + h[1] * returnFrame.up[k] + h[2] * returnFrame.back[k]
+        const now = h[0] * frameNow.right[k] + h[1] * frameNow.up[k] + h[2] * frameNow.back[k]
+        heading[k] = then + (now - then) * w
+      }
       facing = returnFaceWeight(plan, s.elapsed)
       const level = Math.round(returnThrust(plan, s.elapsed) / THRUST_STEP) * THRUST_STEP
       if (level !== thrustRef.current) {
@@ -396,46 +408,56 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
       const v = visit.current
       writeFrame(frameNow, camera.position, lagQuat, scratch)
       const far = camera.position.distanceTo(scratch.fromArray(v.goal.position))
-      const reach = Math.min(1, Math.max(0, 1 - far / VISIT_HANDOFF_RANGE))
-      v.hand = reduced ? 1 : Math.max(v.hand, Math.min(reach, v.hand + VISIT_HANDOFF_RATE * dt))
-      if (v.hand >= 1 && s.target && clock.elapsedTime >= v.checkAt) {
-        // A interface mudou ou o usuário levou a câmera longe: escolhe outro lugar e desliza até ele.
-        v.checkAt = clock.elapsedTime + 0.3
-        const anchor = targetAnchor(s.target, system, simClock.time)
-        const ui = latestVisitUi.current
-        if (anchor) {
-          const { width, height } = size
-          scratch.fromArray(anchor.position).applyMatrix4(camera.matrixWorldInverse)
-          const depth = -scratch.z
-          scratch.fromArray(anchor.position).project(camera)
-          const tanY = Math.tan((fov * Math.PI) / 360)
-          const disc: Disc | null = depth > 0 ? { x: ((scratch.x + 1) / 2) * width, y: ((1 - scratch.y) / 2) * height, r: (anchor.radius / depth / tanY) * (height / 2) } : null
-          const moved =
-            !v.disc || !disc || Math.hypot(disc.x - v.disc.x, disc.y - v.disc.y) > VISIT_REPLACE_SHIFT * height || Math.abs(Math.log(disc.r / v.disc.r)) > 0.35
-          if (disc && (moved || ui.key !== v.layoutKey)) {
-            const p = visitPlacement({ width, height, reserved: ui.reserved, disc })
-            v.targetLocal = visitLocal(p, width, height, fov)
-            v.side = p.side
-            v.disc = disc
-            v.layoutKey = ui.key
-          }
-        }
+      // câmera parada? (velocidade e giro deste quadro)
+      const speed = dt > 0 ? camera.position.distanceTo(lastCamPos) / dt : 0
+      const turn = dt > 0 ? camera.quaternion.angleTo(lastCamQuat) / dt : 0
+      // o alvo na tela agora, comparado com o de quando o lugar foi escolhido
+      const ui = latestVisitUi.current
+      const anchor = s.target ? targetAnchor(s.target, system, simClock.time) : null
+      let disc: Disc | null = null
+      if (anchor) {
+        const { width, height } = size
+        scratch.fromArray(anchor.position).applyMatrix4(camera.matrixWorldInverse)
+        const depth = -scratch.z
+        scratch.fromArray(anchor.position).project(camera)
+        const tanY = Math.tan((fov * Math.PI) / 360)
+        if (depth > 0) disc = { x: ((scratch.x + 1) / 2) * width, y: ((1 - scratch.y) / 2) * height, r: (anchor.radius / depth / tanY) * (height / 2) }
+      }
+      const step = visitStep(v.watch, {
+        far,
+        cameraSpeed: speed,
+        cameraTurn: turn,
+        dt,
+        // sem lugar escolhido pela tela ainda (alvo fora dela na chegada): conta como "andou"
+        discShift: disc ? (v.disc ? Math.hypot(disc.x - v.disc.x, disc.y - v.disc.y) / size.height : Infinity) : 0,
+        radiusRatio: disc && v.disc ? disc.r / v.disc.r : 1,
+        layoutChanged: ui.key !== v.layoutKey,
+      })
+      if (reduced) v.watch.hand = 1
+      if (step.replace && disc) {
+        // a interface mudou, ou a câmera assentou com o alvo em outro lugar: escolhe outro lugar e desliza até ele
+        const p = visitPlacement({ width: size.width, height: size.height, reserved: ui.reserved, disc })
+        v.targetLocal = visitLocal(p, size.width, size.height, fov)
+        v.side = p.side
+        v.disc = disc
+        v.layoutKey = ui.key
       }
       const k = reduced ? 1 : 1 - Math.exp(-VISIT_REPLACE_RATE * dt)
       for (let i = 0; i < 3; i++) v.local[i] += (v.targetLocal[i] - v.local[i]) * k
-      const h = v.hand * v.hand * (3 - 2 * v.hand)
-      g.position.fromArray(blendFramesPoint(v.goal, frameNow, h, v.local, posArr))
+      const hand = v.watch.hand
+      g.position.fromArray(blendFramesPoint(v.goal, frameNow, hand * hand * (3 - 2 * hand), v.local, posArr))
     } else {
       hasLocal.current = false
       look.copy(goal).applyQuaternion(lagQuat).add(camera.position)
       const rate = s.mode === 'returning' ? 3 / RETURN_DURATION : 4
       g.position.lerp(look, reduced ? 1 : 1 - Math.exp(-rate * dt))
     }
-    // Nada da nave encosta no plano próximo, nem com a câmera chegando perto dela.
-    if (!tangent) {
-      keepAway(g.position.toArray(posArr), camera.position.toArray(camArr), MIN_SHIP_DISTANCE, posArr)
-      g.position.fromArray(posArr)
-    }
+    // Nada da nave encosta no plano próximo, nem com a câmera chegando perto dela, em nenhum modo (também na viagem
+    // e na volta: a última garantia; a saída perto da lente já se planeja para longe dela).
+    keepAway(g.position.toArray(posArr), camera.position.toArray(camArr), MIN_SHIP_DISTANCE, posArr)
+    g.position.fromArray(posArr)
+    lastCamPos.copy(camera.position)
+    lastCamQuat.copy(camera.quaternion)
 
     const yawSide = s.mode === 'visiting' && visit.current ? visit.current.side : escort.side
     // Orientação: na viagem, a frente (+z) segue a tangente e inclina nas curvas. Parada, olha para quem vê:
