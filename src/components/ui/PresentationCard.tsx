@@ -201,8 +201,9 @@ function Controls({ index, count, reduced }: { index: number; count: number; red
     // Fica no topo da folha/cartão enquanto o conteúdo rola.
     <div className="sticky top-0 z-10 bg-panel/95 px-4 pb-3 pt-3 backdrop-blur">
       <div className="flex items-center gap-2">
-        <p className="text-xs uppercase tracking-wider text-slate-400">
-          Apresentação <span className="ml-1 tabular-nums normal-case tracking-normal text-slate-400">{index + 1}/{count}</span>
+        {/* Sem espaço (controles de 44 px no toque), o número desce alinhado à esquerda, não pendurado. */}
+        <p className="flex flex-wrap items-baseline gap-x-1.5 text-xs uppercase tracking-wider text-slate-400">
+          Apresentação <span className="tabular-nums normal-case tracking-normal text-slate-400">{index + 1}/{count}</span>
         </p>
         {/* No toque, 44 px e mais espaço; o ✕ fica separado da navegação, para o polegar não sair sem querer. */}
         <div className="ml-auto flex items-center gap-1 pointer-coarse:gap-2">
