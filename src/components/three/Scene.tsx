@@ -34,7 +34,7 @@ export function Scene({ universe }: { universe: Universe }) {
 
   return (
     <Canvas dpr={[1, 2]} camera={{ position: [0, 40, 70], fov: 50, near: 0.1, far: CAMERA_FAR }} onPointerMissed={clearSelection}>
-      <color attach="background" args={['#0a0e27']} />
+      <color attach="background" args={['#03050d']} />
       <ambientLight intensity={0.25} />
       <hemisphereLight args={['#9bd8ff', '#1a2350', 0.2]} />
       <Starfield radius={starRadius} />

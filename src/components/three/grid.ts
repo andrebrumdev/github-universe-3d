@@ -35,11 +35,11 @@ export function cellRect(week: number, day: number): [number, number, number, nu
   return [col * COL_PX + half, top + half, COL_PX - CELL_GAP, rowTop(row + 1) - top - CELL_GAP]
 }
 
-/** Azul-ardósia claro o bastante para o planeta destacar do fundo do espaço. */
-export const PLANET_BASE = '#3a5288'
+/** Azul-aço claro: grade e calotas leem como um corpo iluminado contra o fundo quase preto. */
+export const PLANET_BASE = '#5b7bc0'
 export const CELL_COLOR = '#10b981'
-/** Dia sem commits: quadradinho escuro, como a célula vazia do GitHub no tema escuro. */
-export const EMPTY_CELL = '#161b2e'
+/** Dia sem commits: quadradinho escuro (mas não preto), como a célula vazia do GitHub no tema escuro. */
+export const EMPTY_CELL = '#1f2a4a'
 
 export function cellFromUv(u: number, v: number): { week: number; day: number } | null {
   if (!Number.isFinite(u) || !Number.isFinite(v)) return null

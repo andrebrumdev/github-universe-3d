@@ -23,6 +23,8 @@ export function Starfield({ radius }: { radius: number }) {
         seed: 7,
         sizeMin: 0.002,
         sizeMax: 0.007,
+        // paleta padrão da lib (branco, azulado, creme) a ~80%: contra o fundo quase preto não compete com os planetas
+        color: ['#cccccc', '#a2adcc', '#ccc3b3'],
         twinkle: !reducedMotion,
       }),
     [radius, outer, reducedMotion],

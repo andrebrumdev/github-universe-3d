@@ -10,7 +10,7 @@ export const ATMOSPHERE_SCALE = 1.08
 export const ATMOSPHERE_MATERIAL = new THREE.MeshBasicMaterial({
   color: '#7dd3fc',
   transparent: true,
-  opacity: 0.16,
+  opacity: 0.24,
   side: THREE.BackSide,
   blending: THREE.AdditiveBlending,
   depthWrite: false,
