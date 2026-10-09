@@ -1,5 +1,6 @@
 import type { UniverseSelection } from './interaction'
 import type { ShipTarget } from './ship/escort'
+import { MAX_FRAME_DT } from './ship/motion'
 import type { ShipMode } from './ship/shipMachine'
 import type { Universe } from './types'
 
@@ -10,7 +11,7 @@ export const MAX_PRESENTED_REPOS = 10
 /** Se a nave não chegar nesse tempo (s) — alvo que não virou planeta, por exemplo —, a parada começa mesmo assim. */
 export const ARRIVAL_TIMEOUT = 12
 /** Maior passo (s) por quadro do relógio da nave (ShipRig): a espera pela chegada conta no mesmo relógio. */
-export const SHIP_MAX_DT = 0.1
+export const SHIP_MAX_DT = MAX_FRAME_DT
 
 export type Stop = { kind: 'profile' } | { kind: 'repo'; name: string } | { kind: 'outro' }
 

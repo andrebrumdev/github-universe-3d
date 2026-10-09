@@ -31,7 +31,7 @@ export const TUTORIAL_CARD = {
 
 /** Largura do painel lateral aberto no desktop (o SidePanel lê daqui). */
 export const SIDE_PANEL_WIDTH = 380
-/** Celular: o painel vira uma folha no pé da tela com no máximo essa fração da altura (o `max-h-[60vh]` do SidePanel). */
+/** Celular: o painel vira uma folha no pé da tela com no máximo essa fração da altura visível (o SidePanel lê daqui, em dvh). */
 export const SIDE_SHEET_MAX_HEIGHT = 0.6
 
 /**
@@ -101,7 +101,7 @@ export function presentationCardZone(width: number, height: number): Rect {
   return { x: 0, y: height - h, w: width, h }
 }
 
-/** "← Galáxia" no canto de cima à esquerda (`left-4 top-4`, texto pequeno), com folga para a fonte. */
+/** "← Galáxia" no canto de cima à esquerda (o BackButton lê posição e tamanho daqui). */
 export const BACK_BUTTON = { left: 16, top: 16, width: 112, height: 40 } as const
 
 export function backButtonRect(): Rect {

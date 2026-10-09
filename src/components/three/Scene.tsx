@@ -81,7 +81,7 @@ export function Scene({ universe }: { universe: Universe }) {
       <Trojans system={system} repos={universe.repos} />
       <Comets system={system} repos={universe.repos} />
       <CameraRig system={system} repos={universe.repos} />
-      <ShipRig system={system} repos={universe.repos} profileName={universe.profile.name} />
+      <ShipRig system={system} repos={universe.repos} />
       {bloom && <GlowBloom />}
       {SHOW_STATS && <Stats />}
       {SHOW_STATS && <RenderInfo />}

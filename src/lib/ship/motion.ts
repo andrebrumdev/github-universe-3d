@@ -1,3 +1,9 @@
+/**
+ * Maior passo de quadro (s) que a nave, a câmera, o rastro, a sonda de inércia e o relógio da apresentação aceitam:
+ * um quadro mais longo (aba em segundo plano, engasgo) anda só isso.
+ */
+export const MAX_FRAME_DT = 0.1
+
 /** Flutuação suave do Octocat parado. */
 export function hoverOffset(t: number): { y: number; roll: number } {
   return { y: Math.sin(t * 1.6) * 0.06, roll: Math.sin(t * 0.9) * 0.03 }

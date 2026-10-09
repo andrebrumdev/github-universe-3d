@@ -26,7 +26,7 @@ export function PlanetHoverCard({ repo, radius }: { repo: Repo; radius: number }
               </span>
             )}
           </div>
-          <p className="mt-2 text-[11px] text-slate-500">Clique para explorar</p>
+          <p className="mt-2 text-[11px] text-slate-400">Clique para explorar</p>
         </div>
       </div>
     </Html>

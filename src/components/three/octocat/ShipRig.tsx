@@ -10,6 +10,7 @@ import { selectedPlanet } from '@/lib/interaction'
 import type { OctocatExpression } from '@/lib/octocat/expression'
 import {
   bankAngle,
+  ESCORT_FOLLOW,
   escortFraming,
   escortPlacement,
   keepAway,
@@ -26,6 +27,7 @@ import {
   THREE_QUARTER_YAW,
   type ShipTarget,
 } from '@/lib/ship/escort'
+import { MAX_FRAME_DT } from '@/lib/ship/motion'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
 import { blendFramesPoint, frameFromPose, frameToLocal, frameToWorld, type CameraFrame } from '@/lib/ship/cameraFrame'
 import { planReturn, returnBlend, returnFaceWeight, returnHeading, returnPoint, returnThrust, type ReturnPlan } from '@/lib/ship/returnFlight'
@@ -46,8 +48,6 @@ import { FireTrail, TrailWarmup } from './FireTrail'
 import { OctocatShip, type ArmMode } from './OctocatShip'
 import { THRUSTER_ORIGIN } from './shipParts'
 
-/** Taxa (1/s) com que o referencial da escolta acompanha o giro da câmera: a nave fica um instante para trás. */
-const ESCORT_FOLLOW = 5
 /** Taxa (1/s) com que a nave assenta no canto da escolta (vindo da volta ou de um resize). */
 const ESCORT_SETTLE = 8
 /** Inclinação (rad) para a frente, em direção à lente, no auge da batida no vidro. */
@@ -96,8 +96,7 @@ function writeFrame(f: CameraFrame, position: THREE.Vector3, q: THREE.Quaternion
 }
 const dotArr = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
-// `profileName` segue na assinatura (o Scene passa); o balão visível agora é DOM, no OctocatSpeech.
-export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[]; profileName: string }) {
+export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] }) {
   const group = useRef<THREE.Group>(null)
   // Cópia própria: na escolta e na visita o tick só avança `elapsed` no lugar (ver o useFrame).
   const machine = useRef<ShipState>({ ...INITIAL_SHIP })
@@ -306,7 +305,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
   useFrame(({ clock }, rawDt) => {
     const g = group.current
     if (!g) return
-    const dt = Math.min(rawDt, 0.1)
+    const dt = Math.min(rawDt, MAX_FRAME_DT)
     // Escolta e visita não mudam de modo com o tempo: avança no lugar, sem alocar um estado novo por frame.
     let s = machine.current
     if (s.mode === 'escort' || s.mode === 'visiting') s.elapsed += dt
@@ -521,6 +520,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
         scale={SHIP_SCALE}
         onClick={(e) => {
           e.stopPropagation()
+          // a nave sai de baixo do cursor parado: sem isso, o piscar e o aceno ficam até o mouse mexer
+          setHovered(false)
           startTutorial()
         }}
         onPointerOver={(e) => {

@@ -66,7 +66,7 @@ function PlanetDetails({ repo, focusLanguage }: { repo: Repo; focusLanguage: str
               >
                 <span className="h-3 w-3 rounded-full" style={{ background: l.color }} />
                 {l.name}
-                {l.name === repo.primaryLanguage && <span className="text-xs text-slate-500">principal</span>}
+                {l.name === repo.primaryLanguage && <span className="text-xs text-slate-400">principal</span>}
                 <span className="ml-auto tabular-nums text-slate-400">{l.share.toFixed(1)}%</span>
               </li>
             ))}

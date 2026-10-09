@@ -178,7 +178,7 @@ function Controls({ index, count, reduced }: { index: number; count: number; red
     <div className="sticky top-0 z-10 bg-panel/95 px-4 pb-3 pt-3 backdrop-blur">
       <div className="flex items-center gap-2">
         <p className="text-xs uppercase tracking-wider text-slate-400">
-          Apresentação <span className="ml-1 tabular-nums normal-case tracking-normal text-slate-500">{index + 1}/{count}</span>
+          Apresentação <span className="ml-1 tabular-nums normal-case tracking-normal text-slate-400">{index + 1}/{count}</span>
         </p>
         <div className="ml-auto flex items-center gap-1">
           <ControlButton label="Parada anterior" onClick={prev} disabled={index === 0}>
@@ -273,7 +273,7 @@ function StopProgress({ reduced }: { reduced: boolean }) {
       <div className="h-0.5 overflow-hidden rounded-full bg-white/10">
         <div ref={bar} className="h-full origin-left bg-neon" style={{ transform: 'scaleX(0)' }} />
       </div>
-      {(held || !arrived) && <p className="mt-1 text-[11px] text-slate-500">{status}</p>}
+      {(held || !arrived) && <p className="mt-1 text-[11px] text-slate-400">{status}</p>}
     </div>
   )
 }

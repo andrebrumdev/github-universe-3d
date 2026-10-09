@@ -2,8 +2,7 @@ import type { Pose } from '../cameraPoses'
 import { UI_GAP, type Rect } from '../uiLayout'
 import { barycenterOffset } from '../universe/barycenter'
 import { planetPosition, SUN_RADIUS, type OrbitSystem, type Vec3 } from '../universe/orbits'
-import { SUN_SAFE_DISTANCE } from './travel'
-import { add, cross, length, normalize, scale, sub } from './vec'
+import { add, length, scale } from './vec'
 
 export type ShipTarget = { kind: 'sun' } | { kind: 'planet'; name: string }
 
@@ -15,18 +14,8 @@ export function targetAnchor(target: ShipTarget, system: OrbitSystem, time: numb
   return { position: planetPosition(system.rings[orbit.ring], orbit, time), radius: orbit.radius }
 }
 
-/**
- * Ao lado do alvo, do lado da câmera e um pouco acima; nunca perto demais do sol.
- * `side` escolhe o lado na visão da câmera: −1 = esquerda (padrão do plano), +1 = direita; frações aproximam do alvo.
- */
-export function visitPosition(anchor: Vec3, radius: number, cameraPos: Vec3, side = -1): Vec3 {
-  const toCamera = normalize(sub(cameraPos, anchor))
-  const right = normalize(cross([0, 1, 0], toCamera), [1, 0, 0])
-  let pos = add(add(anchor, scale(toCamera, radius + 1.6)), add(scale(right, side * (radius + 0.8)), [0, radius * 0.5 + 0.4, 0]))
-  const d = length(pos)
-  if (d < SUN_SAFE_DISTANCE + 0.5) pos = scale(normalize(pos, [0, 1, 0]), SUN_SAFE_DISTANCE + 0.5)
-  return pos
-}
+/** Taxa (1/s) com que o referencial da escolta acompanha o giro da câmera: a nave fica um instante para trás. */
+export const ESCORT_FOLLOW = 5
 
 /** Escala da nave na cena (modelo: 5,56 de envergadura × 4,10 de comprimento × 2,76 de altura; frente em +z). */
 export const SHIP_SCALE = 0.18

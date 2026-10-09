@@ -40,8 +40,9 @@ export function App() {
         <PlanetPanel universe={universe} />
         <ProfilePanel profile={universe.profile} />
         <OctocatSpeech profileName={universe.profile.name} />
-        <TutorialButton />
+        {/* na ordem em que aparecem na tela (da esquerda para a direita) */}
         <PresentationButton universe={universe} />
+        <TutorialButton />
         <Tutorial profileName={universe.profile.name} />
         <PresentationCard universe={universe} />
       </main>

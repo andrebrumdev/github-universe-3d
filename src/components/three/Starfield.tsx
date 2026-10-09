@@ -72,9 +72,10 @@ function ParallaxLayer({ radius }: { radius: number }) {
     p.frustumCulled = false
     p.raycast = () => {}
     // diâmetro em px = tamanho × (altura do buffer em px / 2) / (tan(fov/2) × profundidade)
+    const buffer = new THREE.Vector2()
     p.onBeforeRender = (renderer, _scene, camera) => {
       const fov = (camera as THREE.PerspectiveCamera).fov
-      material.uniforms.uScale.value = renderer.getDrawingBufferSize(new THREE.Vector2()).y / (2 * Math.tan((fov * Math.PI) / 360))
+      material.uniforms.uScale.value = renderer.getDrawingBufferSize(buffer).y / (2 * Math.tan((fov * Math.PI) / 360))
     }
     return p
   }, [radius])

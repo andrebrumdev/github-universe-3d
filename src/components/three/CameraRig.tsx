@@ -6,6 +6,7 @@ import { useReducedMotion } from 'framer-motion'
 import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 import { maxCameraDistance, selectionPose, tutorialPose, type PanelLayout, type Pose, type Viewport } from '@/lib/cameraPoses'
 import { CHASE_SPRING, chasePose, FOCUS_SPRING, MAX_CHASE_LEAD, springLead, springStep, type Spring3 } from '@/lib/ship/escort'
+import { MAX_FRAME_DT } from '@/lib/ship/motion'
 import { length, sub } from '@/lib/ship/vec'
 import type { Repo } from '@/lib/types'
 import { predictStopTime } from '@/lib/universe/clock'
@@ -84,7 +85,7 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
       if (driving) setDriving(false)
       return
     }
-    const dt = Math.min(rawDt, 0.1)
+    const dt = Math.min(rawDt, MAX_FRAME_DT)
     const chase = shipPose.mode === 'traveling' && shipPose.userTravel
     let goal: Pose | null = null
     if (chase) {

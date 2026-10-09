@@ -25,12 +25,11 @@ import {
   springLead,
   springStep,
   targetAnchor,
-  visitPosition,
 } from './escort'
 import { planTransfer } from './transfer'
-import { SUN_SAFE_DISTANCE, travelPoint, travelVelocity } from './travel'
+import { travelPoint, travelVelocity } from './travel'
 import { type OpenCards, presentationCardZone, reservedRects, type Rect } from '../uiLayout'
-import { cross, dot, length, sub } from './vec'
+import { dot, length, sub } from './vec'
 
 const system = buildOrbits(Array.from({ length: 12 }, (_, i) => ({ name: `p${i}`, radius: 2.2 })))
 
@@ -45,30 +44,6 @@ describe('targetAnchor', () => {
       radius: orbit.radius,
     })
     expect(targetAnchor({ kind: 'planet', name: 'nada' }, system, 0)).toBeNull()
-  })
-})
-
-describe('visitPosition', () => {
-  it('fica ao lado do alvo, do lado da câmera, e longe do sol', () => {
-    const cameraPositions: Vec3[] = [[0, 20, 40], [0, 2, 0.1], [30, 5, -30]]
-    for (const cam of cameraPositions) {
-      for (const orbit of system.orbits) {
-        const anchor = targetAnchor({ kind: 'planet', name: orbit.name }, system, 3)!
-        const visit = visitPosition(anchor.position, anchor.radius, cam)
-        expect(length(sub(visit, anchor.position))).toBeGreaterThan(anchor.radius)
-        expect(length(visit)).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
-      }
-      expect(length(visitPosition([0, 0, 0], SUN_RADIUS, cam))).toBeGreaterThanOrEqual(SUN_SAFE_DISTANCE)
-    }
-  })
-
-  it('o lado escolhido é o da visão da câmera', () => {
-    const anchor: Vec3 = [20, 0, 0]
-    const cam: Vec3 = [20, 0, 30]
-    const right = cross([0, 0, -1], [0, 1, 0])
-    expect(dot(sub(visitPosition(anchor, 1, cam), anchor), right)).toBeLessThan(0)
-    expect(dot(sub(visitPosition(anchor, 1, cam, 1), anchor), right)).toBeGreaterThan(0)
-    expect(dot(sub(visitPosition(anchor, 1, cam, 0), anchor), right)).toBeCloseTo(0)
   })
 })
 

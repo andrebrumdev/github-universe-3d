@@ -4,6 +4,7 @@ import { formatLine, LINE_DURATION_MS } from '@/lib/octocat/lines'
 import { DESKTOP_MIN_WIDTH, SIDE_PANEL_WIDTH, UI_GAP } from '@/lib/uiLayout'
 import { usePresentation } from '@/store/presentation'
 import { shipPose } from '@/store/shipPose'
+import { useTutorial } from '@/store/tutorial'
 import { useUniverse } from '@/store/universe'
 
 /**
@@ -16,9 +17,9 @@ export function OctocatSpeech({ profileName }: { profileName: string }) {
   const dismissBubble = useUniverse((s) => s.dismissBubble)
   const emitGuide = useUniverse((s) => s.emitGuide)
 
-  // Assistindo à apresentação, ficar parado é o esperado: nada de "Oi, tá aí?".
+  // Assistindo à apresentação ou lendo o tutorial, ficar parado é o esperado: nada de "Oi, tá aí?".
   const onIdle = useCallback((kind: 'idle' | 'longIdle') => {
-    if (!usePresentation.getState().state) emitGuide(kind)
+    if (!usePresentation.getState().state && useTutorial.getState().step === null) emitGuide(kind)
   }, [emitGuide])
   useIdle(onIdle)
   const balloon = useRef<HTMLParagraphElement>(null)

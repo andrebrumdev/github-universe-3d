@@ -1,10 +1,17 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
-import { SIDE_PANEL_WIDTH } from '@/lib/uiLayout'
+import { SIDE_PANEL_WIDTH, SIDE_SHEET_MAX_HEIGHT } from '@/lib/uiLayout'
 
-/** Largura no desktop da fonte única (uiLayout): o balão do Octocat e a apresentação contam com ela. */
-const PANEL_STYLE = { '--panel-width-md': `${SIDE_PANEL_WIDTH}px` } as CSSProperties
+/**
+ * Largura no desktop e altura máxima da folha no celular, da fonte única (uiLayout): o balão do Octocat, a apresentação
+ * e a nave na visita contam com elas. A folha usa `dvh` (a altura visível, sem as barras do navegador), como a da
+ * apresentação.
+ */
+const PANEL_STYLE = {
+  '--panel-width-md': `${SIDE_PANEL_WIDTH}px`,
+  '--sheet-max-h': `${SIDE_SHEET_MAX_HEIGHT * 100}dvh`,
+} as CSSProperties
 
 interface SidePanelProps {
   open: boolean
@@ -42,7 +49,7 @@ export function SidePanel({ open, onClose, title, children }: SidePanelProps) {
           exit={hidden}
           transition={{ type: 'spring', stiffness: 260, damping: 30 }}
           style={PANEL_STYLE}
-          className="fixed inset-x-0 bottom-0 z-20 max-h-[60vh] overflow-y-auto rounded-t-2xl border border-neon/20 bg-panel/90 p-5 backdrop-blur md:inset-y-0 md:left-auto md:right-0 md:max-h-none md:w-(--panel-width-md) md:rounded-none md:rounded-l-2xl"
+          className="fixed inset-x-0 bottom-0 z-20 max-h-(--sheet-max-h) overflow-y-auto rounded-t-2xl border border-neon/20 bg-panel/90 p-5 backdrop-blur md:inset-y-0 md:left-auto md:right-0 md:max-h-none md:w-(--panel-width-md) md:rounded-none md:rounded-l-2xl"
         >
           <button
             ref={closeButton}

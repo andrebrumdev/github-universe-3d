@@ -18,7 +18,7 @@ export function StaticFallback({ universe }: { universe: Universe }) {
                 {repo.name}
               </a>
               {repo.description && <p className="text-sm text-slate-400">{repo.description}</p>}
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-400">
                 ★ {formatCount(repo.stars)} · {repo.primaryLanguage ?? 'sem linguagem'}
               </p>
             </li>

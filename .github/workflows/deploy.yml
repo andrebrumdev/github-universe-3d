@@ -21,12 +21,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # O CI ignora a main (os commits vão direto nela): o lint roda aqui também, antes de publicar.
+      - run: pnpm lint
       - run: pnpm test
       # Falha aqui = nada é publicado e o deploy anterior continua no ar.
       # O token só existe neste passo (sem prefixo VITE_): o build do cliente nunca o recebe.

@@ -13,6 +13,8 @@
 import { useEffect, useMemo } from 'react'
 import { useThree } from '@react-three/fiber'
 import * as THREE from 'three'
+import { ESCORT_FOLLOW } from '@/lib/ship/escort'
+import { MAX_FRAME_DT } from '@/lib/ship/motion'
 import type { ShipMode } from '@/lib/ship/shipMachine'
 import { createChain, stepChain, type VerletChain, type VerletInput, type VerletOptions } from '@/lib/ship/verlet'
 import { shipPose } from '@/store/shipPose'
@@ -304,13 +306,13 @@ export class InertiaProbe {
 
   /** `reference`: a câmera (escolta) ou null (mundo). */
   sample(object: THREE.Object3D, rawDt: number, reference: THREE.Object3D | null = null): VerletInput {
-    const { gain, maxLinear, angularGain, maxAngular, smoothing = 0.05, jump = 2, follow = 5 } = this.options
+    const { gain, maxLinear, angularGain, maxAngular, smoothing = 0.05, jump = 2, follow = ESCORT_FOLLOW } = this.options
     if (rawDt <= 0) return this.input
     const kind = reference ? 'camera' : 'world'
     // troca de referencial ou quadro longo demais: o que veio antes não serve para derivar nada
-    if (kind !== this.lastReference || rawDt > MAX_FRAME) this.reset()
+    if (kind !== this.lastReference || rawDt > MAX_FRAME_DT) this.reset()
     this.lastReference = kind
-    const dt = Math.min(rawDt, MAX_FRAME)
+    const dt = Math.min(rawDt, MAX_FRAME_DT)
 
     if (reference) {
       reference.matrixWorld.decompose(this.refPosition, this.refQuaternion, this.scale)
@@ -378,9 +380,6 @@ export class InertiaProbe {
  * (unidades do piloto/s² e rad/s²).
  */
 export const PILOT_INERTIA: InertiaOptions = { gain: 15, maxLinear: 16, angularGain: 3, maxAngular: 5 }
-
-/** Maior dt de quadro aceito pela sonda (s), o mesmo do ShipRig e da cadeia: acima disso, recomeça. */
-const MAX_FRAME = 0.1
 
 /**
  * Modos em que o ShipRig põe a nave em relação à câmera: descendo até o canto, escolta, batida no vidro e a visita em
