@@ -20,6 +20,8 @@ export const LINES: Record<GuideEvent, OctocatLine> = {
   idle: { id: 'idle', text: 'Oi, tá aí?', once: true, expression: 'wink' },
   longIdle: { id: 'longIdle', text: 'Ei, se precisar de ajuda, é comigo!', once: true, expression: 'happy' },
   slingshot: { id: 'slingshot', text: 'Estilingue gravitacional!', once: true, expression: 'surprised' },
+  // a cada trombada na tela (rara): a nave emite uma vez por trombada
+  crash: { id: 'crash', text: 'Opa, foi mal, vim rápido demais.', once: false, expression: 'happy' },
 }
 
 export const LINE_DURATION_MS = 4000

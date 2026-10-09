@@ -6,6 +6,7 @@ import type { OctocatExpression } from '@/lib/octocat/expression'
 import { COCKPIT } from '@/lib/ship/geometry'
 import { hoverOffset, isBlinking } from '@/lib/ship/motion'
 import { ClawdHat } from './ClawdHat'
+import { DazedStars } from './DazedStars'
 import type { InertiaFrame } from './flexRod'
 import { Pilot, type ArmMode } from './Pilot'
 import { Ship } from './Ship'
@@ -34,6 +35,8 @@ interface OctocatShipProps {
    * (preview: a nave fica parada e só a câmera orbita).
    */
   inertiaFrame?: InertiaFrame
+  /** Tonto depois da trombada na tela: estrelinhas girando em volta da cabeça. */
+  dazed?: boolean
 }
 
 export function OctocatShip({
@@ -44,6 +47,7 @@ export function OctocatShip({
   parts = ALL_PARTS,
   shake = 0,
   inertiaFrame = 'auto',
+  dazed = false,
 }: OctocatShipProps) {
   const root = useRef<THREE.Group>(null)
   const blinkRef = useRef(false)
@@ -71,6 +75,7 @@ export function OctocatShip({
       <group position={COCKPIT.position} scale={COCKPIT.scale}>
         {parts.pilot && <Pilot expression={expression} blinking={blinking} armMode={armMode} shake={shake} inertiaFrame={inertiaFrame} />}
         {parts.hat && <ClawdHat />}
+        {dazed && <DazedStars />}
       </group>
     </group>
   )

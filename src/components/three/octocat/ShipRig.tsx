@@ -7,6 +7,20 @@ import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 import { useIdle } from '@/hooks/useIdle'
 import { selectionPose, showcasePlanet, tutorialPose, type PanelLayout } from '@/lib/cameraPoses'
 import { selectedPlanet } from '@/lib/interaction'
+import {
+  crashBlend,
+  crashBurnPhase,
+  crashBurns,
+  crashFaceWeight,
+  crashHeading,
+  crashPoint,
+  crashTotal,
+  crashWobble,
+  planCrash,
+  type CrashPlan,
+} from '@/lib/crash/crashApproach'
+import { recordReturn, shouldCrash } from '@/lib/crash/rarity'
+import { CRASH_LINE_AT, crashShake } from '@/lib/crash/timeline'
 import type { OctocatExpression } from '@/lib/octocat/expression'
 import {
   arrivalBlendWeight,
@@ -41,6 +55,7 @@ import { reservedRects } from '@/lib/uiLayout'
 import { barycenterOffset } from '@/lib/universe/barycenter'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
+import { CRASH_OVERRIDE, crashClock, crashSession, useCrash } from '@/store/crash'
 import { resetShipPose, shipPose } from '@/store/shipPose'
 import { usePresentation } from '@/store/presentation'
 import { simClock } from '@/store/simClock'
@@ -96,6 +111,8 @@ const JOLT_PITCH = 0.06
 const RETURN_PUFF_SCALE = 0.35
 /** Tranco de um puff de força média (a força relativa ao puff médio multiplica isto). */
 const PUFF_JOLT = 0.45
+/** Tranco da trombada na tela: para trás, bem mais forte que um puff. */
+const CRASH_JOLT = 1.6
 
 const newFrame = (): CameraFrame => ({ position: [0, 0, 0], right: [1, 0, 0], up: [0, 1, 0], back: [0, 0, 1] })
 /** Escreve em `f` o referencial de uma câmera (posição + orientação), sem alocar. */
@@ -125,7 +142,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   const thrustSmooth = useRef(0.25)
   const greetUntil = useRef(-1)
   /** Queima em curso (voo e fase), para notar quando uma nova acende: tranco na nave, sacudida no Verlet. */
-  const lastBurn = useRef<{ flight: TravelPath | ReturnPlan | null; puff: number }>({ flight: null, puff: -1 })
+  const lastBurn = useRef<{ flight: TravelPath | ReturnPlan | CrashPlan | null; puff: number }>({ flight: null, puff: -1 })
   const joltStart = useRef(-Infinity)
   /** Sinal e força do tranco em curso: +1 na partida (para a frente), negativo nos puffs de ré. */
   const joltScale = useRef(1)
@@ -166,6 +183,25 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   /** Câmera do quadro anterior (para saber se ela assentou). */
   const lastCamPos = useMemo(() => new THREE.Vector3(), [])
   const lastCamQuat = useMemo(() => new THREE.Quaternion(), [])
+
+  // Trombada na tela (easter egg, ver lib/crash): a volta com trombada em curso (no lugar da `returnPlan`), a que já
+  // bateu, o tempo desde o impacto e, até a fala, o Octocat tonto (estrelinhas e rosto em espiral).
+  const crashPlan = useRef<CrashPlan | null>(null)
+  const crashedPlan = useRef<CrashPlan | null>(null)
+  /** Segundos de cena desde o impacto (passo da simulação), também em `crashClock`; −1 sem trombada. */
+  const sinceImpact = useRef(-1)
+  const [dazed, setDazed] = useState(false)
+  const dazedRef = useRef(false)
+  const shakeOut = useMemo(() => ({ x: 0, y: 0 }), [])
+  const wobble = useMemo(() => ({ roll: 0, pitch: 0 }), [])
+  /** Canvas que treme (o do quadro): a remontagem no meio do tremor não pode deixá-lo deslocado. */
+  const shaken = useRef<HTMLCanvasElement | null>(null)
+  useEffect(
+    () => () => {
+      if (shaken.current) shaken.current.style.transform = ''
+    },
+    [],
+  )
 
   // Posição da escolta: calculada só quando a tela, o fov ou um cartão (tutorial, apresentação) mudam (não por frame).
   // Em pixels, longe dos botões e dos cartões (medidas compartilhadas em uiLayout).
@@ -249,7 +285,10 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
       let duration: number | undefined
       // Só uma saída de verdade (viagem ou visita) planeja a volta: um efeito que roda de novo no meio dela (resize,
       // passo do tutorial) não a interrompe.
-      if (from === 'traveling' || from === 'visiting') returnPlan.current = null
+      if (from === 'traveling' || from === 'visiting') {
+        returnPlan.current = null
+        crashPlan.current = null
+      }
       if (!reduced && (from === 'traveling' || from === 'visiting')) {
         // Volta: no referencial da câmera (atrasada) desta hora; sai pela tangente da órbita em volta do sol.
         writeFrame(returnFrame, camera.position, lagQuat, scratch)
@@ -259,14 +298,29 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
         const tangent: Vec3 = [(p[2] - sun[2]) / rho, 0, -(p[0] - sun[0]) / rho]
         const toLocal = (v: Vec3): Vec3 => [dotArr(v, returnFrame.right), dotArr(v, returnFrame.up), dotArr(v, returnFrame.back)]
         const { base, side } = latestEscort.current
-        returnPlan.current = planReturn({
+        // de vez em quando (raro), a volta vem rápido demais e bate na tela
+        const crash = shouldCrash(crashSession.rng, crashSession.history, {
+          from: machine.current.target,
+          tutorial: step !== null,
+          presentation: usePresentation.getState().state !== null,
+          reducedMotion: reduced,
+          override: CRASH_OVERRIDE,
+        })
+        crashSession.history = recordReturn(crashSession.history, crash)
+        const input = {
           start: frameToLocal(returnFrame, p),
-          velocity: from === 'traveling' ? toLocal(shipPose.velocity) : [0, 0, 0],
+          velocity: from === 'traveling' ? toLocal(shipPose.velocity) : ([0, 0, 0] as Vec3),
           departure: toLocal(tangent),
           escort: base,
           side,
-        })
-        duration = returnPlan.current.duration
+        }
+        if (crash) {
+          crashPlan.current = planCrash(input)
+          duration = crashTotal(crashPlan.current)
+        } else {
+          returnPlan.current = planReturn(input)
+          duration = returnPlan.current.duration
+        }
       }
       machine.current = shipReducer(machine.current, { type: 'release', duration })
       shipPose.mode = machine.current.mode
@@ -339,7 +393,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     return { x: ((scratch.x + 1) / 2) * width, y: ((1 - scratch.y) / 2) * height, r: (anchor.radius / depth / tanY) * (height / 2) }
   }
 
-  useFrame(({ clock }, rawDt) => {
+  useFrame(({ clock, gl }, rawDt) => {
     const g = group.current
     if (!g) return
     if (!afterShip) setAfterShip(true)
@@ -386,6 +440,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     let heading: Vec3 | null = null
     let facing = 0
     const plan = s.mode === 'returning' ? returnPlan.current : null
+    const crashFlight = s.mode === 'returning' && !reduced ? crashPlan.current : null
 
     if (s.mode === 'traveling' && s.path) {
       hasLocal.current = false
@@ -419,6 +474,20 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
         heading[k] = then + (now - then) * w
       }
       facing = returnFaceWeight(plan, s.elapsed)
+    } else if (crashFlight) {
+      // Volta com trombada: o mesmo esquema de referenciais, pelo caminho do mergulho contra a lente
+      hasLocal.current = false
+      writeFrame(frameNow, camera.position, lagQuat, scratch)
+      g.position.fromArray(crashPoint(crashFlight, s.elapsed, returnFrame, frameNow, posArr))
+      const h = crashHeading(crashFlight, s.elapsed)
+      const w = crashBlend(crashFlight, s.elapsed)
+      heading = [0, 0, 0]
+      for (let k = 0; k < 3; k++) {
+        const then = h[0] * returnFrame.right[k] + h[1] * returnFrame.up[k] + h[2] * returnFrame.back[k]
+        const now = h[0] * frameNow.right[k] + h[1] * frameNow.up[k] + h[2] * frameNow.back[k]
+        heading[k] = then + (now - then) * w
+      }
+      facing = crashFaceWeight(crashFlight, s.elapsed)
     } else if (s.mode === 'entering' && !reduced) {
       // Desce de fora da imagem até o canto, no referencial da câmera.
       const k = Math.min(1, s.elapsed / ENTER_DURATION)
@@ -479,6 +548,35 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     // e na volta: a última garantia; a saída perto da lente já se planeja para longe dela).
     keepAway(g.position.toArray(posArr), camera.position.toArray(camArr), MIN_SHIP_DISTANCE, posArr)
     g.position.fromArray(posArr)
+
+    // Trombada: chegou à distância mínima da lente (fim do mergulho) — vidro trinca no ponto da nave na tela, a tela
+    // treme, a nave dá um tranco para trás (tentáculos e antena levam o empurrão) e o Octocat fica tonto.
+    if (crashFlight && s.elapsed >= crashFlight.duration && crashedPlan.current !== crashFlight) {
+      crashedPlan.current = crashFlight
+      sinceImpact.current = 0
+      scratch.copy(g.position).project(camera)
+      useCrash.getState().hit(((scratch.x + 1) / 2) * size.width, ((1 - scratch.y) / 2) * size.height, Math.floor(Math.random() * 2 ** 31))
+      joltStart.current = clock.elapsedTime
+      joltScale.current = -CRASH_JOLT
+      setBurnShake((n) => n + 1)
+      dazedRef.current = true
+      setDazed(true)
+    } else if (sinceImpact.current >= 0) sinceImpact.current += dt
+    crashClock.since = sinceImpact.current
+    crashShake(sinceImpact.current, shakeOut)
+    const shift = shakeOut.x || shakeOut.y ? `translate(${shakeOut.x.toFixed(2)}px, ${shakeOut.y.toFixed(2)}px)` : ''
+    if (gl.domElement.style.transform !== shift) {
+      gl.domElement.style.transform = shift
+      shaken.current = gl.domElement
+    }
+    if (dazedRef.current && sinceImpact.current >= CRASH_LINE_AT) {
+      // as estrelas sumiram: volta a si e pede desculpas (uma vez por trombada; nunca por cima do tutorial ou da
+      // narração da apresentação)
+      dazedRef.current = false
+      setDazed(false)
+      sinceImpact.current = -1
+      if (!usePresentation.getState().state && useTutorial.getState().step === null) useUniverse.getState().emitGuide('crash')
+    }
     lastCamPos.copy(camera.position)
     lastCamQuat.copy(camera.quaternion)
 
@@ -503,6 +601,12 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
       helper.lookAt(look.set(...heading).add(g.position))
       helper.rotateZ(bankAngle(lastTangent.current, heading, dt) * (1 - facing))
       lastTangent.current = heading
+      // tonto depois da trombada: bambeia voltando ao canto
+      if (crashFlight && s.elapsed > crashFlight.duration) {
+        crashWobble(s.elapsed - crashFlight.duration, wobble)
+        helper.rotateZ(wobble.roll)
+        helper.rotateX(wobble.pitch)
+      }
     } else {
       shipPose.bank = 0
       helper.up.copy(up)
@@ -537,9 +641,15 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     // Todo voo (viagem, troca de destino, salto da apresentação, tutorial, volta) tem as mesmas fases de motor:
     // queima forte na partida, chama-piloto na planagem e, na chegada, a frenagem com os puffs de ré (lib/ship/burn).
     const traveling = s.mode === 'traveling' && s.path
-    const flight = traveling ? s.path : plan && !reduced ? plan : null
-    const burn = traveling ? burnPhase(s.path!, s.elapsed) : plan && !reduced ? returnBurnPhase(plan, s.elapsed) : null
-    const puffs = traveling ? s.path!.burns.puffs : plan && !reduced ? returnBurns(plan).puffs : null
+    const flight = traveling ? s.path : plan && !reduced ? plan : crashFlight
+    const burn = traveling
+      ? burnPhase(s.path!, s.elapsed)
+      : plan && !reduced
+        ? returnBurnPhase(plan, s.elapsed)
+        : crashFlight
+          ? crashBurnPhase(crashFlight, s.elapsed)
+          : null
+    const puffs = traveling ? s.path!.burns.puffs : plan && !reduced ? returnBurns(plan).puffs : crashFlight ? crashBurns(crashFlight).puffs : null
     // chegando, a câmera de perseguição já vai para o enquadramento final (CameraRig)
     shipPose.arrival = traveling ? arrivalBlendWeight(s.elapsed, s.path!.duration, s.path!.burns.arrival) : 0
     const puffIndex = puffs ? activePuff(puffs, s.elapsed) : -1
@@ -586,7 +696,9 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
 
   const expression: OctocatExpression = hovered
     ? 'wink'
-    : (bubble?.line.expression ?? (mode === 'traveling' || knocking ? 'happy' : 'neutral'))
+    : dazed
+      ? 'dizzy'
+      : (bubble?.line.expression ?? (mode === 'traveling' || knocking ? 'happy' : 'neutral'))
   const armMode: ArmMode = hovered || knocking || greeting || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
   // com movimento, o nível vem do quadro (fases do motor no voo, assentando parada), em degraus
   const thrusterLevel = !reduced ? thrust : mode === 'entering' ? 0.8 : 0.25
@@ -617,7 +729,7 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
         onPointerOut={() => setHovered(false)}
       >
         <group ref={jolt}>
-          <OctocatShip expression={expression} armMode={armMode} thrusterLevel={thrusterLevel} floating={mode !== 'traveling'} shake={burnShake} />
+          <OctocatShip expression={expression} armMode={armMode} thrusterLevel={thrusterLevel} floating={mode !== 'traveling'} shake={burnShake} dazed={dazed} />
         </group>
       </group>
     </>

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useState } from 'react'
 import { ActivityTooltip } from '@/components/ui/ActivityTooltip'
 import { BackButton } from '@/components/ui/BackButton'
+import { CrashOverlay } from '@/components/ui/CrashOverlay'
 import { LoadError } from '@/components/ui/LoadError'
 import { Loader } from '@/components/ui/Loader'
 import { OctocatSpeech } from '@/components/ui/OctocatSpeech'
@@ -39,6 +40,8 @@ export function App() {
         <Suspense fallback={null}>
           <Scene universe={universe} />
         </Suspense>
+        {/* vidro trincado da trombada rara: por cima do canvas, abaixo do balão e dos painéis */}
+        <CrashOverlay />
         {/* Até o primeiro quadro da cena (o pedaço do 3D pode demorar numa rede lenta), o Loader cobre tudo. */}
         {!sceneReady && <Loader />}
         <ActivityTooltip />

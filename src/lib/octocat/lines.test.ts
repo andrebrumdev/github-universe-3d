@@ -17,6 +17,11 @@ describe('falas do Octocat', () => {
     expect(pickLine('slingshot', new Set(['slingshot']))).toBeNull()
   })
 
+  it('depois da trombada na tela, pede desculpas a cada trombada (são raras)', () => {
+    expect(pickLine('crash', new Set())?.text).toBe('Opa, foi mal, vim rápido demais.')
+    expect(pickLine('crash', new Set(['crash']))?.text).toBe('Opa, foi mal, vim rápido demais.')
+  })
+
   it('a fala do sol fala do perfil, não do visitante', () => {
     expect(formatLine(LINES.sun.text, 'André Brum')).toBe('Esse é o perfil GitHub de André!')
   })

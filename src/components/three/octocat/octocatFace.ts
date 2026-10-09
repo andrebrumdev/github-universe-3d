@@ -91,6 +91,35 @@ function openEye(ctx: CanvasRenderingContext2D, eye: Eye, shape: OpenEye, irisDx
   })
 }
 
+/** Olho tonto (trombada): o branco do olho com uma espiral no lugar da íris, como nos desenhos animados. */
+function dizzyEye(ctx: CanvasRenderingContext2D, eye: Eye, turn: 1 | -1): void {
+  withEye(ctx, eye, () => {
+    const [rx, ry] = [NORMAL_EYE.rx, NORMAL_EYE.ry]
+    ctx.fillStyle = COLORS.sclera
+    ctx.beginPath()
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2)
+    ctx.fill()
+    // espiral de Arquimedes, de dentro para fora, achatada na forma do olho; os dois olhos giram ao contrário
+    ctx.strokeStyle = COLORS.iris
+    ctx.lineWidth = 2.2
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    const turns = 2.6
+    for (let i = 0; i <= 80; i++) {
+      const u = i / 80
+      const a = turn * u * turns * Math.PI * 2
+      const r = 0.85 * u
+      ctx.lineTo(Math.cos(a) * r * rx, Math.sin(a) * r * ry)
+    }
+    ctx.stroke()
+    ctx.strokeStyle = COLORS.faceLine
+    ctx.lineWidth = 2.2
+    ctx.beginPath()
+    ctx.ellipse(0, 0, rx, ry, 0, Math.PI * 1.08, Math.PI * 1.92)
+    ctx.stroke()
+  })
+}
+
 /** Olho fechado: arco de riso (`up`, ∩) ou pálpebra baixada (∪), com cílio. */
 function closedEye(ctx: CanvasRenderingContext2D, eye: Eye, up: boolean): void {
   const side = outward(eye)
@@ -193,6 +222,19 @@ function drawExpression(ctx: CanvasRenderingContext2D, expression: OctocatExpres
       openMouth(ctx, 'M200 222 C208 222 210 230 210 234 C210 241 205 244 200 244 C195 244 190 241 190 234 C190 230 192 222 200 222 Z', null)
       break
     }
+    case 'dizzy':
+      // tonto: olhos em espiral e boca ondulada, meio aberta
+      dizzyEye(ctx, LEFT_EYE, 1)
+      dizzyEye(ctx, RIGHT_EYE, -1)
+      nose(ctx)
+      openMouth(ctx, 'M183 226 Q188 220 194 226 Q200 232 206 226 Q212 220 217 226 Q214 237 200 237 Q186 237 183 226 Z', {
+        cx: 200,
+        cy: 236,
+        rx: 8,
+        ry: 4,
+      })
+      line(ctx, 'M183 226 Q188 220 194 226 Q200 232 206 226 Q212 220 217 226', 2)
+      break
     case 'thinking': {
       // olhando para cima e para o lado das bolhas, boquinha fechada e puxada para o canto ("hmm")
       const lookingUp: OpenEye = { rx: 12.5, ry: 16, iris: { dx: 4.5, dy: -5, rx: 6.5, ry: 9 } }

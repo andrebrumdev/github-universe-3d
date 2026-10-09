@@ -15,8 +15,8 @@ test('universo carrega, o sol abre o perfil e o Octocat reabre o tutorial', asyn
     if (m.type() === 'error' && !KNOWN_NOISE.some((re) => re.test(m.text()))) errors.push(m.text())
   })
 
-  // ?nobloom: o bloom por software sai preto e custa caro.
-  await page.goto('/github-universe-3d/?nobloom')
+  // ?nobloom: o bloom por software sai preto e custa caro. ?nocrash: a trombada rara na tela (sorteada) não entra aqui.
+  await page.goto('/github-universe-3d/?nobloom&nocrash')
 
   const canvas = page.locator('#root canvas')
   await expect(canvas).toBeVisible({ timeout: 60_000 })
@@ -70,7 +70,7 @@ test('universo carrega, o sol abre o perfil e o Octocat reabre o tutorial', asyn
 
 test('celular: com a folha do perfil aberta, os botões flutuantes saem do caminho', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 })
-  await page.goto('/github-universe-3d/?nobloom')
+  await page.goto('/github-universe-3d/?nobloom&nocrash')
 
   const canvas = page.locator('#root canvas')
   await expect(canvas).toBeVisible({ timeout: 60_000 })
@@ -110,7 +110,7 @@ test('desktop: se o pedaço do bloom não carrega, a cena segue sem bloom', asyn
   // Offline ou hash velho depois de um deploy: o import dinâmico do bloom falha.
   await page.route(/GlowEffects-[\w-]+\.js/, (route) => route.abort())
   // Sem ?nobloom: com mouse e tela larga, a cena pede o bloom.
-  await page.goto('/github-universe-3d/')
+  await page.goto('/github-universe-3d/?nocrash')
 
   const canvas = page.locator('#root canvas')
   await expect(canvas).toBeVisible({ timeout: 60_000 })
