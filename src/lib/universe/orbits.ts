@@ -55,6 +55,12 @@ export const RING_GAP = 1.2
  * Periélio e afélio não mudam de distância, e todos os planetas de um anel giram juntos: o espaçamento continua valendo.
  */
 export const APSIDAL_TURN_PERIODS = 20
+/** Troianos ficam em L4/L5: ±60° em anomalia média do planeta, na mesma órbita. */
+export const TROJAN_LEAD = Math.PI / 3
+/** Meia largura da nuvem em anomalia média: libração de até 10° mais 2° de espalhamento. */
+export const TROJAN_ARC = (12 * Math.PI) / 180
+/** Raio da nuvem fora da órbita (espalhamento radial e vertical mais a maior rocha). */
+export const TROJAN_CLOUD_RADIUS = 0.62
 
 export function ringCapacity(k: number): number {
   return 3 + 2 * k
@@ -93,15 +99,105 @@ export function resonantRatio(min: number): number {
   return best
 }
 
-/** `extent` (planeta + luas) é o que entra no espaçamento; se faltar, vale o próprio `radius`. */
-export function buildOrbits(planets: { name: string; radius: number; extent?: number }[]): OrbitSystem {
+/** Pontos por volta na tabela de cordas (0,5°). */
+const CHORD_SAMPLES = 720
+
+/**
+ * Menor corda entre dois pontos de uma elipse de semieixo 1 separados por d em anomalia média, para d de 0 a π
+ * (passo 2π/CHORD_SAMPLES), mínima em qualquer ponto da volta. A tabela é monotonizada (mínimo daqui até π), então
+ * ler o índice de baixo é sempre conservador.
+ */
+function chordTable(e: number): Float64Array {
+  const b = Math.sqrt(1 - e * e)
+  const xs = new Float64Array(CHORD_SAMPLES)
+  const ys = new Float64Array(CHORD_SAMPLES)
+  for (let i = 0; i < CHORD_SAMPLES; i++) {
+    const E = solveKepler((i / CHORD_SAMPLES) * Math.PI * 2, e)
+    xs[i] = Math.cos(E) - e
+    ys[i] = b * Math.sin(E)
+  }
+  const half = CHORD_SAMPLES / 2
+  const table = new Float64Array(half + 1)
+  for (let d = 0; d <= half; d++) {
+    let min = Infinity
+    for (let i = 0; i < CHORD_SAMPLES; i++) {
+      const j = (i + d) % CHORD_SAMPLES
+      min = Math.min(min, Math.hypot(xs[j] - xs[i], ys[j] - ys[i]))
+    }
+    table[d] = min
+  }
+  for (let d = half - 1; d >= 0; d--) table[d] = Math.min(table[d], table[d + 1])
+  return table
+}
+
+/** Distância angular no círculo, em [0, π]. */
+function circularGap(x: number): number {
+  const m = ((x % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
+  return Math.min(m, 2 * Math.PI - m)
+}
+
+const chordAt = (table: Float64Array, d: number) => table[Math.floor((d / (2 * Math.PI)) * CHORD_SAMPLES)]
+
+/**
+ * Menor semieixo em que, com estas fases, os planetas do anel não se tocam e nenhuma nuvem de troianos (L4/L5 de
+ * quem tem, com a libração) encosta num planeta do anel (inclusive o dono). Infinity se uma nuvem cai sobre um
+ * planeta (não há a que resolva).
+ */
+function ringSemiMajor(table: Float64Array, phases: number[], trojans: boolean[], maxRadius: number): number {
+  let need = 0
+  const n = phases.length
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) need = Math.max(need, (2 * maxRadius + RING_GAP) / (0.98 * chordAt(table, circularGap(phases[j] - phases[i]))))
+    if (!trojans[i]) continue
+    for (const side of [1, -1]) {
+      for (let j = 0; j < n; j++) {
+        const gap = circularGap(phases[i] + side * TROJAN_LEAD - phases[j]) - TROJAN_ARC
+        if (gap <= 0) return Infinity
+        need = Math.max(need, (maxRadius + TROJAN_CLOUD_RADIUS + RING_GAP) / (0.98 * chordAt(table, gap)))
+      }
+    }
+  }
+  return need
+}
+
+/**
+ * Fases do anel quando alguém tem troianos. Espaçados por igual (o padrão), L4/L5 de um planeta podem cair em cima de
+ * um vizinho (anel de 6: exatamente; de 5 ou 7: quase). Alternativa: três grupos a 120°, cada um com abertura S;
+ * as nuvens de um grupo caem no vão entre os grupos. Fica a disposição (e o S) que pede o menor semieixo.
+ */
+function trojanRingLayout(e: number, trojans: boolean[], maxRadius: number): { phases: number[]; a: number } {
+  const n = trojans.length
+  const table = chordTable(e)
+  const uniform = trojans.map((_, i) => (i / n) * Math.PI * 2)
+  let best = { phases: uniform, a: ringSemiMajor(table, uniform, trojans, maxRadius) }
+  const sizes = [0, 1, 2].map((g) => Math.floor(n / 3) + (g < n % 3 ? 1 : 0))
+  for (let deg = 2; deg <= 60; deg++) {
+    const span = (deg * Math.PI) / 180
+    const phases: number[] = []
+    sizes.forEach((k, g) => {
+      for (let m = 0; m < k; m++) phases.push((g * 2 * Math.PI) / 3 + (k > 1 ? (m / (k - 1) - 0.5) * span : 0))
+    })
+    const a = ringSemiMajor(table, phases, trojans, maxRadius)
+    if (a < best.a) best = { phases, a }
+  }
+  return best
+}
+
+/**
+ * `extent` (planeta + luas) é o que entra no espaçamento; se faltar, vale o próprio `radius`.
+ * `trojans`: o planeta tem troianos em L4/L5 (repo com forks); o anel abre espaço para as nuvens.
+ */
+export function buildOrbits(planets: { name: string; radius: number; extent?: number; trojans?: boolean }[]): OrbitSystem {
   const rings: Ring[] = []
   const orbits: PlanetOrbit[] = []
   let start = 0
   for (let k = 0; start < planets.length; k++) {
     const members = planets.slice(start, start + ringCapacity(k)).map((m) => ({ ...m, extent: Math.max(m.radius, m.extent ?? m.radius) }))
     const n = members.length
-    const maxRadius = Math.max(...members.map((m) => m.extent))
+    const trojans = members.map((m) => m.trojans === true)
+    const hasTrojans = trojans.some(Boolean)
+    // a nuvem dos troianos fica na órbita, com TROJAN_CLOUD_RADIUS de espessura: entra no alcance do anel
+    const maxRadius = Math.max(...members.map((m) => m.extent), hasTrojans ? TROJAN_CLOUD_RADIUS : 0)
     const rng = seededRandom(`ring-${k}`)
     const taper = Math.min(1, k / 3)
     const e = MAX_ECCENTRICITY - (MAX_ECCENTRICITY - MIN_ECCENTRICITY) * (0.75 * taper + 0.25 * rng())
@@ -116,7 +212,9 @@ export function buildOrbits(planets: { name: string; radius: number; extent?: nu
       ? prev.a * (1 + prev.e) + prev.maxRadius + maxRadius + RING_GAP
       : SUN_RADIUS + SUN_CLEARANCE + maxRadius
     // Vizinhos no mesmo anel: a corda entre eles encolhe perto do afélio; 2% de margem sobre a amostragem.
-    const sameRing = n > 1 ? (2 * maxRadius + RING_GAP) / (0.98 * minChordFactor(e, n)) : 0
+    let phases = members.map((_, i) => (i / n) * Math.PI * 2)
+    let sameRing = n > 1 ? (2 * maxRadius + RING_GAP) / (0.98 * minChordFactor(e, n)) : 0
+    if (hasTrojans) ({ phases, a: sameRing } = trojanRingLayout(e, trojans, maxRadius))
     const minA = Math.max(minPeri / (1 - e), sameRing)
     // Ressonância com o anel 0: o período vira uma fração simples do interno (2:1, 7:3, 5:2, 3:1…). O espaçamento é
     // um mínimo duro, então a razão sobe até a próxima fração cujo a (3ª lei: a ∝ razão^(2/3)) cabe.
@@ -126,9 +224,7 @@ export function buildOrbits(planets: { name: string; radius: number; extent?: nu
 
     const apsidalRate = (2 * Math.PI) / (APSIDAL_TURN_PERIODS * period)
     rings.push({ index: k, a, e, inclination, node, periapsis, period, apsidalRate, maxRadius })
-    members.forEach((m, i) =>
-      orbits.push({ name: m.name, ring: k, radius: m.radius, extent: m.extent, phase: (i / n) * Math.PI * 2 + k * 0.7 }),
-    )
+    members.forEach((m, i) => orbits.push({ name: m.name, ring: k, radius: m.radius, extent: m.extent, phase: phases[i] + k * 0.7 }))
     start += n
   }
   return { rings, orbits }
