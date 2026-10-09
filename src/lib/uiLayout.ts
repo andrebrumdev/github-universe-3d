@@ -16,21 +16,68 @@ export interface Rect {
 export const UI_GAP = 8
 /** Largura a partir da qual vale o layout de desktop (o `md` do Tailwind: 48rem). */
 export const DESKTOP_MIN_WIDTH = 768
+/**
+ * Celular deitado: com até essa altura, a folha no pé da tela deixaria uma faixa fina de cena. Aí vale o layout
+ * lateral (painel em coluna), como no desktop.
+ */
+export const SHORT_LANDSCAPE_MAX_HEIGHT = 500
+/** Alvo de toque: 44 px (HIG). Os botões fixos reservam essa altura; com mouse eles desenham menos, no mesmo lugar. */
+export const TOUCH_TARGET = 44
 
-export const TUTORIAL_BUTTON = { right: 16, bottom: 16, width: 96, height: 32 } as const
+/**
+ * Layout de folha (o painel vira uma folha no pé da tela): estreito e em pé, ou estreito e alto. Celular deitado e
+ * baixo usa a coluna lateral. O mesmo critério do MOBILE_QUERY (hooks/useMediaQuery) e da variante `side:` do CSS.
+ */
+export function isSheetLayout(width: number, height: number): boolean {
+  return width < DESKTOP_MIN_WIDTH && (height >= width || height > SHORT_LANDSCAPE_MAX_HEIGHT)
+}
+
+/** Áreas seguras da tela (notch, cantos, indicador de início), em px. */
+export interface Insets {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
+/**
+ * As áreas seguras atuais: o CSS usa `env(safe-area-inset-*)` e o `useSafeAreaSync` mede os mesmos valores para cá,
+ * para os retângulos da nave baterem com o que está na tela. Mutável de propósito (como o shipPose); zero fora do iOS.
+ */
+export const safeArea: Insets = { top: 0, right: 0, bottom: 0, left: 0 }
+
+export function setSafeArea(insets: Insets): void {
+  Object.assign(safeArea, insets)
+}
+
+export const TUTORIAL_BUTTON = { right: 16, bottom: 16, width: 96, height: TOUCH_TARGET } as const
 
 export const TUTORIAL_CARD = {
   /** Celular: ocupa a largura toda, com essa margem dos lados, a essa distância do pé da tela. */
   phoneInset: 16,
   phoneBottom: 144,
-  /** Desktop: no canto direito, com essa largura. */
+  /** Desktop: no canto direito, com essa largura, a essa distância do pé da tela, ou a essa fração da altura se for menor. */
   desktopRight: 16,
   desktopBottom: 224,
+  desktopBottomFraction: 0.3,
   desktopWidth: 340,
 } as const
 
-/** Largura do painel lateral aberto no desktop (o SidePanel lê daqui). */
+/** Distância do cartão do tutorial ao pé da tela no layout lateral: numa tela baixa, ele não sobe para fora dela. */
+export function tutorialCardBottom(height: number): number {
+  return Math.min(TUTORIAL_CARD.desktopBottom, Math.round(height * TUTORIAL_CARD.desktopBottomFraction))
+}
+
+/** Largura máxima do painel lateral aberto (o SidePanel lê daqui). */
 export const SIDE_PANEL_WIDTH = 380
+/** Num celular deitado, o painel lateral não passa dessa fração da largura (a cena fica com o resto). */
+export const SIDE_PANEL_MAX_FRACTION = 0.5
+
+/** Largura do painel lateral nessa tela: SIDE_PANEL_WIDTH, ou metade da largura num celular deitado. */
+export function sidePanelWidth(width: number): number {
+  return Math.min(SIDE_PANEL_WIDTH, Math.floor(width * SIDE_PANEL_MAX_FRACTION))
+}
+
 /** Celular: o painel vira uma folha no pé da tela com no máximo essa fração da altura visível (o SidePanel lê daqui, em dvh). */
 export const SIDE_SHEET_MAX_HEIGHT = 0.6
 
@@ -57,14 +104,15 @@ export const PRESENTATION_CARD = {
   desktopRight: PRESENTATION_MARGIN,
   desktopBottom: TUTORIAL_BUTTON.bottom + TUTORIAL_BUTTON.height + PRESENTATION_MARGIN,
   desktopTop: PRESENTATION_MARGIN,
-  desktopWidth: SIDE_PANEL_WIDTH - 2 * PRESENTATION_MARGIN,
+  /** Na largura do painel lateral, menos as margens (ver `sidePanelWidth`). */
+  desktopMargin: 2 * PRESENTATION_MARGIN,
   /** Celular: folha presa ao pé da tela, com no máximo essa fração da altura (o resto rola dentro dela). */
   phoneMaxHeight: 0.45,
 } as const
 
 export function tutorialButtonRect(width: number, height: number): Rect {
   const { right, bottom, width: w, height: h } = TUTORIAL_BUTTON
-  return { x: width - right - w, y: height - bottom - h, w, h }
+  return { x: width - right - safeArea.right - w, y: height - bottom - safeArea.bottom - h, w, h }
 }
 
 /**
@@ -72,20 +120,25 @@ export function tutorialButtonRect(width: number, height: number): Rect {
  * A altura do cartão varia com o texto; como a nave fica sempre abaixo, só a borda de baixo importa.
  */
 export function tutorialCardZone(width: number, height: number): Rect {
-  if (width >= DESKTOP_MIN_WIDTH) {
-    const { desktopRight, desktopBottom, desktopWidth } = TUTORIAL_CARD
-    return { x: width - desktopRight - desktopWidth, y: 0, w: desktopWidth, h: height - desktopBottom }
+  if (!isSheetLayout(width, height)) {
+    const { desktopRight, desktopWidth } = TUTORIAL_CARD
+    return { x: width - desktopRight - safeArea.right - desktopWidth, y: 0, w: desktopWidth, h: height - tutorialCardBottom(height) - safeArea.bottom }
   }
   const { phoneInset, phoneBottom } = TUTORIAL_CARD
-  return { x: phoneInset, y: 0, w: width - 2 * phoneInset, h: height - phoneBottom }
+  return {
+    x: phoneInset + safeArea.left,
+    y: 0,
+    w: width - 2 * phoneInset - safeArea.left - safeArea.right,
+    h: height - phoneBottom - safeArea.bottom,
+  }
 }
 
 export function presentationButtonRect(width: number, height: number): Rect {
   const { width: w, height: h } = PRESENTATION_BUTTON
-  const desktop = width >= DESKTOP_MIN_WIDTH
-  const right = desktop ? PRESENTATION_BUTTON.desktopRight : PRESENTATION_BUTTON.phoneRight
-  const bottom = desktop ? PRESENTATION_BUTTON.desktopBottom : PRESENTATION_BUTTON.phoneBottom
-  return { x: width - right - w, y: height - bottom - h, w, h }
+  const side = !isSheetLayout(width, height)
+  const right = side ? PRESENTATION_BUTTON.desktopRight : PRESENTATION_BUTTON.phoneRight
+  const bottom = side ? PRESENTATION_BUTTON.desktopBottom : PRESENTATION_BUTTON.phoneBottom
+  return { x: width - right - safeArea.right - w, y: height - bottom - safeArea.bottom - h, w, h }
 }
 
 /**
@@ -93,24 +146,28 @@ export function presentationButtonRect(width: number, height: number): Rect {
  * varia com a parada). Celular: a folha no pé da tela, na altura máxima.
  */
 export function presentationCardZone(width: number, height: number): Rect {
-  if (width >= DESKTOP_MIN_WIDTH) {
-    const { desktopRight, desktopBottom, desktopWidth } = PRESENTATION_CARD
-    return { x: width - desktopRight - desktopWidth, y: 0, w: desktopWidth, h: height - desktopBottom }
+  if (!isSheetLayout(width, height)) {
+    const { desktopRight, desktopBottom, desktopMargin } = PRESENTATION_CARD
+    const w = sidePanelWidth(width) - desktopMargin
+    return { x: width - desktopRight - safeArea.right - w, y: 0, w, h: height - desktopBottom - safeArea.bottom }
   }
   const h = Math.ceil(height * PRESENTATION_CARD.phoneMaxHeight)
   return { x: 0, y: height - h, w: width, h }
 }
 
 /** "← Galáxia" no canto de cima à esquerda (o BackButton lê posição e tamanho daqui). */
-export const BACK_BUTTON = { left: 16, top: 16, width: 112, height: 40 } as const
+export const BACK_BUTTON = { left: 16, top: 16, width: 112, height: TOUCH_TARGET } as const
 
 export function backButtonRect(): Rect {
-  return { x: BACK_BUTTON.left, y: BACK_BUTTON.top, w: BACK_BUTTON.width, h: BACK_BUTTON.height }
+  return { x: BACK_BUTTON.left + safeArea.left, y: BACK_BUTTON.top + safeArea.top, w: BACK_BUTTON.width, h: BACK_BUTTON.height }
 }
 
 /** Zona do painel do planeta/perfil: a coluna da direita no desktop; no celular, a folha no pé da tela na altura máxima. */
 export function sidePanelZone(width: number, height: number): Rect {
-  if (width >= DESKTOP_MIN_WIDTH) return { x: width - SIDE_PANEL_WIDTH, y: 0, w: SIDE_PANEL_WIDTH, h: height }
+  if (!isSheetLayout(width, height)) {
+    const w = sidePanelWidth(width)
+    return { x: width - w, y: 0, w, h: height }
+  }
   const h = Math.ceil(height * SIDE_SHEET_MAX_HEIGHT)
   return { x: 0, y: height - h, w: width, h }
 }
@@ -134,7 +191,7 @@ export function floatingButtonsHidden(phone: boolean, open: OpenCards = {}): boo
 
 /** O que a nave da escolta não pode cobrir: os dois botões, quando aparecem; cada cartão, quando está na tela. */
 export function reservedRects(width: number, height: number, open: OpenCards = {}): Rect[] {
-  const rects = floatingButtonsHidden(width < DESKTOP_MIN_WIDTH, open) ? [] : [tutorialButtonRect(width, height), presentationButtonRect(width, height)]
+  const rects = floatingButtonsHidden(isSheetLayout(width, height), open) ? [] : [tutorialButtonRect(width, height), presentationButtonRect(width, height)]
   // O cartão do tutorial cede ao painel (some enquanto ele está aberto: ver `tutorialCardVisible`).
   if (open.tutorial && !open.panel) rects.push(tutorialCardZone(width, height))
   if (open.presentation) rects.push(presentationCardZone(width, height))

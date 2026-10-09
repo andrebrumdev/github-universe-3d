@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useIdle } from '@/hooks/useIdle'
 import { formatLine, LINE_DURATION_MS } from '@/lib/octocat/lines'
-import { DESKTOP_MIN_WIDTH, SIDE_PANEL_WIDTH, UI_GAP } from '@/lib/uiLayout'
+import { isSheetLayout, safeArea, sidePanelWidth, UI_GAP } from '@/lib/uiLayout'
 import { usePresentation } from '@/store/presentation'
 import { shipPose } from '@/store/shipPose'
 import { useTutorial } from '@/store/tutorial'
@@ -41,9 +41,10 @@ export function OctocatSpeech({ profileName }: { profileName: string }) {
         // à esquerda dele (senão o painel corta o balão).
         const half = el.offsetWidth / 2
         const columnBusy = useUniverse.getState().selection.kind !== 'none' || usePresentation.getState().state !== null
-        const panelOpen = columnBusy && window.innerWidth >= DESKTOP_MIN_WIDTH
-        const maxX = window.innerWidth - UI_GAP - half - (panelOpen ? SIDE_PANEL_WIDTH : 0)
-        const x = Math.max(UI_GAP + half, Math.min(maxX, shipPose.speechX))
+        const { innerWidth: W, innerHeight: H } = window
+        const panelOpen = columnBusy && !isSheetLayout(W, H)
+        const maxX = W - UI_GAP - half - (panelOpen ? sidePanelWidth(W) : safeArea.right)
+        const x = Math.max(UI_GAP + safeArea.left + half, Math.min(maxX, shipPose.speechX))
         el.style.transform = `translate(${x}px, ${shipPose.speechY}px) translate(-50%, -100%)`
         el.style.visibility = shipPose.speechOnScreen ? 'visible' : 'hidden'
       }

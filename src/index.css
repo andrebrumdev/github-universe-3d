@@ -1,10 +1,28 @@
 @import "tailwindcss";
 
+/*
+ * Layout lateral (painel em coluna à direita): da largura `md` para cima, ou num celular deitado e baixo. É o contrário
+ * do MOBILE_QUERY (hooks/useMediaQuery) e do `isSheetLayout` (lib/uiLayout): mude os três juntos.
+ */
+@custom-variant side {
+  @media (min-width: 48rem), (orientation: landscape) and (max-height: 500px) {
+    @slot;
+  }
+}
+
 @theme {
   --color-space: #03050d;
   --color-neon: #22d3ee;
   --color-grid: #10b981;
   --color-panel: #0f1535;
+}
+
+:root {
+  /* Áreas seguras (notch, cantos, indicador de início); o useSafeAreaSync mede as mesmas para a nave (uiLayout). */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 html,

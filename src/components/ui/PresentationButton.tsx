@@ -8,14 +8,14 @@ import { shipPose } from '@/store/shipPose'
 import { useTutorial } from '@/store/tutorial'
 import { useUniverse } from '@/store/universe'
 
-// Posição e tamanho fixos, da mesma fonte que a nave da escolta usa para não cobrir o botão.
+// Posição e tamanho fixos, da mesma fonte que a nave da escolta usa para não cobrir o botão (fora das áreas seguras).
 const STYLE = {
   '--btn-w': `${PRESENTATION_BUTTON.width}px`,
   '--btn-h': `${PRESENTATION_BUTTON.height}px`,
-  '--btn-right': `${PRESENTATION_BUTTON.phoneRight}px`,
-  '--btn-bottom': `${PRESENTATION_BUTTON.phoneBottom}px`,
-  '--btn-right-md': `${PRESENTATION_BUTTON.desktopRight}px`,
-  '--btn-bottom-md': `${PRESENTATION_BUTTON.desktopBottom}px`,
+  '--btn-right': `calc(${PRESENTATION_BUTTON.phoneRight}px + var(--safe-right))`,
+  '--btn-bottom': `calc(${PRESENTATION_BUTTON.phoneBottom}px + var(--safe-bottom))`,
+  '--btn-right-md': `calc(${PRESENTATION_BUTTON.desktopRight}px + var(--safe-right))`,
+  '--btn-bottom-md': `calc(${PRESENTATION_BUTTON.desktopBottom}px + var(--safe-bottom))`,
 } as CSSProperties
 
 export function PresentationButton({ universe }: { universe: Universe }) {
@@ -63,7 +63,7 @@ export function PresentationButton({ universe }: { universe: Universe }) {
       onClick={() => start(universe)}
       aria-label="Começar a apresentação guiada do perfil e dos repositórios"
       style={STYLE}
-      className="fixed right-(--btn-right) bottom-(--btn-bottom) z-30 inline-flex h-(--btn-h) w-(--btn-w) items-center justify-center rounded-full border border-neon/40 bg-space/80 text-xs text-neon backdrop-blur hover:bg-neon/10 md:right-(--btn-right-md) md:bottom-(--btn-bottom-md)"
+      className="fixed right-(--btn-right) bottom-(--btn-bottom) z-30 inline-flex h-(--btn-h) w-(--btn-w) items-center justify-center rounded-full border border-neon/40 bg-space/80 text-sm text-neon backdrop-blur hover:bg-neon/10 pointer-fine:h-8 pointer-fine:text-xs side:right-(--btn-right-md) side:bottom-(--btn-bottom-md)"
     >
       ▶ Apresentação
     </button>

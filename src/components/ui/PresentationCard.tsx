@@ -6,17 +6,18 @@ import { type ArrivalWatch, isHeld, MAX_PRESENTED_REPOS, shipAtStop, STOP_SECOND
 import type { Profile, Repo, Universe } from '@/lib/types'
 import { commitsInWindow } from '@/lib/universe/activity'
 import { languageShares, MAX_MOONS } from '@/lib/universe/planets'
-import { PRESENTATION_CARD } from '@/lib/uiLayout'
+import { PRESENTATION_CARD, SIDE_PANEL_MAX_FRACTION, SIDE_PANEL_WIDTH } from '@/lib/uiLayout'
 import { usePresentation } from '@/store/presentation'
 import { shipPose } from '@/store/shipPose'
 
 // Posição pelas medidas compartilhadas (uiLayout): a nave da escolta e a câmera contam com essa coluna/folha.
+// Na coluna, a largura do painel lateral (metade da tela num celular deitado), fora das áreas seguras.
 const CARD_STYLE = {
   '--sheet-max': `${PRESENTATION_CARD.phoneMaxHeight * 100}dvh`,
-  '--card-right-md': `${PRESENTATION_CARD.desktopRight}px`,
-  '--card-bottom-md': `${PRESENTATION_CARD.desktopBottom}px`,
-  '--card-width-md': `${PRESENTATION_CARD.desktopWidth}px`,
-  '--card-max-md': `calc(100dvh - ${PRESENTATION_CARD.desktopBottom + PRESENTATION_CARD.desktopTop}px)`,
+  '--card-right-md': `calc(${PRESENTATION_CARD.desktopRight}px + var(--safe-right))`,
+  '--card-bottom-md': `calc(${PRESENTATION_CARD.desktopBottom}px + var(--safe-bottom))`,
+  '--card-width-md': `calc(min(${SIDE_PANEL_WIDTH}px, ${SIDE_PANEL_MAX_FRACTION * 100}vw) - ${PRESENTATION_CARD.desktopMargin}px)`,
+  '--card-max-md': `calc(100dvh - ${PRESENTATION_CARD.desktopBottom + PRESENTATION_CARD.desktopTop}px - var(--safe-bottom) - var(--safe-top))`,
 } as CSSProperties
 
 /** Laço da apresentação: avisa a chegada da nave e passa o tempo da parada (fora do React, por frame). */
@@ -142,7 +143,7 @@ export function PresentationCard({ universe }: { universe: Universe }) {
             keyboardFocus.current = false
             syncHover()
           }}
-          className="fixed inset-x-0 bottom-0 z-40 max-h-(--sheet-max) overflow-y-auto rounded-t-2xl border border-neon/30 bg-panel/95 text-sm shadow-xl shadow-black/40 backdrop-blur md:left-auto md:right-(--card-right-md) md:bottom-(--card-bottom-md) md:max-h-(--card-max-md) md:w-(--card-width-md) md:rounded-2xl outline-none"
+          className="fixed inset-x-0 bottom-0 z-40 max-h-(--sheet-max) overflow-y-auto rounded-t-2xl border border-neon/30 bg-panel/95 text-sm shadow-xl shadow-black/40 backdrop-blur overscroll-contain side:left-auto side:right-(--card-right-md) side:bottom-(--card-bottom-md) side:max-h-(--card-max-md) side:w-(--card-width-md) side:rounded-2xl outline-none"
         >
           <Controls index={index} count={count} reduced={reduced} />
           <p aria-live="polite" className="sr-only">
@@ -153,7 +154,7 @@ export function PresentationCard({ universe }: { universe: Universe }) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={reduced ? { duration: 0 } : { duration: 0.35 }}
-            className="px-4 pb-4"
+            className="px-4 pb-[max(1rem,var(--safe-bottom))] side:pb-4"
           >
             <StopBody stop={stop} universe={universe} />
           </motion.div>
@@ -372,7 +373,7 @@ function RepoStop({ repo }: { repo: Repo }) {
           </ul>
         </section>
       )}
-      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-2">
+      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 side:grid-cols-2">
         <Stat label="Stars" value={`⭐ ${formatCount(repo.stars)}`} />
         <Stat label="Forks" value={`⑂ ${formatCount(repo.forks)}`} />
         <Stat label="Commits no último ano" value={formatCount(yearCommits)} />

@@ -12,6 +12,7 @@ import { SceneBoundary } from '@/components/ui/SceneBoundary'
 import { StaticFallback } from '@/components/ui/StaticFallback'
 import { Tutorial } from '@/components/ui/Tutorial'
 import { TutorialButton } from '@/components/ui/TutorialButton'
+import { useSafeAreaSync } from '@/hooks/useSafeAreaSync'
 import { useUniverseData } from '@/hooks/useUniverseData'
 import { supportsWebGL } from '@/hooks/webgl'
 import { useSceneReady } from '@/store/sceneReady'
@@ -25,6 +26,7 @@ export function App() {
   const [sceneAttempt, setSceneAttempt] = useState(0)
   const retryScene = useCallback(() => setSceneAttempt((n) => n + 1), [])
   const sceneReady = useSceneReady((s) => s.ready)
+  useSafeAreaSync()
 
   if (state.status === 'error') return <LoadError message={state.message} onRetry={retry} />
   if (state.status === 'loading') return <Loader />

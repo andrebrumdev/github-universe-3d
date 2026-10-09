@@ -7,7 +7,7 @@
  * câmera atrasada como a escolta.
  */
 import type { Pose } from '../cameraPoses'
-import { DESKTOP_MIN_WIDTH, UI_GAP, type Rect } from '../uiLayout'
+import { isSheetLayout, UI_GAP, type Rect } from '../uiLayout'
 import type { Vec3 } from '../universe/orbits'
 import { frameFromPose, frameToLocal } from './cameraFrame'
 import { placementOffset, SHIP_SCREEN_ASPECT, shipFaceBox, shipScreenBox, type EscortPlacement } from './escort'
@@ -23,8 +23,9 @@ export interface VisitFraming {
 export const VISIT_DESKTOP: VisitFraming = { heightFraction: 0.18, minHeightFraction: 0.14 }
 export const VISIT_PHONE: VisitFraming = { heightFraction: 0.12, minHeightFraction: 0.09 }
 
-export function visitFraming(width: number, _height?: number): VisitFraming {
-  return width >= DESKTOP_MIN_WIDTH ? VISIT_DESKTOP : VISIT_PHONE
+/** Pelo layout (`isSheetLayout`): sem a altura, conta como em pé. */
+export function visitFraming(width: number, height = Infinity): VisitFraming {
+  return isSheetLayout(width, height) ? VISIT_PHONE : VISIT_DESKTOP
 }
 
 /** Disco do alvo na tela (px): centro e raio. */

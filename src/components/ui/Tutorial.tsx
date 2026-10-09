@@ -85,14 +85,16 @@ export function Tutorial({ profileName }: { profileName: string }) {
           // Posição pelas medidas compartilhadas (uiLayout): a nave da escolta fica abaixo da borda de baixo do cartão.
           style={
             {
-              '--card-inset': `${TUTORIAL_CARD.phoneInset}px`,
-              '--card-bottom': `${TUTORIAL_CARD.phoneBottom}px`,
-              '--card-right-md': `${TUTORIAL_CARD.desktopRight}px`,
-              '--card-bottom-md': `${TUTORIAL_CARD.desktopBottom}px`,
+              '--card-left': `calc(${TUTORIAL_CARD.phoneInset}px + var(--safe-left))`,
+              '--card-right': `calc(${TUTORIAL_CARD.phoneInset}px + var(--safe-right))`,
+              '--card-bottom': `calc(${TUTORIAL_CARD.phoneBottom}px + var(--safe-bottom))`,
+              '--card-right-md': `calc(${TUTORIAL_CARD.desktopRight}px + var(--safe-right))`,
+              // numa tela baixa (celular deitado), mais perto do pé: ver `tutorialCardBottom`
+              '--card-bottom-md': `calc(min(${TUTORIAL_CARD.desktopBottom}px, ${TUTORIAL_CARD.desktopBottomFraction * 100}dvh) + var(--safe-bottom))`,
               '--card-width-md': `${TUTORIAL_CARD.desktopWidth}px`,
             } as CSSProperties
           }
-          className="fixed left-(--card-inset) right-(--card-inset) bottom-(--card-bottom) z-40 rounded-2xl border border-neon/40 bg-panel/95 p-4 text-sm shadow-xl backdrop-blur md:left-auto md:right-(--card-right-md) md:bottom-(--card-bottom-md) md:w-(--card-width-md)"
+          className="fixed left-(--card-left) right-(--card-right) bottom-(--card-bottom) z-40 rounded-2xl border border-neon/40 bg-panel/95 p-4 text-sm shadow-xl backdrop-blur side:left-auto side:right-(--card-right-md) side:bottom-(--card-bottom-md) side:w-(--card-width-md)"
         >
           <p className="text-xs text-slate-400">
             {TUTORIAL_STEPS.indexOf(step) + 1}/{TUTORIAL_STEPS.length}
