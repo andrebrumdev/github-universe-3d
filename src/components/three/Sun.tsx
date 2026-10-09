@@ -514,6 +514,9 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
 
   // Aperto sobre o sol: começa um gesto (pode virar giro ou clique) e trava a rotação da câmera até soltar.
   function onSunPointerDown(e: ThreeEvent<PointerEvent>) {
+    // No modo de foco na nave, o arrasto é da câmera em volta dela: o sol não gira nem trava a câmera (o clique nele
+    // ainda seleciona o perfil e sai do modo).
+    if (useUniverse.getState().selection.kind === 'ship') return
     e.stopPropagation()
     const event: DragEvent = { type: 'down', onSun: true, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY }
     drag.current = dragReducer(drag.current, event)
