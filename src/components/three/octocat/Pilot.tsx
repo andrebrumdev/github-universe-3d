@@ -25,7 +25,7 @@ import {
 } from '@/lib/ship/geometry'
 import { POINT_ANGLE, waveAngle } from '@/lib/ship/motion'
 import { applyImpulse, setRest, type VerletOptions } from '@/lib/ship/verlet'
-import { FlexRod, InertiaProbe } from './flexRod'
+import { FlexRod, type InertiaFrame, PILOT_INERTIA, useInertiaProbe } from './flexRod'
 import { drawOctocatFace, FACE_TEX_H, FACE_TEX_W } from './octocatFace'
 
 export type ArmMode = 'rest' | 'wave' | 'point'
@@ -214,11 +214,6 @@ const OTHER_SPECS: TentacleSpec[] = [
 /** O braço livre acena girando em z em torno do ombro (a pose de descanso da cadeia gira junto). */
 const FREE_SHOULDER = FREE_TENTACLE.points[0]
 
-/**
- * Inércia no referencial do piloto: o ganho deixa a flutuação visível e a saturação segura a viagem
- * (unidades do piloto/s² e rad/s²).
- */
-const PILOT_INERTIA = { gain: 15, maxLinear: 16, angularGain: 12, maxAngular: 5 } as const
 /** Tranco do botão "Sacudir" (unidades do piloto/s), um sentido por tentáculo para não balançarem iguais. */
 const SHAKE_IMPULSES: Vec3[] = [
   [2.4, 2.6, -1.4],
@@ -281,9 +276,16 @@ interface PilotProps {
   armMode: ArmMode
   /** Muda a cada clique em "Sacudir" (preview): um tranco nos tentáculos. */
   shake?: number
+  /** Referencial da inércia (ver useInertiaProbe): `world` no preview, onde a câmera orbita a nave parada. */
+  inertiaFrame?: InertiaFrame
 }
 
-/** Gira a pose de descanso do braço livre `angle` rad em z, em torno do ombro. */
+const Z_AXIS = new THREE.Vector3(0, 0, 1)
+
+/**
+ * Gira a pose de descanso do braço livre `angle` rad em z, em torno do ombro, e leva o giro para a raiz da
+ * espinha: a seção (facetas, face de baixo, ventosas) gira junto com o braço em vez de rolar em volta dele.
+ */
 function poseFreeArm({ rod }: TentacleRods[number], angle: number): void {
   const c = Math.cos(angle)
   const s = Math.sin(angle)
@@ -295,9 +297,10 @@ function poseFreeArm({ rod }: TentacleRods[number], angle: number): void {
     const dy = points[i][1] - oy
     setRest(rod.chain, i, ox + c * dx - s * dy, oy + s * dx + c * dy, points[i][2])
   }
+  rod.rootTurn.setFromAxisAngle(Z_AXIS, angle)
 }
 
-export function Pilot({ expression, blinking, armMode, shake = 0 }: PilotProps) {
+export function Pilot({ expression, blinking, armMode, shake = 0, inertiaFrame = 'auto' }: PilotProps) {
   const root = useRef<THREE.Group>(null)
   const tips = useRef<(THREE.Mesh | null)[]>([])
   const armAngle = useRef(0)
@@ -305,7 +308,7 @@ export function Pilot({ expression, blinking, armMode, shake = 0 }: PilotProps) 
 
   const tentacles = useMemo(() => createTentacleRods(), [])
   useEffect(() => () => tentacles.forEach(({ rod }) => rod.dispose()), [tentacles])
-  const probe = useMemo(() => new InertiaProbe(PILOT_INERTIA), [])
+  const probe = useInertiaProbe(PILOT_INERTIA, inertiaFrame)
 
   // Movimento reduzido: sem física, tudo na pose de descanso (o braço livre ainda aponta, sem balanço).
   useEffect(() => {

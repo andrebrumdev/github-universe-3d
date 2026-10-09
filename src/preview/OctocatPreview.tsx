@@ -61,7 +61,7 @@ export function OctocatPreview() {
         <directionalLight position={[3, 5, 4]} intensity={1.6} />
         <pointLight position={[-4, 2, 3]} intensity={20} color="#22d3ee" />
         <Stars radius={60} depth={30} count={1500} factor={3} fade />
-        <OctocatShip expression={expression} thrusterLevel={thruster} armMode={armMode} floating={floating} parts={parts} shake={shake} />
+        <OctocatShip expression={expression} thrusterLevel={thruster} armMode={armMode} floating={floating} parts={parts} shake={shake} inertiaFrame="world" />
         <OrbitControls ref={controls} target={[0, 0.2, -0.4]} autoRotate={spin} autoRotateSpeed={0.8} enablePan={false} minDistance={2.5} maxDistance={14} />
       </Canvas>
 

@@ -10,8 +10,12 @@
  *
  * Os materiais são `flatShading`: a normal sai das derivadas da tela, então não é preciso recalcular normais.
  */
+import { useEffect, useMemo } from 'react'
+import { useThree } from '@react-three/fiber'
 import * as THREE from 'three'
+import type { ShipMode } from '@/lib/ship/shipMachine'
 import { createChain, stepChain, type VerletChain, type VerletInput, type VerletOptions } from '@/lib/ship/verlet'
+import { shipPose } from '@/store/shipPose'
 
 type Vec3 = readonly [number, number, number]
 
@@ -26,6 +30,10 @@ export class FlexSpine {
   private readonly curve: THREE.CatmullRomCurve3
   private readonly restTangent = new THREE.Vector3()
   private readonly restNormal = new THREE.Vector3()
+  /** Giro deliberado da pose de descanso (o aceno do braço livre), levado para o referencial da raiz. */
+  private readonly rootTurn = new THREE.Quaternion()
+  private readonly rootTangent = new THREE.Vector3()
+  private readonly rootNormal = new THREE.Vector3()
   private readonly turn = new THREE.Quaternion()
   private readonly p = new THREE.Vector3()
   private readonly t = new THREE.Vector3()
@@ -54,9 +62,14 @@ export class FlexSpine {
     this.frames()
   }
 
-  /** Segue os nós da cadeia. */
-  update(nodes: Float32Array): void {
+  /**
+   * Segue os nós da cadeia. `rootTurn`: o quanto a pose de descanso foi girada de propósito (o braço livre
+   * acenando gira em torno do ombro); a seção gira junto em vez de rolar em volta do braço.
+   */
+  update(nodes: Float32Array, rootTurn?: THREE.Quaternion): void {
     for (let i = 0; i < this.points.length; i++) this.points[i].fromArray(nodes, i * 3)
+    if (rootTurn) this.rootTurn.copy(rootTurn)
+    else this.rootTurn.identity()
     this.sample()
     this.frames()
   }
@@ -74,13 +87,17 @@ export class FlexSpine {
   }
 
   /**
-   * Normal da 1ª amostra: a de descanso, girada pelo menor giro que leva a tangente de descanso à atual
-   * (sem torção extra); daí em diante, transporte paralelo (projeta a normal anterior no plano da tangente).
+   * Normal da 1ª amostra: a de descanso girada pelo giro deliberado da raiz e, depois, pelo menor giro que
+   * leva essa tangente à atual (sem torção extra); daí em diante, transporte paralelo (projeta a normal
+   * anterior no plano da tangente). Só o menor giro não basta: num giro em z de uma raiz inclinada para fora
+   * do plano ele não coincide com o giro em z, e a diferença vira uma torção em volta do braço.
    */
   private frames(): void {
     const { tangents, normals, binormals, count } = this
+    this.rootTangent.copy(this.restTangent).applyQuaternion(this.rootTurn)
+    this.rootNormal.copy(this.restNormal).applyQuaternion(this.rootTurn)
     this.t.fromArray(tangents, 0)
-    this.n.copy(this.restNormal).applyQuaternion(this.turn.setFromUnitVectors(this.restTangent, this.t))
+    this.n.copy(this.rootNormal).applyQuaternion(this.turn.setFromUnitVectors(this.rootTangent, this.t))
     for (let s = 0; s < count; s++) {
       this.t.fromArray(tangents, s * 3)
       this.n.addScaledVector(this.t, -this.n.dot(this.t)).normalize()
@@ -138,8 +155,8 @@ export function deformAlongSpine({ station, offsets }: SpineBinding, spine: Flex
   }
 }
 
-/** Folga da esfera envolvente (o quanto a peça pode se afastar do descanso) para o recorte por câmera. */
-const BOUNDS_SLACK = 1.5
+/** Folga da esfera envolvente sobre o comprimento da cadeia (a Catmull-Rom pode passar um pouco dos nós). */
+const BOUNDS_SLACK = 1.1
 
 /**
  * Cadeia + espinha + malhas amarradas. As geometrias são da instância (clones): as posições mudam no lugar.
@@ -148,20 +165,31 @@ const BOUNDS_SLACK = 1.5
 export class FlexRod {
   readonly chain: VerletChain
   readonly spine: FlexSpine
+  /** Giro deliberado da pose de descanso (ver FlexSpine.update); identidade nas peças que não acenam. */
+  readonly rootTurn = new THREE.Quaternion()
   private readonly parts: { geometry: THREE.BufferGeometry; binding: SpineBinding }[]
-  /** Nós da última remontagem: se nada mexeu, não reenvia as malhas para a GPU. */
+  /** Nós e giro da raiz da última remontagem: se nada mexeu, não reenvia as malhas para a GPU. */
   private readonly synced: Float32Array
+  private readonly syncedTurn = new THREE.Quaternion()
 
   constructor(points: readonly Vec3[], ts: readonly number[], geometries: THREE.BufferGeometry[], options: VerletOptions = {}) {
     this.chain = createChain(points, options)
     this.spine = new FlexSpine(this.chain.rest, ts)
     this.synced = this.chain.pos.slice()
+    // Esfera envolvente garantida: a cadeia tem comprimento fixo e a raiz fica presa, então nada passa do
+    // comprimento total (com folga para a curva) mais o maior afastamento de um vértice da espinha.
+    const length = this.chain.lengths.reduce((sum, l) => sum + l, 0)
+    const root = new THREE.Vector3().fromArray(this.chain.rest, 0)
     this.parts = geometries.map((geometry) => {
       const position = geometry.attributes.position as THREE.BufferAttribute
       position.setUsage(THREE.DynamicDrawUsage)
-      geometry.computeBoundingSphere()
-      if (geometry.boundingSphere) geometry.boundingSphere.radius *= BOUNDS_SLACK
-      return { geometry, binding: bindToSpine(position.array, this.spine) }
+      const binding = bindToSpine(position.array, this.spine)
+      let reach = 0
+      for (let v = 0; v < binding.station.length; v++) {
+        reach = Math.max(reach, Math.hypot(binding.offsets[v * 3], binding.offsets[v * 3 + 1], binding.offsets[v * 3 + 2]))
+      }
+      geometry.boundingSphere = new THREE.Sphere(root.clone(), length * BOUNDS_SLACK + reach)
+      return { geometry, binding }
     })
   }
 
@@ -180,11 +208,12 @@ export class FlexRod {
   /** Remonta as malhas a partir dos nós (só se algum nó mexeu desde a última vez). */
   sync(): void {
     const { pos } = this.chain
-    let moved = false
+    let moved = Math.abs(this.rootTurn.dot(this.syncedTurn)) < 1 - 1e-9
     for (let i = 0; i < pos.length && !moved; i++) moved = Math.abs(pos[i] - this.synced[i]) > 1e-6
     if (!moved) return
     this.synced.set(pos)
-    this.spine.update(pos)
+    this.syncedTurn.copy(this.rootTurn)
+    this.spine.update(pos, this.rootTurn)
     for (const { geometry, binding } of this.parts) {
       const position = geometry.attributes.position as THREE.BufferAttribute
       deformAlongSpine(binding, this.spine, position.array as Float32Array)
@@ -213,6 +242,11 @@ export interface InertiaOptions {
   /** Constante de tempo do filtro (s): a derivada segunda de quadro a quadro é ruidosa. */
   smoothing?: number
   /**
+   * Taxa (1/s) com que a orientação do referencial da câmera é seguida, como o ShipRig faz na escolta
+   * (ESCORT_FOLLOW): a nave vive nesse referencial atrasado, então girar a câmera não a sacode.
+   */
+  follow?: number
+  /**
    * Salto (teletransporte, troca de modo): deslocamento num quadro (unidades locais) acima disto E muito maior
    * que o do quadro anterior. Só o tamanho não serve: na viagem longa a nave anda dezenas de unidades por quadro.
    */
@@ -222,11 +256,16 @@ export interface InertiaOptions {
 /**
  * Sonda de inércia: lê a matriz de mundo de um objeto a cada quadro e devolve, no referencial LOCAL dele,
  * o que a cadeia sente: −a do referencial (linear) e a aceleração angular (para a força de Euler).
- * Capta tudo o que move o objeto: viagem, freada, curva, inclinação, flutuação e a batida no vidro.
+ *
+ * Mede contra um referencial: o mundo (viagem, visita, volta: curva, freada, inclinação) ou, com `reference`,
+ * a câmera com a orientação atrasada como a escolta a segue. Na escolta a nave é colocada em relação à
+ * câmera: medir contra o mundo faria cada giro ou zoom da câmera sacudir os tentáculos como uma viagem.
+ * Contra a câmera sobra só o que foi desenhado: flutuação, batida no vidro e a nave assentando no canto.
+ * Trocar de referencial (ou um dt de quadro grande demais: aba em segundo plano) zera o histórico, sem tranco.
  *
  * O ganho exagera os movimentos pequenos (a flutuação) e a saturação suave segura os grandes (a viagem
- * cruza a galáxia em segundos: sem limite, os tentáculos se esticariam inteiros). Saltos (teletransporte,
- * troca de modo) zeram a estimativa em vez de virar um tranco.
+ * cruza a galáxia em segundos: sem limite, os tentáculos se esticariam inteiros). A saturação é a garantia
+ * de fato contra trancos; a detecção de salto (teletransporte) só evita gastá-la à toa.
  */
 export class InertiaProbe {
   readonly input: { linear: [number, number, number]; angular: [number, number, number] } = {
@@ -246,21 +285,44 @@ export class InertiaProbe {
   private readonly alpha = new THREE.Vector3()
   private readonly scale = new THREE.Vector3()
   private readonly scratch = new THREE.Vector3()
+  /** Referencial da câmera: posição dela e orientação atrasada (como a escolta). */
+  private readonly refPosition = new THREE.Vector3()
+  private readonly refQuaternion = new THREE.Quaternion()
+  private readonly lagQuaternion = new THREE.Quaternion()
+  private readonly relative = new THREE.Matrix4()
   /** Quadros seguidos com amostra válida (precisa de 2 para velocidade, 3 para aceleração). */
   private primed = 0
   /** Deslocamento do último quadro (unidades locais), para reconhecer um salto. */
   private lastMoved = 0
+  /** Referencial da última amostra (mundo ou câmera): a troca zera o histórico. */
+  private lastReference: 'world' | 'camera' = 'world'
   private readonly options: InertiaOptions
 
   constructor(options: InertiaOptions) {
     this.options = options
   }
 
-  sample(object: THREE.Object3D, dt: number): VerletInput {
-    const { gain, maxLinear, angularGain, maxAngular, smoothing = 0.05, jump = 2 } = this.options
-    object.matrixWorld.decompose(this.position, this.quaternion, this.scale)
+  /** `reference`: a câmera (escolta) ou null (mundo). */
+  sample(object: THREE.Object3D, rawDt: number, reference: THREE.Object3D | null = null): VerletInput {
+    const { gain, maxLinear, angularGain, maxAngular, smoothing = 0.05, jump = 2, follow = 5 } = this.options
+    if (rawDt <= 0) return this.input
+    const kind = reference ? 'camera' : 'world'
+    // troca de referencial ou quadro longo demais: o que veio antes não serve para derivar nada
+    if (kind !== this.lastReference || rawDt > MAX_FRAME) this.reset()
+    this.lastReference = kind
+    const dt = Math.min(rawDt, MAX_FRAME)
+
+    if (reference) {
+      reference.matrixWorld.decompose(this.refPosition, this.refQuaternion, this.scale)
+      if (this.primed === 0) this.lagQuaternion.copy(this.refQuaternion)
+      else this.lagQuaternion.slerp(this.refQuaternion, 1 - Math.exp(-follow * dt))
+      this.scale.set(1, 1, 1)
+      this.relative.compose(this.refPosition, this.lagQuaternion, this.scale).invert().multiply(object.matrixWorld)
+      this.relative.decompose(this.position, this.quaternion, this.scale)
+    } else {
+      object.matrixWorld.decompose(this.position, this.quaternion, this.scale)
+    }
     const unit = Math.abs(this.scale.x) || 1
-    if (dt <= 0) return this.input
     // salto: recomeça a estimativa daqui (o deslocamento dele vira a referência, para o quadro seguinte não ser outro)
     const moved = this.primed > 0 ? this.position.distanceTo(this.lastPosition) / unit : 0
     if (moved > jump && moved > JUMP_RATIO * this.lastMoved) this.primed = 0
@@ -291,22 +353,65 @@ export class InertiaProbe {
     this.lastOmega.copy(this.omega)
     this.primed = Math.min(this.primed + 1, 2)
 
-    // linear: −a no referencial local (sem a escala do mundo), com ganho e saturação suave
+    // linear: −a no referencial local (sem a escala do referencial), com ganho e saturação suave
     this.scratch.copy(this.accel).applyQuaternion(this.delta.copy(this.quaternion).invert()).multiplyScalar(-gain / unit)
     saturate(this.scratch, maxLinear).toArray(this.input.linear)
     saturate(this.scratch.copy(this.alpha).multiplyScalar(angularGain), maxAngular).toArray(this.input.angular)
     return this.input
   }
 
-  /** Esquece o histórico (ex.: depois de voltar do movimento reduzido). */
+  /** Esquece o histórico (troca de referencial, quadro longo, volta do movimento reduzido). */
   reset(): void {
     this.primed = 0
     this.lastMoved = 0
+    this.velocity.set(0, 0, 0)
+    this.omega.set(0, 0, 0)
     this.accel.set(0, 0, 0)
     this.alpha.set(0, 0, 0)
     this.input.linear.fill(0)
     this.input.angular.fill(0)
   }
+}
+
+/**
+ * Inércia no referencial do piloto: o ganho deixa a flutuação visível e a saturação segura a viagem
+ * (unidades do piloto/s² e rad/s²).
+ */
+export const PILOT_INERTIA: InertiaOptions = { gain: 15, maxLinear: 16, angularGain: 3, maxAngular: 5 }
+
+/** Maior dt de quadro aceito pela sonda (s), o mesmo do ShipRig e da cadeia: acima disso, recomeça. */
+const MAX_FRAME = 0.1
+
+/** Modos em que o ShipRig põe a nave em relação à câmera (descendo até o canto, escolta e batida no vidro). */
+const CAMERA_ANCHORED: ReadonlySet<ShipMode> = new Set(['entering', 'escort'])
+
+/** Referencial da inércia: `auto` segue o modo da nave (shipPose); `world` sempre o mundo (preview). */
+export type InertiaFrame = 'auto' | 'world'
+
+/**
+ * Sonda de inércia ligada à cena: em `auto`, mede contra a câmera quando o ShipRig ancora a nave nela
+ * (escolta, entrada) e contra o mundo no resto. Zera o histórico quando o referencial troca (na sonda), quando
+ * o destino muda (a viagem recomeça de outro jeito) e quando a tela muda de tamanho (a escolta muda de canto).
+ * O objeto devolvido é estável enquanto câmera, modo e sonda não mudam.
+ */
+export function useInertiaProbe(options: InertiaOptions, frame: InertiaFrame = 'auto') {
+  const camera = useThree((s) => s.camera)
+  const size = useThree((s) => s.size)
+  const probe = useMemo(() => new InertiaProbe(options), [options])
+  useEffect(() => probe.reset(), [probe, size])
+  return useMemo(() => {
+    const last = { target: shipPose.target }
+    return {
+      sample: (object: THREE.Object3D, dt: number) => {
+        if (shipPose.target !== last.target) {
+          last.target = shipPose.target
+          probe.reset()
+        }
+        return probe.sample(object, dt, frame === 'auto' && CAMERA_ANCHORED.has(shipPose.mode) ? camera : null)
+      },
+      reset: () => probe.reset(),
+    }
+  }, [probe, camera, frame])
 }
 
 /** Quantas vezes o deslocamento do quadro anterior conta como salto. */

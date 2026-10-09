@@ -6,7 +6,7 @@ import { EmissivePulseEffect, GlowHalo } from 'three-low-poly'
 import { COLORS, CONTRIBUTION_COLORS, DASHBOARD } from '@/lib/ship/geometry'
 import { thrusterScale } from '@/lib/ship/motion'
 import { applyImpulse } from '@/lib/ship/verlet'
-import { FlexRod, InertiaProbe } from './flexRod'
+import { FlexRod, type InertiaFrame, useInertiaProbe } from './flexRod'
 import {
   ANTENNA_GEOMETRY,
   ANTENNA_NODES,
@@ -96,13 +96,21 @@ const RING_PULSE = { speed: 2.2, min: 0.45, max: 1.2 } as const
 /** Antena em mola: mais solta na ponta e pouco amortecida, para balançar e quicar antes de assentar (1/s², 1/s). */
 const ANTENNA_PHYSICS = { stiffness: 110, tipStiffness: 45, damping: 2.6 } as const
 /** Inércia no referencial da nave (unidades da nave/s², rad/s²): ganho para a flutuação, teto para a viagem. */
-const ANTENNA_INERTIA = { gain: 15, maxLinear: 9, angularGain: 12, maxAngular: 5 } as const
+const ANTENNA_INERTIA = { gain: 15, maxLinear: 9, angularGain: 3, maxAngular: 5 } as const
 /** Tranco do botão "Sacudir" (unidades da nave/s). */
 const ANTENNA_SHAKE = [1.4, 0.9, -0.8] as const
 /** Faróis olham um pouco para baixo. */
 const HEADLIGHT_TILT = 0.1
 
-export function Ship({ thrusterLevel, shake = 0 }: { thrusterLevel: number; shake?: number }) {
+export function Ship({
+  thrusterLevel,
+  shake = 0,
+  inertiaFrame = 'auto',
+}: {
+  thrusterLevel: number
+  shake?: number
+  inertiaFrame?: InertiaFrame
+}) {
   const reducedMotion = useReducedMotion() ?? false
   const root = useRef<THREE.Group>(null)
 
@@ -113,7 +121,7 @@ export function Ship({ thrusterLevel, shake = 0 }: { thrusterLevel: number; shak
   }, [])
   useEffect(() => () => antenna.rod.dispose(), [antenna])
   const antennaTip = useRef<THREE.Mesh>(null)
-  const probe = useMemo(() => new InertiaProbe(ANTENNA_INERTIA), [])
+  const probe = useInertiaProbe(ANTENNA_INERTIA, inertiaFrame)
   useEffect(() => {
     if (!reducedMotion) return
     probe.reset()

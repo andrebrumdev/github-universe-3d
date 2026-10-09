@@ -6,6 +6,7 @@ import type { OctocatExpression } from '@/lib/octocat/expression'
 import { COCKPIT } from '@/lib/ship/geometry'
 import { hoverOffset, isBlinking } from '@/lib/ship/motion'
 import { ClawdHat } from './ClawdHat'
+import type { InertiaFrame } from './flexRod'
 import { Pilot, type ArmMode } from './Pilot'
 import { Ship } from './Ship'
 
@@ -27,6 +28,12 @@ interface OctocatShipProps {
   parts?: OctocatShipParts
   /** Muda a cada pedido de tranco (botão "Sacudir" do preview): tentáculos e antena balançam. */
   shake?: number
+  /**
+   * Referencial da inércia dos tentáculos e da antena. `auto` (o padrão, no ShipRig) mede contra a câmera
+   * enquanto a nave está ancorada nela (entrada, escolta) e contra o mundo no resto; `world` sempre o mundo
+   * (preview: a nave fica parada e só a câmera orbita).
+   */
+  inertiaFrame?: InertiaFrame
 }
 
 export function OctocatShip({
@@ -36,6 +43,7 @@ export function OctocatShip({
   floating = true,
   parts = ALL_PARTS,
   shake = 0,
+  inertiaFrame = 'auto',
 }: OctocatShipProps) {
   const root = useRef<THREE.Group>(null)
   const blinkRef = useRef(false)
@@ -58,10 +66,10 @@ export function OctocatShip({
 
   return (
     <group ref={root}>
-      {parts.ship && <Ship thrusterLevel={thrusterLevel} shake={shake} />}
+      {parts.ship && <Ship thrusterLevel={thrusterLevel} shake={shake} inertiaFrame={inertiaFrame} />}
       {/* piloto e gorro em coordenadas do SVG, levados para dentro da bolha pelo COCKPIT, de frente para +z */}
       <group position={COCKPIT.position} scale={COCKPIT.scale}>
-        {parts.pilot && <Pilot expression={expression} blinking={blinking} armMode={armMode} shake={shake} />}
+        {parts.pilot && <Pilot expression={expression} blinking={blinking} armMode={armMode} shake={shake} inertiaFrame={inertiaFrame} />}
         {parts.hat && <ClawdHat />}
       </group>
     </group>

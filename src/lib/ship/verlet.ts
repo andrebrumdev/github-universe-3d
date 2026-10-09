@@ -59,7 +59,11 @@ export interface VerletChain {
 export interface VerletInput {
   /** Aceleração uniforme de fora (ex.: −a do referencial), em unidades/s². */
   linear: Vec3Tuple
-  /** Aceleração angular do referencial (rad/s²): cada nó sente −α × p (força de Euler, em torno da origem). */
+  /**
+   * Aceleração angular do referencial (rad/s²): cada nó sente −α × p (força de Euler, em torno da origem).
+   * Só Euler: sem centrífuga nem Coriolis, então um giro constante (a inclinação firme numa curva) não joga
+   * os tentáculos para fora; só o começo e o fim do giro balançam.
+   */
   angular: Vec3Tuple
 }
 
