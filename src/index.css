@@ -29,8 +29,16 @@ html,
 body,
 #root {
   height: 100%;
-  background: #03050d;
-  color: #f1f5f9;
+  background: var(--color-space);
+  color: var(--color-slate-100);
+}
+
+/* Anel de foco do tema em todos os controles (antes só os da apresentação; o resto ficava com o do navegador). */
+@layer base {
+  :where(button, a, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-neon);
+    outline-offset: 2px;
+  }
 }
 
 @keyframes planet-card-in {

@@ -13,14 +13,20 @@ export function StaticFallback({ universe }: { universe: Universe }) {
         {profile.bio && <p className="mt-1 text-slate-400">{profile.bio}</p>}
         <ul className="mt-6 space-y-3">
           {repos.map((repo) => (
-            <li key={repo.name} className="rounded-lg border border-slate-700/60 p-3">
-              <a href={repo.url} target="_blank" rel="noreferrer" className="font-medium text-neon hover:underline">
-                {repo.name}
+            <li key={repo.name}>
+              {/* o cartão inteiro é o link: alvo de toque da linha toda, não só do nome */}
+              <a
+                href={repo.url}
+                target="_blank"
+                rel="noreferrer"
+                className="group block min-h-11 rounded-lg border border-slate-700/60 p-3 hover:border-neon/50"
+              >
+                <span className="font-medium text-neon group-hover:underline">{repo.name}</span>
+                {repo.description && <span className="block text-sm text-slate-400">{repo.description}</span>}
+                <span className="block text-xs text-slate-400">
+                  ★ {formatCount(repo.stars)} · {repo.primaryLanguage ?? 'sem linguagem'}
+                </span>
               </a>
-              {repo.description && <p className="text-sm text-slate-400">{repo.description}</p>}
-              <p className="text-xs text-slate-400">
-                ★ {formatCount(repo.stars)} · {repo.primaryLanguage ?? 'sem linguagem'}
-              </p>
             </li>
           ))}
         </ul>
