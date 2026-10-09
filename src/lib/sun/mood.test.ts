@@ -167,6 +167,7 @@ function randomContext(rng: () => number): MoodContext {
     tutorialWelcome: rng() < 0.1,
     sinceLeave: pick([0.2, Infinity]),
     idleFor: pick([1, 20]),
+    octocat: pick(['none', 'none', 'lean', 'brace'] as const),
   }
 }
 
@@ -256,6 +257,26 @@ describe('stepMood: tempo mínimo em cada humor (sem piscar de um para outro)', 
     expect(asleep.mood.expression).toBe('viajando')
     const woke = run(asleep, [{ sinceTabReturn: 0, idleFor: 99 }])[0]
     expect(woke.mood).toMatchObject({ expression: 'surprised', target: 'viewer' })
+  })
+})
+
+describe('moodFor: o roteiro da quarta parede do Octocat', () => {
+  it('nave cochilando encostada na borda: o sol fica de olho nela (mesmo com tudo parado)', () => {
+    expect(mood({ octocat: 'lean' })).toMatchObject({ expression: 'watching', target: 'ship' })
+    expect(mood({ octocat: 'lean', idleFor: IDLE_SLEEP + 30 })).toMatchObject({ expression: 'watching', target: 'ship' })
+    // o mouse em cima do sol passa na frente
+    expect(mood({ octocat: 'lean', hover: true })).toMatchObject({ expression: 'happy', target: 'mouse' })
+  })
+
+  it('janela apertada (o Octocat se firma): o sol se assusta, para quem vê; o clique ainda manda', () => {
+    expect(mood({ octocat: 'brace' })).toMatchObject({ expression: 'surprised', target: 'viewer' })
+    expect(mood({ octocat: 'brace', hover: true, shipTraveling: true })).toMatchObject({ expression: 'surprised', target: 'viewer' })
+    expect(mood({ octocat: 'brace', crash: 'laugh' })).toMatchObject({ expression: 'happy', target: 'viewer' })
+  })
+
+  it('sem o sinal (o padrão), nada muda', () => {
+    expect(CALM.octocat).toBe('none')
+    expect(mood({})).toEqual(mood({ octocat: 'none' }))
   })
 })
 

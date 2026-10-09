@@ -21,6 +21,8 @@ import type { SunExpression } from './sunMachine'
  * | trombada na tela                                 | quem vê   | surpreso; feliz (rindo) na fala de desculpa |
  * | quem interagia saiu (painel fechado / mouse foi) | quem vê   | triste (~1,5 s), depois volta               |
  * | aba volta depois de >10 s escondida              | quem vê   | acorda: surpreso, depois feliz              |
+ * | Octocat cochilando encostado na borda da tela    | nave      | de olho                                     |
+ * | janela apertada (o Octocat se firma)             | quem vê   | surpreso                                    |
  */
 export type MoodTarget = 'viewer' | 'mouse' | 'ship' | 'planet' | 'comet' | 'drift'
 
@@ -69,6 +71,8 @@ export interface MoodContext {
   sinceLeave: number
   /** s sem entrada do usuário nem evento. */
   idleFor: number
+  /** Roteiro da quarta parede do Octocat (store/fourthWall): cochilando na borda da tela, ou firmado no susto da janela. */
+  octocat: 'none' | 'lean' | 'brace'
 }
 
 /** Situação calma (nenhum evento); os testes e o Sun partem daqui. */
@@ -92,6 +96,7 @@ export const CALM: MoodContext = {
   tutorialWelcome: false,
   sinceLeave: Infinity,
   idleFor: 0,
+  octocat: 'none',
 }
 
 /** Sem nada acontecendo por isto (s), o sol dorme (viajando). */
@@ -111,8 +116,11 @@ export const TAB_SURPRISE = 0.8
 export const TAB_HAPPY = 2.5
 export const GREETING = 4
 
-/** Prioridade: clique > trombada > tontura > hover > estilingue/raspão > nave > foco/seleção > cometa > aba > saída > saudação > idle. */
-export const RANK = { click: 10, crash: 9, dizzy: 8.5, hover: 8, closePass: 7, ship: 6, focus: 5, comet: 4, tab: 3.5, leave: 3, greeting: 2, idle: 0 } as const
+/**
+ * Prioridade: clique > trombada > janela apertada > tontura > hover > estilingue/raspão > nave (e o cochilo do Octocat)
+ * > foco/seleção > cometa > aba > saída > saudação > idle.
+ */
+export const RANK = { click: 10, crash: 9, brace: 8.7, dizzy: 8.5, hover: 8, closePass: 7, ship: 6, focus: 5, comet: 4, tab: 3.5, leave: 3, greeting: 2, idle: 0 } as const
 
 const at = (expression: SunExpression, target: MoodTarget, rank: number, planet: string | null = null): Mood => ({ expression, target, planet, rank })
 
@@ -121,6 +129,7 @@ export function moodFor(c: MoodContext): Mood {
   if (c.sinceClick < CLICK_SURPRISE) return at('surprised', 'viewer', RANK.click)
   if (c.crash === 'impact') return at('surprised', 'viewer', RANK.crash)
   if (c.crash === 'laugh') return at('happy', 'viewer', RANK.crash)
+  if (c.octocat === 'brace') return at('surprised', 'viewer', RANK.brace)
   if (c.dizzy) return at('tonto', 'viewer', RANK.dizzy)
   if (c.hover) return at('happy', 'mouse', RANK.hover)
   if (c.closePass) return at('surprised', 'ship', RANK.closePass)
@@ -128,6 +137,7 @@ export function moodFor(c: MoodContext): Mood {
   if (c.arrivalPlanet && c.sinceArrival < ARRIVAL_ADMIRE) return at('admiring', 'planet', RANK.ship, c.arrivalPlanet)
   if (c.arrivalPlanet && c.sinceArrival < ARRIVAL_WATCH) return at('watching', 'ship', RANK.ship)
   if (c.shipPlay) return at('watching', 'ship', RANK.ship)
+  if (c.octocat === 'lean') return at('watching', 'ship', RANK.ship)
   if (c.focusPlanet) return at('admiring', 'planet', RANK.focus, c.focusPlanet)
   if (c.profileOpen) return at('happy', 'viewer', RANK.focus)
   if (c.cometNear) return at(c.sinceCometNear < COMET_SURPRISE ? 'surprised' : 'watching', 'comet', RANK.comet)
@@ -204,4 +214,6 @@ export const MOOD_TABLE: readonly MoodRow[] = [
   { label: 'Quem interagia saiu', context: { ...AWAKE, sinceLeave: 0.5 }, expression: 'sad', target: 'viewer' },
   { label: 'Aba voltou (>10 s fora)', context: { sinceStart: 60, idleFor: 30, sinceTabReturn: 0.3 }, expression: 'surprised', target: 'viewer' },
   { label: 'Aba voltou (depois)', context: { sinceStart: 60, idleFor: 30, sinceTabReturn: 1.5 }, expression: 'happy', target: 'viewer' },
+  { label: 'Octocat cochilando na borda', context: { sinceStart: 90, idleFor: 60, octocat: 'lean' }, expression: 'watching', target: 'ship' },
+  { label: 'Janela apertada (Octocat se firma)', context: { ...AWAKE, octocat: 'brace' }, expression: 'surprised', target: 'viewer' },
 ]

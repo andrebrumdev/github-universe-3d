@@ -18,7 +18,8 @@ export const LINES: Record<GuideEvent, OctocatLine> = {
   moon: { id: 'moon', text: 'Essa linguagem é importante nesse projeto!', once: false, expression: 'happy' },
   firstZoom: { id: 'firstZoom', text: 'Uau, dá pra ver bem mais de perto!', once: true, expression: 'surprised' },
   idle: { id: 'idle', text: 'Oi, tá aí?', once: true, expression: 'wink' },
-  longIdle: { id: 'longIdle', text: 'Ei, se precisar de ajuda, é comigo!', once: true, expression: 'happy' },
+  // boceja e encosta a nave na borda da tela (roteiro da quarta parede, lib/octocat/script)
+  longIdle: { id: 'longIdle', text: 'Ô, dormiu? Clica num planeta aí.', once: true, expression: 'sleepy' },
   slingshot: { id: 'slingshot', text: 'Estilingue gravitacional!', once: true, expression: 'surprised' },
   // a cada trombada na tela (rara): a nave emite uma vez por trombada
   crash: { id: 'crash', text: 'Opa, foi mal, vim rápido demais.', once: false, expression: 'happy' },

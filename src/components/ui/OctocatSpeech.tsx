@@ -19,9 +19,10 @@ export function OctocatSpeech({ profileName }: { profileName: string }) {
   const dismissBubble = useUniverse((s) => s.dismissBubble)
   const emitGuide = useUniverse((s) => s.emitGuide)
 
-  // Assistindo à apresentação ou lendo o tutorial, ficar parado é o esperado: nada de "Oi, tá aí?".
+  // Assistindo à apresentação ou lendo o tutorial, ficar parado é o esperado: nada de "Oi, tá aí?". A longa
+  // inatividade (o bocejo encostado na borda) é do roteiro da quarta parede (FourthWall).
   const onIdle = useCallback((kind: 'idle' | 'longIdle') => {
-    if (!usePresentation.getState().state && useTutorial.getState().step === null) emitGuide(kind)
+    if (kind === 'idle' && !usePresentation.getState().state && useTutorial.getState().step === null) emitGuide(kind)
   }, [emitGuide])
   useIdle(onIdle)
   const balloon = useRef<HTMLParagraphElement>(null)

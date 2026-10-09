@@ -5,6 +5,7 @@ import { useReducedMotion } from 'framer-motion'
 import * as THREE from 'three'
 import { MOBILE_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 import { useIdle } from '@/hooks/useIdle'
+import { useZoomDizzyCue } from '@/hooks/useZoomDizzyCue'
 import { selectionPose, showcasePlanet, tutorialPose, type PanelLayout } from '@/lib/cameraPoses'
 import { selectedPlanet } from '@/lib/interaction'
 import {
@@ -54,6 +55,8 @@ import {
   type ShipTarget,
 } from '@/lib/ship/escort'
 import { focusCenter, focusFront, focusParking, shipClick } from '@/lib/ship/focus'
+import { DIZZY_SECONDS } from '@/lib/ship/dizzy'
+import { LEAN_NOD, LEAN_ROLL, leanPlacement, leanWeight } from '@/lib/ship/lean'
 import { tapSlop } from '@/lib/ship/focusGesture'
 import { burnJolt, flameLevel, JOLT_SURGE, settleThrust } from '@/lib/ship/motion'
 import { ENTER_DURATION, INITIAL_SHIP, RETURN_DURATION, shipReducer, type ShipMode, type ShipState } from '@/lib/ship/shipMachine'
@@ -71,6 +74,7 @@ import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
 import { CRASH_OVERRIDE, crashCamera, crashSession, crashTimeline, endCrash, useCrash } from '@/store/crash'
 import { flightClock } from '@/store/frameClock'
+import { useFourthWall } from '@/store/fourthWall'
 import { resetShipPose, shipPose } from '@/store/shipPose'
 import { usePresentation } from '@/store/presentation'
 import { simClock } from '@/store/simClock'
@@ -130,6 +134,16 @@ const RETURN_PUFF_SCALE = 0.35
 const PUFF_JOLT = 0.45
 /** Tranco da trombada na tela: para trás, bem mais forte que um puff. */
 const CRASH_JOLT = 1.6
+/** Susto da janela apertada (roteiro da quarta parede): quanto dura, o tranco para trás e quanto a nave achata. */
+const BRACE_SECONDS = 1.3
+const BRACE_JOLT = 0.5
+const BRACE_SQUASH = 0.12
+const smoothstep = (a: number, b: number, x: number) => {
+  const u = Math.min(1, Math.max(0, (x - a) / (b - a)))
+  return u * u * (3 - 2 * u)
+}
+/** Achatamento do susto (0..1): firma depressa, segura e solta. */
+const braceSquash = (t: number) => smoothstep(0, 0.12, t) * (1 - smoothstep(0.75, BRACE_SECONDS, t))
 
 /** Ritmo (1/s) com que a nave desliza da escolta (ou da visita) até onde estaciona no modo de foco. */
 const FOCUS_GLIDE = 3
@@ -253,8 +267,11 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   const escort = useMemo(() => {
     const { width, height } = size
     const framing = escortFraming(width, height)
-    const placement = escortPlacement({ width, height, reserved: reservedRects(width, height, { tutorial: tutorialOpen, presentation: presentationOpen }) }, framing)
-    return { side: framing.side, base: placementOffset(placement, width, height, fov) }
+    const screen = { width, height, reserved: reservedRects(width, height, { tutorial: tutorialOpen, presentation: presentationOpen }) }
+    const placement = escortPlacement(screen, framing)
+    // soneca: o mesmo lugar, empurrado até a borda do canto (sem cobrir a interface)
+    const lean = leanPlacement(screen, framing, placement)
+    return { side: framing.side, base: placementOffset(placement, width, height, fov), lean: placementOffset(lean, width, height, fov) }
   }, [size, fov, tutorialOpen, presentationOpen])
   const latestEscort = useRef(escort)
   useEffect(() => {
@@ -286,10 +303,30 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   const knockStart = useRef<number | null>(null)
   const [knocking, setKnocking] = useState(false)
   const knockingRef = useRef(false)
-  const onIdle = useCallback(() => {
-    knockRequest.current = true
+  // na longa inatividade ela não bate: cochila encostada na borda (roteiro da quarta parede, store/fourthWall)
+  const onIdle = useCallback((kind: 'idle' | 'longIdle') => {
+    if (kind === 'idle') knockRequest.current = true
   }, [])
   useIdle(onIdle)
+
+  // Roteiro da quarta parede (lib/octocat/script): soneca na borda, susto da janela apertada e tontura do zoom.
+  const sleep = useFourthWall((s) => s.sleep)
+  const brace = useFourthWall((s) => s.brace)
+  const zoomDizzyCue = useFourthWall((s) => s.dizzy)
+  useZoomDizzyCue()
+  /** Peso da soneca (0 na escolta … 1 encostada na borda). */
+  const leanW = useRef(0)
+  const leanGoal = useMemo(() => new THREE.Vector3(), [])
+  const braceStart = useRef(-1)
+  const [bracing, setBracing] = useState(false)
+  const lastBrace = useRef(brace.seq)
+  /** Tontura do zoom: desde quando (s do relógio; −1: não está) e o bambeio dela. */
+  const zoomDizzySince = useRef(-1)
+  const [zoomDizzy, setZoomDizzy] = useState(false)
+  const lastZoomDizzy = useRef(zoomDizzyCue.seq)
+  const zoomWobble = useMemo(() => ({ roll: 0, pitch: 0 }), [])
+  /** s desde que ficou tonto (de girar no modo de foco ou do zoom), lido pelas estrelinhas. */
+  const starsSince = useRef(-1)
 
   const target: ShipTarget | null = useMemo(() => {
     if (step === 'welcome') return { kind: 'sun' }
@@ -487,6 +524,23 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     const g = group.current
     if (!g) return
     if (!afterShip) setAfterShip(true)
+    // roteiro da quarta parede: um susto (janela apertada) ou uma tontura (zoom) novos
+    if (brace.seq !== lastBrace.current) {
+      lastBrace.current = brace.seq
+      braceStart.current = clock.elapsedTime
+      setBracing(true)
+      if (!reduced && brace.motion) {
+        // os tentáculos levam o tranco (Verlet) e se agarram; a nave dá um empurrão para trás
+        joltStart.current = clock.elapsedTime
+        joltScale.current = -BRACE_JOLT
+        setBurnShake((n) => n + 1)
+      }
+    }
+    if (zoomDizzyCue.seq !== lastZoomDizzy.current) {
+      lastZoomDizzy.current = zoomDizzyCue.seq
+      zoomDizzySince.current = clock.elapsedTime
+      setZoomDizzy(true)
+    }
     // passo suavizado, o mesmo da câmera: o delta do R3F treme e a nave andaria em passos desiguais na tela
     const dt = flightClock.step(clock.elapsedTime, rawDt)
     // Escolta, visita e foco não mudam de modo com o tempo: avança no lugar, sem alocar um estado novo por frame.
@@ -529,6 +583,10 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
       setKnocking(knock.waving)
     }
     goal.fromArray(knockOffset(escort.base, knock, goalArr))
+    // soneca: desliza devagar até a borda (e volta depressa ao acordar); com movimento reduzido, só o rosto muda
+    leanW.current = leanWeight(leanW.current, sleep.on && sleep.motion && !reduced && s.mode === 'escort', dt)
+    const leaning = leanW.current * leanW.current * (3 - 2 * leanW.current)
+    if (leaning > 1e-4) goal.lerp(leanGoal.fromArray(escort.lean), leaning)
     let tangent: Vec3 | null = null
     let bank = 1
     let slingshot = false
@@ -735,7 +793,25 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
       // Na visita, em três-quartos com o nariz para o alvo (o Octocat aponta para ele); na escolta, para o centro.
       helper.rotateY(-yawSide * THREE_QUARTER_YAW)
       if (s.mode !== 'visiting') helper.rotateX(KNOCK_LEAN * knock.closer)
+      // cochilando: o topo tomba para a borda e a cabeça cai um pouco para a frente
+      if (leaning > 1e-4) {
+        helper.rotateZ(-escort.side * LEAN_ROLL * leaning)
+        helper.rotateX(LEAN_NOD * leaning)
+      }
     }
+    // tonto do zoom: bambeia (o mesmo bambeio da volta depois da trombada)
+    const zt = zoomDizzySince.current < 0 ? -1 : clock.elapsedTime - zoomDizzySince.current
+    if (zt > DIZZY_SECONDS) {
+      zoomDizzySince.current = -1
+      setZoomDizzy(false)
+    }
+    const zoomMotion = zt >= 0 && zt <= DIZZY_SECONDS && zoomDizzyCue.motion && !reduced
+    crashWobble(zoomMotion ? zt : -1, zoomWobble)
+    if (zoomMotion) {
+      helper.rotateZ(zoomWobble.roll)
+      helper.rotateX(zoomWobble.pitch)
+    }
+    starsSince.current = play.dizzySince.current >= 0 ? play.dizzySince.current : zoomMotion ? zt : -1
     targetQuat.copy(helper.quaternion)
     g.quaternion.slerp(targetQuat, reduced ? 1 : 1 - Math.exp(-6 * dt))
 
@@ -813,6 +889,14 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
       jolt.current.position.z = surge
       jolt.current.rotation.x = (-JOLT_PITCH * surge) / JOLT_SURGE
     }
+    // susto da janela apertada: a nave achata um pouco, firmada (com movimento reduzido, só o rosto surpreso)
+    const bt = braceStart.current < 0 ? -1 : clock.elapsedTime - braceStart.current
+    if (bt > BRACE_SECONDS) {
+      braceStart.current = -1
+      setBracing(false)
+    }
+    const squash = bt >= 0 && brace.motion && !reduced ? BRACE_SQUASH * braceSquash(bt) : 0
+    jolt.current?.scale.set(1 + squash * 0.6, 1 - squash, 1 + squash * 0.6)
     shipPose.mode = s.mode
     shipPose.target = s.target
     // giro, parafuso e olhar do modo de foco (voltam à pose de frente fora dele)
@@ -823,9 +907,11 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
   const hoverWink = hovered && mode !== 'focus'
   const expression: OctocatExpression = hoverWink
     ? 'wink'
-    : dizzy || play.dizzy
+    : dizzy || play.dizzy || zoomDizzy
       ? 'dizzy'
-      : (bubble?.line.expression ?? (mode === 'traveling' || knocking ? 'happy' : 'neutral'))
+      : bracing
+        ? 'surprised'
+        : (bubble?.line.expression ?? (sleep.on ? 'sleepy' : mode === 'traveling' || knocking ? 'happy' : 'neutral'))
   const armMode: ArmMode =
     hoverWink || knocking || greeting || play.waving || mode === 'entering' ? 'wave' : mode === 'visiting' ? 'point' : 'rest'
   // com movimento reduzido (sem voo), níveis fixos pela prop; com movimento, a nave lê `thrustSmooth` a cada quadro
@@ -880,12 +966,12 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
               thrusterRef={reduced ? undefined : thrustSmooth}
               floating={mode !== 'traveling'}
               shake={burnShake}
-              dazed={starry || play.dizzy}
+              dazed={starry || play.dizzy || (zoomDizzy && zoomDizzyCue.motion && !reduced)}
               gaze={play.gaze}
               wiggle={play.wiggle}
               hop={play.hop}
               proxies={mode === 'focus'}
-              spinDizzySince={play.dizzySince}
+              spinDizzySince={starsSince}
               headShake={play.headShake}
             />
           </group>

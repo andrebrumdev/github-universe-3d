@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useState } from 'react'
 import { ActivityTooltip } from '@/components/ui/ActivityTooltip'
 import { BackButton } from '@/components/ui/BackButton'
 import { CrashOverlay } from '@/components/ui/CrashOverlay'
+import { FourthWall } from '@/components/ui/FourthWall'
 import { LoadError } from '@/components/ui/LoadError'
 import { Loader } from '@/components/ui/Loader'
 import { PanelArrivalHint } from '@/components/ui/PanelArrivalHint'
@@ -54,6 +55,7 @@ export function App() {
         <PlanetPanel universe={universe} />
         <ProfilePanel profile={universe.profile} />
         <OctocatSpeech profileName={universe.profile.name} />
+        <FourthWall universe={universe} />
         <ShipFocusHint />
         {/* na ordem em que aparecem na tela (da esquerda para a direita) */}
         <PresentationButton universe={universe} />

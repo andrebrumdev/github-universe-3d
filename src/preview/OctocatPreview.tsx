@@ -33,6 +33,7 @@ const EXPRESSION_LABELS: Record<OctocatExpression, string> = {
   surprised: 'Surpreso',
   thinking: 'Pensando',
   dizzy: 'Tonto',
+  sleepy: 'Sonolento',
 }
 
 export function OctocatPreview() {

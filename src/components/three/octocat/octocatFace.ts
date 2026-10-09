@@ -120,6 +120,44 @@ function dizzyEye(ctx: CanvasRenderingContext2D, eye: Eye, turn: 1 | -1): void {
   })
 }
 
+/**
+ * Olho sonolento (bocejo): pálpebra caída até um pouco abaixo do meio, cobrindo a metade de cima com a pele, íris
+ * baixa espiando por baixo dela e o traço da pálpebra levemente curvado, com o cílio caído no canto de fora.
+ */
+function sleepyEye(ctx: CanvasRenderingContext2D, eye: Eye): void {
+  const side = outward(eye)
+  withEye(ctx, eye, () => {
+    const { rx, ry } = NORMAL_EYE
+    const lid = ry * 0.12
+    const sclera = new Path2D()
+    sclera.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2)
+    ctx.fillStyle = COLORS.sclera
+    ctx.fill(sclera)
+    ctx.save()
+    ctx.clip(sclera)
+    ctx.fillStyle = COLORS.iris
+    ctx.beginPath()
+    ctx.ellipse(0, ry * 0.5, 7, 9, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.fillStyle = '#FFFFFF'
+    ctx.beginPath()
+    ctx.arc(2.4, ry * 0.5 - 1, 1.8, 0, Math.PI * 2)
+    ctx.fill()
+    // a pálpebra: a pele cobre a metade de cima do olho
+    ctx.fillStyle = COLORS.skin
+    ctx.fillRect(-rx - 2, -ry - 2, rx * 2 + 4, ry + 2 + lid)
+    ctx.restore()
+    line(ctx, `M${-rx - 1} ${lid - 1} Q0 ${lid + 3} ${rx + 1} ${lid - 1}`, 3)
+    line(ctx, `M${side * rx * 0.8} ${lid} L${side * (rx + 4)} ${lid + 4}`, 1.8)
+    // contorno de baixo, fino
+    ctx.strokeStyle = COLORS.faceLine
+    ctx.lineWidth = 1.4
+    ctx.beginPath()
+    ctx.ellipse(0, 0, rx, ry, 0, Math.PI * 0.12, Math.PI * 0.88)
+    ctx.stroke()
+  })
+}
+
 /** Olho fechado: arco de riso (`up`, ∩) ou pálpebra baixada (∪), com cílio. */
 function closedEye(ctx: CanvasRenderingContext2D, eye: Eye, up: boolean): void {
   const side = outward(eye)
@@ -245,6 +283,18 @@ function drawExpression(ctx: CanvasRenderingContext2D, expression: OctocatExpres
         ry: 4,
       })
       line(ctx, 'M183 226 Q188 220 194 226 Q200 232 206 226 Q212 220 217 226', 2)
+      break
+    case 'sleepy':
+      // bocejo: olhos meio fechados e a boca num "O" alto, com a língua no fundo
+      sleepyEye(ctx, LEFT_EYE)
+      sleepyEye(ctx, RIGHT_EYE)
+      nose(ctx)
+      openMouth(ctx, 'M200 218 C209 218 212 227 212 233 C212 240 207 245 200 245 C193 245 188 240 188 233 C188 227 191 218 200 218 Z', {
+        cx: 200,
+        cy: 243,
+        rx: 8,
+        ry: 5,
+      })
       break
     case 'thinking': {
       // olhando para cima e para o lado das bolhas, boquinha fechada e puxada para o canto ("hmm")
