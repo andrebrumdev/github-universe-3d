@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useIdle } from '@/hooks/useIdle'
+import { steerBubble } from '@/lib/bubblePlacement'
 import { formatLine, LINE_DURATION_MS } from '@/lib/octocat/lines'
 import { backButtonRect, isSheetLayout, safeArea, sidePanelWidth, UI_GAP } from '@/lib/uiLayout'
 import { usePresentation } from '@/store/presentation'
@@ -46,14 +47,17 @@ export function OctocatSpeech({ profileName }: { profileName: string }) {
         const { innerWidth: W, innerHeight: H } = window
         const panelOpen = columnBusy && !isSheetLayout(W, H)
         const maxX = W - UI_GAP - half - (panelOpen ? sidePanelWidth(W) : safeArea.right)
-        const x = Math.max(UI_GAP + safeArea.left + half, Math.min(maxX, shipPose.speechX))
+        // longe do alvo na tela (planeta ou sol: no celular cobria a borda do sol), depois dentro da tela
+        const a = shipPose.speechAvoid
+        const steered = steerBubble(shipPose.speechX, shipPose.speechY, el.offsetWidth, el.offsetHeight, a.on ? a : null)
+        const x = Math.max(UI_GAP + safeArea.left + half, Math.min(maxX, steered.x))
         // O balão sobe a partir do ponto (translate −100%): o topo dele não sai da tela nem passa por baixo do
         // "← Galáxia" (que aparece com uma seleção, fora da apresentação).
         const h = el.offsetHeight
         let minY = UI_GAP + safeArea.top + h
         const back = backButtonRect()
         if (selected && !presenting && x - half < back.x + back.w + UI_GAP) minY = Math.max(minY, back.y + back.h + UI_GAP + h)
-        const y = Math.max(minY, shipPose.speechY)
+        const y = Math.max(minY, steered.y)
         el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`
         el.style.visibility = shipPose.speechOnScreen ? 'visible' : 'hidden'
       }

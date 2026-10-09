@@ -520,6 +520,14 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
     shipPose.speechX = ((speech.x + 1) / 2) * size.width
     shipPose.speechY = ((1 - speech.y) / 2) * size.height
     shipPose.speechOnScreen = speech.z < 1 && Math.abs(speech.x) < 1.2 && Math.abs(speech.y) < 1.2
+    // o balão desvia do alvo na tela (no celular ele cobria a borda do sol): o OctocatSpeech usa este disco
+    const avoid = s.target && (s.mode === 'traveling' || s.mode === 'visiting') ? targetDisc(s.target) : null
+    shipPose.speechAvoid.on = avoid !== null
+    if (avoid) {
+      shipPose.speechAvoid.x = avoid.x
+      shipPose.speechAvoid.y = avoid.y
+      shipPose.speechAvoid.r = avoid.r
+    }
 
     g.position.toArray(shipPose.position)
     shipPose.tangent = tangent ?? heading ?? shipPose.tangent

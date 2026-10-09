@@ -33,6 +33,8 @@ export interface ShipPose {
   speechX: number
   speechY: number
   speechOnScreen: boolean
+  /** Disco (px) do alvo na tela, de que o balão da fala desvia (`on` false: nenhum). */
+  speechAvoid: { on: boolean; x: number; y: number; r: number }
 }
 
 /** Estado inicial: fora do raio do sol (o ShipRig põe a nave no ponto de entrada ao montar). */
@@ -52,6 +54,7 @@ export const INITIAL_SHIP_POSE: Readonly<ShipPose> = {
   speechX: 0,
   speechY: 0,
   speechOnScreen: false,
+  speechAvoid: { on: false, x: 0, y: 0, r: 0 },
 }
 
 /** Mutável de propósito: escrito pela nave a cada frame, lido pela câmera e pelo balão da fala. */
@@ -65,6 +68,7 @@ function freshPose(position: Vec3): ShipPose {
     tangent: [...INITIAL_SHIP_POSE.tangent],
     velocity: [...INITIAL_SHIP_POSE.velocity],
     puff: { ...INITIAL_SHIP_POSE.puff },
+    speechAvoid: { ...INITIAL_SHIP_POSE.speechAvoid },
   }
 }
 
