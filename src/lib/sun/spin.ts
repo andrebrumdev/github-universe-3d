@@ -1,15 +1,13 @@
 /**
  * Girar o sol arrastando (e ele fica tonto se girar demais). Tudo puro: o Sun lê o ponteiro e o relógio e chama isto.
- * - Arrasto: começou no sol e passou de alguns px → gira o sol (a câmera fica travada desde o aperto); soltou sem
- *   passar do limiar → é clique (seleciona o perfil como sempre); começou fora do sol → a câmera gira como sempre.
+ * - Arrasto: o gesto é o arrasto compartilhado com a nave (lib/pointerDrag, com a trava da câmera com dono): passou da
+ *   folga → gira o sol; um toque rápido → clique (seleciona o perfil); começou fora do sol → a câmera gira como sempre.
  * - Giro: arrastando, o ângulo segue o mouse; solto, continua com inércia e freia sozinho (exponencial exata: igual
  *   em qualquer taxa de quadros). Movimento reduzido: o arrasto gira direto, sem inércia.
  * - Tontura: acumula |velocidade| ao longo do tempo e vaza de volta a zero (como a da nave); passou de ~3,5 voltas
  *   rápidas, fica tonto por ~3 s. Movimento reduzido: nunca.
  */
 
-/** Quanto o ponteiro anda (px) antes de um aperto no sol virar giro em vez de clique. */
-export const DRAG_THRESHOLD_PX = 6
 /** Radianos de giro por px arrastado na horizontal (meia tela ≈ uma volta). */
 export const SPIN_PER_PX = 0.012
 /** Freio do giro solto (1/s): a velocidade cai pela metade em ~0,4 s. */
@@ -22,38 +20,6 @@ export const DIZZY_TURNS = 3.5
 export const DIZZY_LEAK = 2
 /** Quanto tempo fica tonto (s). */
 export const DIZZY_SECONDS = 3
-
-export type DragKind = 'idle' | 'pending' | 'spin' | 'orbit'
-
-export interface DragState {
-  kind: DragKind
-  x0: number
-  y0: number
-  /** Como o último gesto terminou (no `up`): clique no sol, giro do sol ou câmera. */
-  released: 'none' | 'click' | 'spin' | 'orbit'
-  /** A câmera fica travada enquanto o gesto começou no sol. */
-  locksCamera: boolean
-}
-
-export type DragEvent = { type: 'down'; onSun: boolean; x: number; y: number } | { type: 'move'; x: number; y: number } | { type: 'up' }
-
-export const DRAG_IDLE: DragState = { kind: 'idle', x0: 0, y0: 0, released: 'none', locksCamera: false }
-
-export function dragReducer(s: DragState, e: DragEvent): DragState {
-  switch (e.type) {
-    case 'down':
-      return e.onSun
-        ? { kind: 'pending', x0: e.x, y0: e.y, released: 'none', locksCamera: true }
-        : { kind: 'orbit', x0: e.x, y0: e.y, released: 'none', locksCamera: false }
-    case 'move':
-      if (s.kind === 'pending' && Math.hypot(e.x - s.x0, e.y - s.y0) > DRAG_THRESHOLD_PX) return { ...s, kind: 'spin' }
-      return s
-    case 'up': {
-      const released = s.kind === 'pending' ? 'click' : s.kind === 'spin' ? 'spin' : s.kind === 'orbit' ? 'orbit' : 'none'
-      return { ...DRAG_IDLE, released }
-    }
-  }
-}
 
 export interface Spin {
   /** Ângulo acumulado em volta do eixo vertical (rad). */

@@ -3,9 +3,6 @@ import {
   DIZZY_LEAK,
   DIZZY_SECONDS,
   DIZZY_TURNS,
-  DRAG_THRESHOLD_PX,
-  DRAG_IDLE,
-  dragReducer,
   dragSpin,
   newDizziness,
   newSpin,
@@ -14,47 +11,7 @@ import {
   spinFlatten,
   stepDizziness,
   stepSpin,
-  type DragState,
 } from './spin'
-
-describe('classificar o arrasto: girar o sol, mexer a câmera ou clicar', () => {
-  it('apertou no sol e soltou sem mexer: é clique (seleciona o perfil como hoje)', () => {
-    let s: DragState = dragReducer(DRAG_IDLE, { type: 'down', onSun: true, x: 100, y: 100 })
-    expect(s.kind).toBe('pending')
-    s = dragReducer(s, { type: 'move', x: 102, y: 101 })
-    expect(s.kind).toBe('pending')
-    s = dragReducer(s, { type: 'up' })
-    expect(s.kind).toBe('idle')
-    expect(s.released).toBe('click')
-  })
-
-  it('apertou no sol e arrastou além do limiar: gira o sol (e no fim não é clique)', () => {
-    let s = dragReducer(DRAG_IDLE, { type: 'down', onSun: true, x: 100, y: 100 })
-    s = dragReducer(s, { type: 'move', x: 100 + DRAG_THRESHOLD_PX + 1, y: 100 })
-    expect(s.kind).toBe('spin')
-    s = dragReducer(s, { type: 'move', x: 160, y: 104 })
-    expect(s.kind).toBe('spin')
-    s = dragReducer(s, { type: 'up' })
-    expect(s.released).toBe('spin')
-  })
-
-  it('apertou fora do sol: a câmera gira como sempre (o sol não trava nada)', () => {
-    let s = dragReducer(DRAG_IDLE, { type: 'down', onSun: false, x: 10, y: 10 })
-    expect(s.kind).toBe('orbit')
-    s = dragReducer(s, { type: 'move', x: 300, y: 10 })
-    expect(s.kind).toBe('orbit')
-    s = dragReducer(s, { type: 'up' })
-    expect(s.released).toBe('orbit')
-  })
-
-  it('a câmera fica travada desde o aperto no sol até soltar (não começa a girar antes do limiar)', () => {
-    const down = dragReducer(DRAG_IDLE, { type: 'down', onSun: true, x: 0, y: 0 })
-    expect(down.locksCamera).toBe(true)
-    expect(dragReducer(down, { type: 'move', x: 50, y: 0 }).locksCamera).toBe(true)
-    expect(dragReducer(down, { type: 'up' }).locksCamera).toBe(false)
-    expect(dragReducer(DRAG_IDLE, { type: 'down', onSun: false, x: 0, y: 0 }).locksCamera).toBe(false)
-  })
-})
 
 describe('giro com inércia', () => {
   it('arrastando, gira junto com o mouse (radianos por px) e mede a velocidade', () => {

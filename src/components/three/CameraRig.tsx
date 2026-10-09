@@ -24,7 +24,7 @@ import { length, sub } from '@/lib/ship/vec'
 import type { Repo } from '@/lib/types'
 import { predictStopTime } from '@/lib/universe/clock'
 import type { OrbitSystem, Vec3 } from '@/lib/universe/orbits'
-import { useCameraLock } from '@/store/cameraLock'
+import { bindCameraLock } from '@/store/cameraLock'
 import { usePresentation } from '@/store/presentation'
 import { flightClock } from '@/store/frameClock'
 import { shipPose } from '@/store/shipPose'
@@ -55,7 +55,6 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
   const layout: PanelLayout = useMediaQuery(MOBILE_QUERY) ? 'bottom' : 'side'
   const reduced = useReducedMotion() ?? false
   // girando o sol: a câmera não gira junto (só leitura; o Sun liga e desliga a trava)
-  const sunDrag = useCameraLock((st) => st.sunDrag)
   const aspect = useThree((s) => s.size.width / s.size.height)
   const fov = useThree((s) => (s.camera as PerspectiveCamera).fov)
   const viewport = useMemo<Viewport>(() => ({ aspect, fov }), [aspect, fov])
@@ -111,16 +110,25 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
     const c = controls.current
     if (!c || !shipFocus) return
     const { ACTION } = CameraControlsImpl
-    const mouse = { ...c.mouseButtons }
-    const touches = { ...c.touches }
+    // só os botões do modo: o giro de um ponteiro é da trava (bindCameraLock), que pode estar pega agora
+    const saved = { right: c.mouseButtons.right, two: c.touches.two, three: c.touches.three }
     c.mouseButtons.right = ACTION.NONE
     c.touches.two = ACTION.TOUCH_DOLLY
     c.touches.three = ACTION.NONE
     return () => {
-      Object.assign(c.mouseButtons, mouse)
-      Object.assign(c.touches, touches)
+      c.mouseButtons.right = saved.right
+      c.touches.two = saved.two
+      c.touches.three = saved.three
     }
   }, [shipFocus])
+
+  // Trava da câmera com dono (girar a nave ou o sol arrastando): aplicada na hora, direto na instância, a cada troca de
+  // dono; sem `enabled`, que limparia o `touch-action` do canvas.
+  useEffect(() => {
+    const c = controls.current
+    if (!c) return
+    return bindCameraLock(c, CameraControlsImpl.ACTION.NONE)
+  }, [])
 
   useEffect(() => {
     const { selection: sel, viewport: vp } = latest.current
@@ -259,7 +267,7 @@ export function CameraRig({ system, repos }: { system: OrbitSystem; repos: Repo[
     <CameraControls
       ref={controls}
       makeDefault
-      enabled={!guided && !driving && !sunDrag}
+      enabled={!guided && !driving}
       minDistance={shipFocus ? FOCUS_MIN_DISTANCE : 2}
       maxDistance={shipFocus ? FOCUS_MAX_DISTANCE : maxCameraDistance(system, viewport)}
       smoothTime={0.6}

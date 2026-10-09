@@ -3,27 +3,18 @@ import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useCursor } from '@react-three/drei'
 import { useReducedMotion } from 'framer-motion'
 import * as THREE from 'three'
+import { usePointerDrag } from '@/hooks/usePointerDrag'
+import { COARSE_POINTER_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 import { aberrationLimbPx, fringeRho, sunScreenRadius } from '@/lib/sun/aberration'
 import { showcasePlanet } from '@/lib/cameraPoses'
 import { selectedPlanet } from '@/lib/interaction'
+import { isTap } from '@/lib/pointerDrag'
 import { dizzyStars, hasEyes, hasSparkle, PUPIL, PUPIL_REACH, pupilLook, zzzState } from '@/lib/sun/face'
 import { FACE_AT_REST, faceTarget, stepFaceSpring, wrapAngle, type FaceSpring } from '@/lib/sun/faceSpring'
 import { headOffset, limitTurn, MOTION_AT_REST, quantizePupil, stepGazeMotion, type GazeMotion } from '@/lib/sun/gaze'
 import { CALM, MOOD_AT_START, moodFor, stepMood, type MoodContext, type MoodState } from '@/lib/sun/mood'
 import { deriveSunEvents, isClosePass, newSunEvents, newSunEventState, newSunSnapshot } from '@/lib/sun/sunEvents'
-import {
-  dragReducer,
-  dragSpin,
-  DRAG_IDLE,
-  newDizziness,
-  newSpin,
-  releaseSpin,
-  spinFlatten,
-  stepDizziness,
-  stepSpin,
-  type DragEvent,
-  type DragState,
-} from '@/lib/sun/spin'
+import { dragSpin, newDizziness, newSpin, releaseSpin, spinFlatten, stepDizziness, stepSpin } from '@/lib/sun/spin'
 import { kickSquash, SQUASH_AT_REST, SQUASH_TARGET, squashScale, stepSquash, type Squash } from '@/lib/sun/squash'
 import {
   CLICK_DURATION,
@@ -40,7 +31,6 @@ import { buildComets, cometPosition } from '@/lib/universe/comets'
 import { planetPosition, SUN_RADIUS, type OrbitSystem, type Vec3 } from '@/lib/universe/orbits'
 import { crashApology, crashTimeline } from '@/store/crash'
 import { bloomLook, useBloom } from '@/store/bloom'
-import { useCameraLock } from '@/store/cameraLock'
 import { flightClock } from '@/store/frameClock'
 import { usePresentation } from '@/store/presentation'
 import { shipPose } from '@/store/shipPose'
@@ -126,11 +116,15 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
   const motion = useRef<GazeMotion>(MOTION_AT_REST)
   const moodCtx = useRef<MoodContext>({ ...CALM })
   const events = useRef<SunInputs>({ started: false, clickAt: -Infinity, clickPending: false, tabHiddenMs: 0, lastActivity: 0 })
-  // Girar o sol arrastando (lib/sun/spin): o gesto, o giro com inércia e a tontura.
-  const drag = useRef<DragState>(DRAG_IDLE)
+  // Girar o sol arrastando (lib/sun/spin): o giro com inércia e a tontura. O gesto é o arrasto compartilhado com a nave
+  // (lib/pointerDrag + trava da câmera com dono): `held` do aperto até soltar, `spinning` depois da folga.
+  const held = useRef(false)
+  const spinning = useRef(false)
+  /** Hora do último aperto no sol (ms): o clique só vale como toque rápido (ver handleClick). */
+  const pressAt = useRef(-Infinity)
   const spin = useRef(newSpin())
   const dizzy = useRef(newDizziness())
-  const dragInput = useRef({ lastX: 0, dx: 0, spinAngle: 0 })
+  const dragInput = useRef({ dx: 0, spinAngle: 0 })
   const squashGoal = useRef({ puff: 0, stretch: 0 })
   const stars = useRef(dizzyStars(0))
   // Retrato da cena, estado e saída das transições (lib/sun/sunEvents): reaproveitados a cada quadro, sem alocar.
@@ -188,31 +182,23 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     }
   }, [])
 
-  // Gesto de girar: começa no aperto sobre o sol (onSunPointerDown); o resto do gesto vem da janela.
-  useEffect(() => {
-    const onMove = (e: PointerEvent) => {
-      const d = drag.current
-      if (d.kind !== 'pending' && d.kind !== 'spin') return
-      drag.current = dragReducer(d, { type: 'move', x: e.clientX, y: e.clientY })
-      if (drag.current.kind === 'spin') dragInput.current.dx += e.clientX - dragInput.current.lastX
-      dragInput.current.lastX = e.clientX
-    }
-    const onUp = () => {
-      if (drag.current.kind === 'idle') return
-      drag.current = dragReducer(drag.current, { type: 'up' })
-      if (drag.current.released === 'spin') spin.current = releaseSpin(spin.current, reducedRef.current)
-      useCameraLock.setState({ sunDrag: false })
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onUp)
-    return () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onUp)
-      useCameraLock.setState({ sunDrag: false })
-    }
-  }, [])
+  const coarse = useMediaQuery(COARSE_POINTER_QUERY)
+  const sunDrag = usePointerDrag('sun', {
+    onStart: () => {
+      held.current = true
+      dragInput.current.dx = 0
+    },
+    onMove: (dx) => {
+      spinning.current = true
+      dragInput.current.dx += dx
+    },
+    // soltou: segue com o embalo; fim perdido ou pinça: para na hora
+    onStop: (fling) => {
+      held.current = false
+      spinning.current = false
+      spin.current = fling ? releaseSpin(spin.current, reducedRef.current) : { angle: spin.current.angle, velocity: 0 }
+    },
+  })
 
   // O `pointer` do R3F começa em (0,0) e nunca zera: só há "perto" com um ponteiro real no canvas.
   const gl = useThree((s) => s.gl)
@@ -326,12 +312,12 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
 
     // Girar o sol: arrastando segue o mouse; solto, inércia e freio (passo suavizado da cena, igual em qualquer fps).
     const sdt = flightClock.step(t, dt)
-    if (drag.current.kind === 'spin') {
+    if (spinning.current) {
       spin.current = dragSpin(spin.current, dragInput.current.dx, sdt, reduced)
       dragInput.current.dx = 0
     } else spin.current = stepSpin(spin.current, sdt, reduced)
     // movimento reduzido: o arrasto gira direto e, solto, o rosto volta na hora (sem inércia nem mola)
-    if (reduced && drag.current.kind !== 'spin') spin.current = newSpin()
+    if (reduced && !spinning.current) spin.current = newSpin()
     const spinStep = spin.current.angle - dragInput.current.spinAngle
     dragInput.current.spinAngle = spin.current.angle
     const wasDizzy = dizzy.current.dizzyLeft > 0
@@ -351,7 +337,7 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     // Corpo segue o mouse com atraso quando ele está perto; senão volta ao centro.
     goal.set(0, 0, 0)
     // girando o sol, o corpo fica no lugar (não corre atrás do mouse)
-    if (next.mode === 'hover' && !reduced && drag.current.kind === 'idle') goal.copy(hit).setY(0).clampLength(0, FOLLOW_MAX)
+    if (next.mode === 'hover' && !reduced && !held.current) goal.copy(hit).setY(0).clampLength(0, FOLLOW_MAX)
     body.current?.position.lerp(goal, 1 - Math.exp(-3 * dt))
 
     if (bounce.current) {
@@ -512,24 +498,22 @@ export function Sun({ system, repos }: { system: OrbitSystem; repos: SunRepo[] }
     if (light.current) light.current.intensity += (2.2 * look.glow - light.current.intensity) * k
   })
 
-  // Aperto sobre o sol: começa um gesto (pode virar giro ou clique) e trava a rotação da câmera até soltar.
+  // Aperto sobre o sol: começa um gesto (pode virar giro ou clique) e trava o giro de um ponteiro da câmera até soltar.
   function onSunPointerDown(e: ThreeEvent<PointerEvent>) {
-    // No modo de foco na nave, o arrasto é da câmera em volta dela: o sol não gira nem trava a câmera (o clique nele
+    // antes de qualquer guarda: o clique deste aperto é julgado só por ele (ver handleClick)
+    pressAt.current = performance.now()
+    events.current.lastActivity = pressAt.current
+    // No modo de foco na nave, o arrasto é da câmera em volta dela: o sol não gira nem trava a câmera (um toque nele
     // ainda seleciona o perfil e sai do modo).
     if (useUniverse.getState().selection.kind === 'ship') return
     e.stopPropagation()
-    const event: DragEvent = { type: 'down', onSun: true, x: e.nativeEvent.clientX, y: e.nativeEvent.clientY }
-    drag.current = dragReducer(drag.current, event)
-    dragInput.current.lastX = e.nativeEvent.clientX
-    dragInput.current.dx = 0
-    events.current.lastActivity = performance.now()
-    useCameraLock.setState({ sunDrag: true })
+    sunDrag.begin(e)
   }
 
   function handleClick(e: ThreeEvent<MouseEvent>) {
     e.stopPropagation()
-    // o gesto foi um giro, não um clique: não seleciona
-    if (drag.current.released === 'spin') return
+    // só um toque de verdade seleciona: um giro do sol, ou uma órbita da câmera que começa e termina nele, não
+    if (!isTap(e.delta, performance.now() - pressAt.current, coarse)) return
     machine.current = sunReducer(machine.current, { type: 'click' })
     events.current.clickPending = true
     events.current.lastActivity = performance.now()

@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useThree, type ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
-import { COARSE_POINTER_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
+import { usePointerDrag } from '@/hooks/usePointerDrag'
 import { pickPlayLine, type OctocatExpression, type PlayLineGroup } from '@/lib/octocat/lines'
 import {
-  gestureAfterMove,
-  gestureOnRelease,
   isDoubleTap,
   pickPart,
-  type Gesture,
   type ShipPart,
   type Tap,
   type TouchedPart,
@@ -58,26 +55,16 @@ interface ShipPlayOptions {
   onBurst: () => void
 }
 
-interface DragState {
-  id: number
-  x: number
-  y: number
-  lastX: number
-  lastY: number
-  start: number
-  part: TouchedPart
-  gesture: Gesture
-}
 
 /**
  * Brincadeira com a nave no modo de foco: arrastar na nave gira (com embalo; ver lib/ship/spin), tocar numa peça faz
  * a reação dela (lib/ship/play), dois toques dão um parafuso e, parado, o Octocat olha para quem vê. O arrasto que
- * começa na nave não chega ao CameraControls (fora dela, a câmera orbita como sempre).
+ * começa na nave pega a trava da câmera (store/cameraLock: sem o giro de um ponteiro, a pinça segue); fora dela, a
+ * câmera orbita como sempre.
  *
  * `update` roda no useFrame da nave (com o passo suavizado dela) e escreve o giro no grupo `spin`.
  */
 export function useShipPlay({ focused, reduced, root, onBurst }: ShipPlayOptions) {
-  const coarse = useMediaQuery(COARSE_POINTER_QUERY)
   const clock = useThree((s) => s.clock)
   const camera = useThree((s) => s.camera)
   const spin = useMemo(() => newSpin(), [])
@@ -100,7 +87,6 @@ export function useShipPlay({ focused, reduced, root, onBurst }: ShipPlayOptions
   const lastInput = useRef(0)
   const lastTap = useRef<Tap | null>(null)
   const lastLines = useRef<Partial<Record<PlayLineGroup, string>>>({})
-  const endDrag = useRef<(() => void) | null>(null)
 
   // sem entrada por um tempo: as mexidas (o relógio só conta no modo)
   useEffect(() => {
@@ -115,11 +101,6 @@ export function useShipPlay({ focused, reduced, root, onBurst }: ShipPlayOptions
       for (const event of INPUT_EVENTS) window.removeEventListener(event, mark, { capture: true })
     }
   }, [focused])
-  // saindo do modo (ou desmontando) no meio de um arrasto: larga os ouvintes da janela
-  useEffect(() => {
-    if (!focused) endDrag.current?.()
-  }, [focused])
-  useEffect(() => () => endDrag.current?.(), [])
 
   const say = useCallback((group: PlayLineGroup, expression: OctocatExpression) => {
     const text = pickPlayLine(group, lastLines.current[group] ?? null, Math.random)
@@ -153,65 +134,41 @@ export function useShipPlay({ focused, reduced, root, onBurst }: ShipPlayOptions
     [clock, reduced, say, onBurst],
   )
 
+  /** Peça apertada no começo do gesto (o toque reage nela). */
+  const pressed = useRef<TouchedPart>('hull')
+  // Arrasto na nave (lib/pointerDrag + trava da câmera com dono): gira; um toque reage; um segundo dedo vira pinça.
+  const drag = usePointerDrag('ship', {
+    onStart: (time) => {
+      grabSpin(spin, time)
+      setDragging(true)
+    },
+    onMove: (dx, dy, time) => {
+      dragSpin(spin, dx, dy, time, reduced)
+    },
+    onStop: (fling, time) => {
+      // sem embalo (fim perdido, pinça, tontura): soltar "muito depois" do último movimento
+      releaseSpin(spin, fling ? time : Infinity, reduced)
+      setDragging(false)
+    },
+    onTap: (x, y, time) => react(pressed.current, { time, x, y }),
+  })
+  // saindo do modo no meio de um arrasto: larga a nave e a trava
+  useEffect(() => {
+    if (!focused) drag.abort()
+  }, [focused, drag])
+
   const onPointerDown = useCallback(
     (e: ThreeEvent<PointerEvent>) => {
       const ship = root.current
-      if (!focused || !ship || (e.pointerType === 'mouse' && e.button !== 0)) return
-      // tonto (até voltar a si): a nave não gira; o arrasto segue para a câmera, que orbita como no vazio
-      if (dizziness.state !== 'ok') return
+      if (!ship) return
+      // nada atrás da nave (o sol, um planeta) leva este aperto; o evento nativo segue (câmera e inatividade o veem)
       e.stopPropagation()
-      // O CameraControls escuta o mesmo elemento, registrado depois do R3F: sem isto o arrasto na nave também orbitaria.
-      e.nativeEvent.stopImmediatePropagation()
-      endDrag.current?.()
-      const parts = e.intersections.map((hit) => partOf(hit.object, ship)).filter((part) => part !== undefined)
-      const native = e.nativeEvent
-      const now = performance.now()
-      const drag: DragState = {
-        id: native.pointerId,
-        x: native.clientX,
-        y: native.clientY,
-        lastX: native.clientX,
-        lastY: native.clientY,
-        start: now,
-        part: pickPart(parts),
-        gesture: 'pending',
-      }
-      grabSpin(spin, now)
-      const move = (ev: PointerEvent) => {
-        if (ev.pointerId !== drag.id) return
-        if (drag.gesture === 'pending') drag.gesture = gestureAfterMove(Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y), coarse)
-        if (drag.gesture !== 'drag') return
-        dragSpin(spin, ev.clientX - drag.lastX, ev.clientY - drag.lastY, performance.now(), reduced)
-        drag.lastX = ev.clientX
-        drag.lastY = ev.clientY
-      }
-      const up = (ev: PointerEvent) => {
-        if (ev.pointerId !== drag.id) return
-        const at = performance.now()
-        releaseSpin(spin, at, reduced)
-        const dist = Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y)
-        stop()
-        if (gestureOnRelease(drag.gesture, dist, at - drag.start, coarse) === 'tap') react(drag.part, { time: at, x: ev.clientX, y: ev.clientY })
-      }
-      const cancel = (ev: PointerEvent) => {
-        if (ev.pointerId !== drag.id) return
-        releaseSpin(spin, Infinity, reduced)
-        stop()
-      }
-      function stop() {
-        window.removeEventListener('pointermove', move)
-        window.removeEventListener('pointerup', up)
-        window.removeEventListener('pointercancel', cancel)
-        if (endDrag.current === stop) endDrag.current = null
-        setDragging(false)
-      }
-      window.addEventListener('pointermove', move)
-      window.addEventListener('pointerup', up)
-      window.addEventListener('pointercancel', cancel)
-      endDrag.current = stop
-      setDragging(true)
+      // fora do modo, ou tonto (até voltar a si): a nave não gira; o arrasto é da câmera, que orbita como no vazio
+      if (!focused || dizziness.state !== 'ok') return
+      pressed.current = pickPart(e.intersections.map((hit) => partOf(hit.object, ship)).filter((part) => part !== undefined))
+      drag.begin(e)
     },
-    [focused, root, spin, coarse, reduced, react, dizziness],
+    [focused, root, dizziness, drag],
   )
 
   /** Um quadro: giro (solto ou voltando à pose de frente), olhar e parafuso, escritos em `spinGroup`. */
@@ -222,8 +179,8 @@ export function useShipPlay({ focused, reduced, root, onBurst }: ShipPlayOptions
       const event = stepDizziness(dizziness, spinSpeed(spin, performance.now()), dt, reduced)
       if (event === 'dizzy') {
         // girou demais: larga a nave na mão, o embalo para e ele reclama (o rosto em espiral vem do estado)
-        endDrag.current?.()
-        // soltar "muito depois" do último movimento: sem embalo (o giro para)
+        // larga a nave na mão (sem embalo: o giro para) e solta a trava
+        drag.abort()
         releaseSpin(spin, Infinity, reduced)
         say('dizzy', 'neutral')
         setDizzy(true)
