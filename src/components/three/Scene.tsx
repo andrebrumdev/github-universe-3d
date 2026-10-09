@@ -5,9 +5,11 @@ import type { Universe } from '@/lib/types'
 import { CAMERA_FAR, starfieldRadius } from '@/lib/cameraPoses'
 import { buildOrbits } from '@/lib/universe/orbits'
 import { bodyExtent, MAX_MOONS, maxPlanetWeight, planetRadius } from '@/lib/universe/planets'
+import { useBloomEnabled } from '@/hooks/useBloomEnabled'
 import { useUniverse } from '@/store/universe'
+import { preToneMapped } from './acesBackground'
 import { CameraRig } from './CameraRig'
-import { PlanetGlowDriver } from './GlowEffects'
+import { GlowBloom, PlanetGlowDriver } from './GlowEffects'
 import { ShipRig } from './octocat/ShipRig'
 import { OrbitLines } from './OrbitLines'
 import { Planet } from './Planet'
@@ -16,6 +18,10 @@ import { Sun } from './Sun'
 import { Starfield } from './Starfield'
 
 const SHOW_STATS = new URLSearchParams(window.location.search).has('perf')
+/** Igual ao fundo da página (index.css). */
+const BACKGROUND = '#03050d'
+/** Com o bloom, o fundo passa pelo ACES do ToneMapping: entra pré-compensado para sair o mesmo BACKGROUND. */
+const BACKGROUND_BLOOM = preToneMapped(BACKGROUND)
 
 export function Scene({ universe }: { universe: Universe }) {
   const clearSelection = useUniverse((s) => s.clearSelection)
@@ -32,10 +38,11 @@ export function Scene({ universe }: { universe: Universe }) {
   }, [universe.repos])
   // a casca de estrelas cresce com o sistema (só muda quando o sistema muda)
   const starRadius = useMemo(() => starfieldRadius(system), [system])
+  const bloom = useBloomEnabled()
 
   return (
     <Canvas dpr={[1, 2]} camera={{ position: [0, 40, 70], fov: 50, near: 0.1, far: CAMERA_FAR }} onPointerMissed={clearSelection}>
-      <color attach="background" args={['#03050d']} />
+      {bloom ? <color attach="background" args={BACKGROUND_BLOOM} /> : <color attach="background" args={[BACKGROUND]} />}
       <ambientLight intensity={0.25} />
       <hemisphereLight args={['#9bd8ff', '#1a2350', 0.2]} />
       <Starfield radius={starRadius} />
@@ -48,6 +55,7 @@ export function Scene({ universe }: { universe: Universe }) {
       ))}
       <CameraRig system={system} repos={universe.repos} />
       <ShipRig system={system} repos={universe.repos} profileName={universe.profile.name} />
+      {bloom && <GlowBloom />}
       {SHOW_STATS && <Stats />}
     </Canvas>
   )
