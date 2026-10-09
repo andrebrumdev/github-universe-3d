@@ -17,8 +17,10 @@ const always = () => 0
 const never = () => 0.999
 
 describe('trombada rara: quando pode acontecer', () => {
-  it('é rara: cerca de 1 em 10 voltas', () => {
-    expect(CRASH_CHANCE).toBeCloseTo(0.1)
+  it('é rara: por volta de 1 em 10 voltas (de base)', () => {
+    // de base (na velocidade de referência); o embalo multiplica (momentum.test.ts)
+    expect(CRASH_CHANCE).toBeGreaterThanOrEqual(0.08)
+    expect(CRASH_CHANCE).toBeLessThanOrEqual(0.13)
     expect(shouldCrash(() => CRASH_CHANCE - 0.001, SEASONED, PLANET)).toBe(true)
     expect(shouldCrash(() => CRASH_CHANCE + 0.001, SEASONED, PLANET)).toBe(false)
   })

@@ -19,6 +19,7 @@ import {
   planCrash,
   type CrashPlan,
 } from '@/lib/crash/crashApproach'
+import { returnMomentum } from '@/lib/crash/momentum'
 import { recordReturn, shouldCrash } from '@/lib/crash/rarity'
 import {
   crashCancel,
@@ -312,15 +313,6 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
         const tangent: Vec3 = [(p[2] - sun[2]) / rho, 0, -(p[0] - sun[0]) / rho]
         const toLocal = (v: Vec3): Vec3 => [dotArr(v, returnFrame.right), dotArr(v, returnFrame.up), dotArr(v, returnFrame.back)]
         const { base, side } = latestEscort.current
-        // de vez em quando (raro), a volta vem rápido demais e bate na tela
-        const crash = shouldCrash(crashSession.rng, crashSession.history, {
-          from: machine.current.target,
-          tutorial: step !== null,
-          presentation: usePresentation.getState().state !== null,
-          reducedMotion: reduced,
-          override: CRASH_OVERRIDE,
-        })
-        crashSession.history = recordReturn(crashSession.history, crash)
         const input = {
           start: frameToLocal(returnFrame, p),
           velocity: from === 'traveling' ? toLocal(shipPose.velocity) : ([0, 0, 0] as Vec3),
@@ -328,6 +320,16 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[] 
           escort: base,
           side,
         }
+        // de vez em quando (raro), a volta vem rápido demais e bate na tela — mais fácil quanto maior o embalo dela
+        const crash = shouldCrash(crashSession.rng, crashSession.history, {
+          from: machine.current.target,
+          tutorial: step !== null,
+          presentation: usePresentation.getState().state !== null,
+          reducedMotion: reduced,
+          momentum: returnMomentum(input),
+          override: CRASH_OVERRIDE,
+        })
+        crashSession.history = recordReturn(crashSession.history, crash)
         if (crash) {
           crashPlan.current = planCrash(input)
           duration = crashTotal(crashPlan.current)
