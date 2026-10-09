@@ -79,7 +79,7 @@ const MOON_EXCURSION = 0.1
  * 1,1·r + 0,4; com a ressonância 1:2:3… as luas de fora saem da 3ª lei, e a interna mais perto compacta o sistema.
  */
 const MOON_ORBIT_SCALE = 1.0
-const MOON_ORBIT_OFFSET = 0.4
+const MOON_ORBIT_OFFSET = 0.5
 /** Folga entre a apoapse de uma lua e a periapse da seguinte, além dos dois raios máximos de lua. */
 const MOON_GAP = 0.05
 /** T = MOON_PERIOD_SCALE·(a/r)^1,5: massa do planeta ∝ r³; a lua interna de um planeta médio leva ~11 s. */

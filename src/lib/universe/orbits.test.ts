@@ -27,7 +27,7 @@ import {
  * ≈ 500 com as luas em ressonância 1:2:3:4:5:6 (a sexta lua fica a 6^(2/3) ≈ 3,3× a interna, alcance 9,4 → 12,1).
  * O enquadramento é testado em cameraPoses.test.
  */
-const REACH_LIMIT = 510
+const REACH_LIMIT = 525
 const len = (v: Vec3) => Math.hypot(v[0], v[1], v[2])
 const dist = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
