@@ -1,17 +1,16 @@
-import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, lazy, Suspense, use, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Stats } from '@react-three/drei'
 import type { Universe } from '@/lib/types'
-import { CAMERA_FAR, starfieldRadius } from '@/lib/cameraPoses'
+import { CAMERA_FAR } from '@/lib/cameraPoses'
 import { WebGLContextLostError } from '@/lib/sceneError'
-import { buildOrbits } from '@/lib/universe/orbits'
-import { bodyExtent, MAX_MOONS, maxPlanetWeight, planetRadius } from '@/lib/universe/planets'
 import { useBloomEnabled } from '@/hooks/useBloomEnabled'
 import { FINE_POINTER_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
 import { canvasDpr } from '@/lib/renderBudget'
 import { useBloom } from '@/store/bloom'
 import { missCanvas } from '@/store/presentation'
 import { useSceneReady } from '@/store/sceneReady'
+import { prepareScene } from '@/workers/sceneAssets'
 import { preToneMapped } from './acesBackground'
 import { CameraRig } from './CameraRig'
 import { Comets } from './Comets'
@@ -95,20 +94,9 @@ export function Scene({ universe }: { universe: Universe }) {
   // Contexto perdido: a cena lança e o SceneBoundary do App mostra o aviso com "Tentar de novo" (que remonta o canvas).
   const [contextLost, setContextLost] = useState(false)
   const onContextLost = useCallback(() => setContextLost(true), [])
-  const system = useMemo(() => {
-    // tamanho relativo ao próprio perfil: o repo de maior peso fica com o raio máximo
-    const maxWeight = maxPlanetWeight(universe.repos)
-    return buildOrbits(
-      universe.repos.map((r) => {
-        const radius = planetRadius(r.stars, r.forks, maxWeight)
-        // o espaçamento reserva o planeta com as luas (uma por linguagem, até MAX_MOONS)
-        // repo com forks ganha troianos em L4/L5: o anel abre espaço para as nuvens
-        return { name: r.name, radius, extent: bodyExtent(radius, Math.min(MAX_MOONS, r.languages.length)), trojans: r.forks > 0 }
-      }),
-    )
-  }, [universe.repos])
-  // a casca de estrelas cresce com o sistema (só muda quando o sistema muda)
-  const starRadius = useMemo(() => starfieldRadius(system), [system])
+  // Órbitas e casca de estrelas (que cresce com o sistema) vêm do worker da cena, começadas quando os dados chegaram;
+  // até lá a Scene suspende atrás do Loader.
+  const { system, starRadius } = use(prepareScene(universe.repos)).layout
   const bloom = useBloomEnabled()
   // O fundo segue o bloom que de fato montou: se o remendo do shader falhar, o GlowBloom não monta e não há ACES.
   const bloomActive = useBloom((s) => s.active)
