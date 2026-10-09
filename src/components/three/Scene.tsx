@@ -9,6 +9,7 @@ import { useBloomEnabled } from '@/hooks/useBloomEnabled'
 import { missCanvas } from '@/store/presentation'
 import { preToneMapped } from './acesBackground'
 import { CameraRig } from './CameraRig'
+import { Comets } from './Comets'
 import { GlowBloom, PlanetGlowDriver } from './GlowEffects'
 import { ShipRig } from './octocat/ShipRig'
 import { OrbitLines } from './OrbitLines'
@@ -16,6 +17,7 @@ import { Planet } from './Planet'
 import { SimClockDriver } from './SimClockDriver'
 import { Sun } from './Sun'
 import { Starfield } from './Starfield'
+import { Trojans } from './Trojans'
 
 const SHOW_STATS = new URLSearchParams(window.location.search).has('perf')
 /** Igual ao fundo da página (index.css). */
@@ -31,7 +33,8 @@ export function Scene({ universe }: { universe: Universe }) {
       universe.repos.map((r) => {
         const radius = planetRadius(r.stars, r.forks, maxWeight)
         // o espaçamento reserva o planeta com as luas (uma por linguagem, até MAX_MOONS)
-        return { name: r.name, radius, extent: bodyExtent(radius, Math.min(MAX_MOONS, r.languages.length)) }
+        // repo com forks ganha troianos em L4/L5: o anel abre espaço para as nuvens
+        return { name: r.name, radius, extent: bodyExtent(radius, Math.min(MAX_MOONS, r.languages.length)), trojans: r.forks > 0 }
       }),
     )
   }, [universe.repos])
@@ -47,11 +50,13 @@ export function Scene({ universe }: { universe: Universe }) {
       <Starfield radius={starRadius} />
       <SimClockDriver />
       <PlanetGlowDriver />
-      <Sun />
+      <Sun system={system} />
       <OrbitLines rings={system.rings} />
       {system.orbits.map((orbit, i) => (
         <Planet key={orbit.name} repo={universe.repos[i]} ring={system.rings[orbit.ring]} orbit={orbit} />
       ))}
+      <Trojans system={system} repos={universe.repos} />
+      <Comets system={system} repos={universe.repos} />
       <CameraRig system={system} repos={universe.repos} />
       <ShipRig system={system} repos={universe.repos} profileName={universe.profile.name} />
       {bloom && <GlowBloom />}
