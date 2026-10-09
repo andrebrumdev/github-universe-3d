@@ -58,3 +58,32 @@ export function FireTrail({ ship, nozzle }: { ship: RefObject<THREE.Object3D | n
 
   return <mesh geometry={ribbon.geometry} material={material} frustumCulled={false} />
 }
+
+/** Quadros em que o aquecimento fica visível (o primeiro já compila; os outros cobrem um quadro pulado). */
+const WARMUP_FRAMES = 3
+
+/**
+ * Compila o programa do rastro logo depois da montagem, para o primeiro voo não travar compilando um shader no meio
+ * do clique: uma faixa vazia (drawRange 0, nada aparece) com o mesmo material renderiza nos primeiros quadros, no
+ * mesmo caminho do render de verdade (com ou sem o EffectComposer, então a chave do programa é a mesma). Depois fica
+ * invisível e montada: enquanto este material vive, o three guarda o programa, e o FireTrail de cada voo o reaproveita.
+ */
+export function TrailWarmup() {
+  const ribbon = useMemo(() => new TrailRibbon(), [])
+  const material = useMemo(() => createTrailMaterial(), [])
+  useEffect(
+    () => () => {
+      ribbon.dispose()
+      material.dispose()
+    },
+    [ribbon, material],
+  )
+  const mesh = useRef<THREE.Mesh>(null)
+  const frames = useRef(0)
+  useFrame(() => {
+    if (frames.current > WARMUP_FRAMES || !mesh.current) return
+    frames.current++
+    if (frames.current > WARMUP_FRAMES) mesh.current.visible = false
+  })
+  return <mesh ref={mesh} geometry={ribbon.geometry} material={material} frustumCulled={false} raycast={() => null} />
+}

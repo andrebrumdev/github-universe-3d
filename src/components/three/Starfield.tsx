@@ -2,11 +2,19 @@ import { useEffect, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useReducedMotion } from 'framer-motion'
 import * as THREE from 'three'
-import { StarField } from 'three-low-poly'
+import { BurstShape, StarField } from 'three-low-poly'
 import { STARFIELD_DEPTH } from '@/lib/cameraPoses'
 import { generateParallaxStars } from '@/lib/universe/parallaxStars'
 
 const PARALLAX_COUNT = 350
+/** Estrelas da casca principal (um InstancedMesh). */
+const STAR_COUNT = 3000
+/**
+ * Forma de cada estrela: a mesma estrela de 4 pontas do padrão da lib (BurstGeometry: pontas 0,6/1,9), mas plana e
+ * com 3 segmentos por curva — 22 triângulos em vez de ~380 da extrusão com 12 segmentos (3000 estrelas: ~66 mil
+ * triângulos em vez de ~1,14 milhão por quadro). Com poucos pixels de tamanho na tela, as duas saem iguais.
+ */
+const starGeometry = () => new THREE.ShapeGeometry(new BurstShape({ points: 4, innerRadius: 0.6, outerRadius: 1.9 }), 3)
 /**
  * `radius` = max(260, 1,6 × distância máxima da câmera) e essa distância é ≥ 1,4 × (1,5 × alcance + 10), então o
  * alcance do sistema é no máximo radius / 3,36. Usado como limite superior seguro do alcance (a casca interna
@@ -90,22 +98,25 @@ function ParallaxLayer({ radius }: { radius: number }) {
 export function Starfield({ radius }: { radius: number }) {
   const reducedMotion = useReducedMotion() ?? false
   const outer = radius + STARFIELD_DEPTH
-  const field = useMemo(
-    () =>
-      new StarField({
-        orientation: 'radial',
-        count: 3000,
-        minRadius: radius,
-        maxRadius: outer,
-        seed: 7,
-        sizeMin: 0.002,
-        sizeMax: 0.007,
-        // paleta padrão da lib (branco, azulado, creme) a ~80%: contra o fundo quase preto não compete com os planetas
-        color: ['#cccccc', '#a2adcc', '#ccc3b3'],
-        twinkle: !reducedMotion,
-      }),
-    [radius, outer, reducedMotion],
-  )
+  const field = useMemo(() => {
+    const geometry = starGeometry()
+    const f = new StarField({
+      orientation: 'radial',
+      count: STAR_COUNT,
+      geometry,
+      minRadius: radius,
+      maxRadius: outer,
+      seed: 7,
+      sizeMin: 0.002,
+      sizeMax: 0.007,
+      // paleta padrão da lib (branco, azulado, creme) a ~80%: contra o fundo quase preto não compete com os planetas
+      color: ['#cccccc', '#a2adcc', '#ccc3b3'],
+      twinkle: !reducedMotion,
+    })
+    // a lib usa um clone da forma; a original pode ir embora
+    geometry.dispose()
+    return f
+  }, [radius, outer, reducedMotion])
   useEffect(() => () => field.dispose(), [field])
   useFrame(({ clock }) => {
     if (!reducedMotion) field.update(clock.elapsedTime)

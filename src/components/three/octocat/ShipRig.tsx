@@ -42,7 +42,7 @@ import { usePresentation } from '@/store/presentation'
 import { simClock } from '@/store/simClock'
 import { useTutorial } from '@/store/tutorial'
 import { useUniverse } from '@/store/universe'
-import { FireTrail } from './FireTrail'
+import { FireTrail, TrailWarmup } from './FireTrail'
 import { OctocatShip, type ArmMode } from './OctocatShip'
 import { THRUSTER_ORIGIN } from './shipParts'
 
@@ -514,6 +514,8 @@ export function ShipRig({ system, repos }: { system: OrbitSystem; repos: Repo[];
     <>
       {/* rastro de fogo em coordenadas do mundo, só em voo (perto da lente ele viraria uma faixa grossa) */}
       {!reduced && (mode === 'traveling' || mode === 'returning') && <FireTrail ship={group} nozzle={THRUSTER_ORIGIN} />}
+      {/* o programa do rastro compila já na montagem, não no primeiro voo */}
+      {!reduced && <TrailWarmup />}
       <group
         ref={group}
         scale={SHIP_SCALE}

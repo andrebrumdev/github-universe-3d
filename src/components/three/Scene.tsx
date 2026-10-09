@@ -7,6 +7,9 @@ import { WebGLContextLostError } from '@/lib/sceneError'
 import { buildOrbits } from '@/lib/universe/orbits'
 import { bodyExtent, MAX_MOONS, maxPlanetWeight, planetRadius } from '@/lib/universe/planets'
 import { useBloomEnabled } from '@/hooks/useBloomEnabled'
+import { FINE_POINTER_QUERY, useMediaQuery } from '@/hooks/useMediaQuery'
+import { canvasDpr } from '@/lib/renderBudget'
+import { useBloom } from '@/store/bloom'
 import { missCanvas } from '@/store/presentation'
 import { preToneMapped } from './acesBackground'
 import { CameraRig } from './CameraRig'
@@ -15,6 +18,7 @@ import { GlowBloom, PlanetGlowDriver } from './GlowEffects'
 import { ShipRig } from './octocat/ShipRig'
 import { OrbitLines } from './OrbitLines'
 import { Planet } from './Planet'
+import { RenderInfo } from './RenderInfo'
 import { SimClockDriver } from './SimClockDriver'
 import { Sun } from './Sun'
 import { Starfield } from './Starfield'
@@ -55,11 +59,14 @@ export function Scene({ universe }: { universe: Universe }) {
   // a casca de estrelas cresce com o sistema (só muda quando o sistema muda)
   const starRadius = useMemo(() => starfieldRadius(system), [system])
   const bloom = useBloomEnabled()
+  // O fundo segue o bloom que de fato montou: se o remendo do shader falhar, o GlowBloom não monta e não há ACES.
+  const bloomActive = useBloom((s) => s.active)
+  const dpr = canvasDpr(useMediaQuery(FINE_POINTER_QUERY))
   if (contextLost) throw new WebGLContextLostError()
 
   return (
-    <Canvas dpr={[1, 2]} camera={{ position: [0, 40, 70], fov: 50, near: 0.1, far: CAMERA_FAR }} onPointerMissed={missCanvas}>
-      {bloom ? <color attach="background" args={BACKGROUND_BLOOM} /> : <color attach="background" args={[BACKGROUND]} />}
+    <Canvas dpr={dpr} camera={{ position: [0, 40, 70], fov: 50, near: 0.1, far: CAMERA_FAR }} onPointerMissed={missCanvas}>
+      {bloomActive ? <color attach="background" args={BACKGROUND_BLOOM} /> : <color attach="background" args={[BACKGROUND]} />}
       <ContextLossWatcher onLost={onContextLost} />
       <ambientLight intensity={0.25} />
       <hemisphereLight args={['#9bd8ff', '#1a2350', 0.2]} />
@@ -77,6 +84,7 @@ export function Scene({ universe }: { universe: Universe }) {
       <ShipRig system={system} repos={universe.repos} profileName={universe.profile.name} />
       {bloom && <GlowBloom />}
       {SHOW_STATS && <Stats />}
+      {SHOW_STATS && <RenderInfo />}
     </Canvas>
   )
 }

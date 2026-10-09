@@ -8,6 +8,7 @@ import { thrusterScale } from '@/lib/ship/motion'
 import { applyImpulse } from '@/lib/ship/verlet'
 import { useBloom } from '@/store/bloom'
 import { FlexRod, type InertiaFrame, useInertiaProbe } from './flexRod'
+import { mergeParts, partMatrix } from './mergeParts'
 import {
   ANTENNA_GEOMETRY,
   ANTENNA_NODES,
@@ -103,6 +104,45 @@ const ANTENNA_SHAKE = [1.4, 0.9, -0.8] as const
 /** Faróis olham um pouco para baixo. */
 const HEADLIGHT_TILT = 0.1
 
+// ─── Peças paradas, juntas por material ───
+// Cada material vira um draw call só (antes, um por peça): as peças não se mexem em relação à nave. Ficam de fora a
+// antena (dobra no Verlet) e a bolinha dela, a chama, os quadradinhos e as luzinhas do painel (um material cada) e a
+// cúpula (transparente, desenhada por último).
+const headlightFrames = HEADLIGHT_PLACEMENTS.map(({ position, yaw }) => partMatrix({ position, rotation: [HEADLIGHT_TILT, yaw, 0, 'YXZ'] }))
+const dashboardFrame = partMatrix({ position: DASHBOARD_POSITION, rotation: [DASHBOARD_TILT, 0, 0] })
+const wheelFrame = partMatrix({ position: WHEEL_MOUNT }, dashboardFrame)
+const HULL_GEOMETRY = mergeParts([
+  { geometry: TUB_GEOMETRY },
+  { geometry: TUB_DECK_GEOMETRY },
+  { geometry: TUB_BOTTOM_GEOMETRY },
+  ...SEAT_PARTS.shell.map(({ geometry, position, tilt }) => ({ geometry, matrix: partMatrix({ position, rotation: [tilt, 0, 0] }) })),
+  ...WINGS.map(({ blade }) => ({ geometry: blade })),
+])
+const CREAM_GEOMETRY = mergeParts([
+  { geometry: RIM_GEOMETRY },
+  ...headlightFrames.map((frame) => ({ geometry: HEADLIGHT_BEZEL_GEOMETRY, matrix: partMatrix({ position: [0, 0, 0.02] }, frame) })),
+  ...SEAT_PARTS.cushion.map(({ geometry, position, tilt }) => ({ geometry, matrix: partMatrix({ position, rotation: [tilt, 0, 0] }) })),
+  { geometry: WHEEL_GEOMETRY, matrix: wheelFrame },
+  { geometry: WHEEL_SPOKES_GEOMETRY, matrix: wheelFrame },
+  { geometry: WHEEL_HUB_GEOMETRY, matrix: wheelFrame },
+  { geometry: FUSELAGE_TOP_GEOMETRY },
+  { geometry: NOZZLE_LIP_GEOMETRY },
+])
+const ENGINE_GEOMETRY = mergeParts([
+  { geometry: DASHBOARD_GEOMETRY, matrix: dashboardFrame },
+  { geometry: YOKE_COLUMN_GEOMETRY },
+  { geometry: YOKE_FRAME_GEOMETRY },
+  { geometry: PILLAR_GEOMETRY },
+  { geometry: FUSELAGE_BOTTOM_GEOMETRY },
+])
+const STRIPE_GEOMETRY = mergeParts(WINGS.map(({ stripe }) => ({ geometry: stripe })))
+const WING_LIGHTS_GEOMETRY = mergeParts(
+  WINGS.flatMap(({ lights }) => lights.map(({ position, quaternion }) => ({ geometry: WING_LIGHT_GEOMETRY, matrix: partMatrix({ position, quaternion }) }))),
+)
+const GRIPS_GEOMETRY = mergeParts(YOKE_GRIP_GEOMETRIES.map((geometry) => ({ geometry })))
+const HEADLIGHTS_GEOMETRY = mergeParts(headlightFrames.map((matrix) => ({ geometry: HEADLIGHT_GEOMETRY, matrix })))
+const ENGINE_BANDS_GEOMETRY = mergeParts(ENGINE_BAND_GEOMETRIES.map((geometry) => ({ geometry })))
+
 export function Ship({
   thrusterLevel,
   shake = 0,
@@ -195,11 +235,19 @@ export function Ship({
   )
   return (
     <group ref={root}>
-      {/* casco em banheira com piso e fundo, aro fino e quadradinhos de contribuição na frente do aro */}
-      <mesh geometry={TUB_GEOMETRY} material={HULL_MATERIAL} />
-      <mesh geometry={TUB_DECK_GEOMETRY} material={HULL_MATERIAL} />
-      <mesh geometry={TUB_BOTTOM_GEOMETRY} material={HULL_MATERIAL} />
-      <mesh geometry={RIM_GEOMETRY} material={CREAM_MATERIAL} />
+      {/* peças paradas, uma malha por material: casco, assento, asas (lilás); aro, almofadas, volante, motor de cima e
+          lábio do bocal (creme); painel, manche, coluna e motor de baixo (cinza); faixas, luzinhas, empunhaduras, faróis */}
+      <mesh geometry={HULL_GEOMETRY} material={HULL_MATERIAL} />
+      <mesh geometry={CREAM_GEOMETRY} material={CREAM_MATERIAL} />
+      <mesh geometry={ENGINE_GEOMETRY} material={ENGINE_MATERIAL} />
+      <mesh geometry={STRIPE_GEOMETRY} material={STRIPE_MATERIAL} />
+      <mesh geometry={WING_LIGHTS_GEOMETRY} material={WING_LIGHT_MATERIAL} />
+      <mesh geometry={GRIPS_GEOMETRY} material={GRIP_MATERIAL} />
+      <mesh geometry={HEADLIGHTS_GEOMETRY} material={HEADLIGHT_MATERIAL} />
+      <mesh geometry={ENGINE_BANDS_GEOMETRY} material={ringPulse.material} />
+      <mesh geometry={NOZZLE_GEOMETRY} material={NOZZLE_MATERIAL} />
+
+      {/* quadradinhos de contribuição na frente do aro (um material por cor) */}
       {SQUARE_PLACEMENTS.map(({ position, yaw }, i) => (
         <mesh
           key={i}
@@ -210,37 +258,14 @@ export function Ship({
         />
       ))}
 
-      {/* faróis: disco emissivo com aro creme, na frente do casco */}
+      {/* brilho de cada farol */}
       {HEADLIGHT_PLACEMENTS.map(({ position, yaw }, i) => (
         <group key={i} position={position} rotation={[HEADLIGHT_TILT, yaw, 0, 'YXZ']}>
-          <mesh geometry={HEADLIGHT_GEOMETRY} material={HEADLIGHT_MATERIAL} />
-          <mesh geometry={HEADLIGHT_BEZEL_GEOMETRY} material={CREAM_MATERIAL} position={[0, 0, 0.02]} />
           <primitive object={headlightHalos[i]} position={[0, 0, 0.09]} />
         </group>
       ))}
 
-      {/* interior: assento (concha lilás, almofadas creme) e painel com volante, manche em C e luzinhas */}
-      {SEAT_PARTS.shell.map(({ geometry, position, tilt }, i) => (
-        <mesh key={`shell${i}`} geometry={geometry} material={HULL_MATERIAL} position={position} rotation={[tilt, 0, 0]} />
-      ))}
-      {SEAT_PARTS.cushion.map(({ geometry, position, tilt }, i) => (
-        <mesh key={`cushion${i}`} geometry={geometry} material={CREAM_MATERIAL} position={position} rotation={[tilt, 0, 0]} />
-      ))}
-      <mesh geometry={DASHBOARD_GEOMETRY} material={ENGINE_MATERIAL} position={DASHBOARD_POSITION} rotation={[DASHBOARD_TILT, 0, 0]} />
-      {/* volante redondo na face da frente do painel (mesma pose do painel) */}
-      <group position={DASHBOARD_POSITION} rotation={[DASHBOARD_TILT, 0, 0]}>
-        <group position={WHEEL_MOUNT}>
-          <mesh geometry={WHEEL_GEOMETRY} material={CREAM_MATERIAL} />
-          <mesh geometry={WHEEL_SPOKES_GEOMETRY} material={CREAM_MATERIAL} />
-          <mesh geometry={WHEEL_HUB_GEOMETRY} material={CREAM_MATERIAL} />
-        </group>
-      </group>
-      {/* manche em C: coluna saindo do painel, arco cinza e empunhaduras laranja */}
-      <mesh geometry={YOKE_COLUMN_GEOMETRY} material={ENGINE_MATERIAL} />
-      <mesh geometry={YOKE_FRAME_GEOMETRY} material={ENGINE_MATERIAL} />
-      {YOKE_GRIP_GEOMETRIES.map((geometry, i) => (
-        <mesh key={i} geometry={geometry} material={GRIP_MATERIAL} />
-      ))}
+      {/* luzinhas do painel (uma cor cada) */}
       {DASHBOARD.lights.map(({ x }, i) => (
         <mesh
           key={i}
@@ -250,40 +275,13 @@ export function Ship({
         />
       ))}
 
-      {/* coluna grossa em arco por dentro da cúpula; a antena em mola sai do topo dela */}
-      <mesh geometry={PILLAR_GEOMETRY} material={ENGINE_MATERIAL} />
+      {/* antena em mola saindo do topo da coluna */}
       <mesh geometry={antenna.geometry} material={CREAM_MATERIAL} />
       <mesh ref={antennaTip} geometry={ANTENNA_TIP_GEOMETRY} material={CREAM_MATERIAL} position={ANTENNA_TIP_POSITION} />
 
-      {/* motor baixo: creme em cima, cinza embaixo, faixas ciano */}
-      <mesh geometry={FUSELAGE_TOP_GEOMETRY} material={CREAM_MATERIAL} />
-      <mesh geometry={FUSELAGE_BOTTOM_GEOMETRY} material={ENGINE_MATERIAL} />
-      {ENGINE_BAND_GEOMETRIES.map((geometry, i) => (
-        <mesh key={i} geometry={geometry} material={ringPulse.material} />
-      ))}
-
-      {/* bocal com lábio creme e o propulsor */}
-      <mesh geometry={NOZZLE_GEOMETRY} material={NOZZLE_MATERIAL} />
-      <mesh geometry={NOZZLE_LIP_GEOMETRY} material={CREAM_MATERIAL} />
+      {/* propulsor na boca do bocal */}
       <mesh ref={flame} geometry={FLAME_GEOMETRY} material={flameMaterial} position={THRUSTER_ORIGIN} />
       <primitive object={thrusterHalo} position={THRUSTER_ORIGIN} />
-
-      {/* asas espelhadas abertas para os lados (diedro, enflechadas): lilás, faixa verde-água por baixo, 2 luzinhas */}
-      {WINGS.map(({ side, blade, stripe, lights }) => (
-        <group key={side}>
-          <mesh geometry={blade} material={HULL_MATERIAL} />
-          <mesh geometry={stripe} material={STRIPE_MATERIAL} />
-          {lights.map(({ position, quaternion }, i) => (
-            <mesh
-              key={i}
-              geometry={WING_LIGHT_GEOMETRY}
-              material={WING_LIGHT_MATERIAL}
-              position={position}
-              quaternion={quaternion}
-            />
-          ))}
-        </group>
-      ))}
 
       {/* cúpula de vidro por último: transparente, sem escrever profundidade; nada cruza a frente dela */}
       <mesh geometry={CANOPY_GEOMETRY} material={GLASS_MATERIAL} />

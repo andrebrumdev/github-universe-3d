@@ -1,6 +1,8 @@
 import { useCallback, useSyncExternalStore } from 'react'
 
 export const MOBILE_QUERY = '(max-width: 767px)'
+/** Mouse de verdade (notebook, desktop): passa o cursor por cima e aponta fino. Toque e tablet ficam de fora. */
+export const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)'
 
 export function useMediaQuery(query: string): boolean {
   const subscribe = useCallback(
