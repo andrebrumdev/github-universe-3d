@@ -21,7 +21,7 @@ import {
 import { cellFromUv } from './grid'
 import { Moon } from './Moon'
 import { PlanetHoverCard } from './PlanetHoverCard'
-import { usePlanetTexture } from './usePlanetTexture'
+import { usePlanetMaterial } from './usePlanetMaterial'
 
 export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: PlanetOrbit }) {
   const root = useRef<THREE.Group>(null)
@@ -30,7 +30,7 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
   const surface = useRef<THREE.Mesh>(null)
   const [hovered, setHovered] = useState(false)
   useCursor(hovered)
-  const texture = usePlanetTexture(repo.activity.weeks)
+  const material = usePlanetMaterial(repo.activity.weeks)
   const spin = useMemo(() => planetSpin(repo.name), [repo.name])
   const moons = useMemo(() => moonOrbits(orbit.radius, repo.languages), [orbit.radius, repo.languages])
   const select = useUniverse((s) => s.select)
@@ -75,6 +75,7 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
           <mesh
             ref={surface}
             geometry={isReal ? PLANET_GEOMETRY_HI : PLANET_GEOMETRY_LO}
+            material={material}
             scale={orbit.radius}
             onClick={(e) => {
               e.stopPropagation()
@@ -89,16 +90,7 @@ export function Planet({ repo, ring, orbit }: { repo: Repo; ring: Ring; orbit: P
               setHoveredCell(null)
             }}
             onPointerMove={handleMove}
-          >
-            <meshStandardMaterial
-              map={texture}
-              emissiveMap={texture}
-              emissive="#ffffff"
-              emissiveIntensity={0.35}
-              roughness={0.85}
-              metalness={0.05}
-            />
-          </mesh>
+          />
           <mesh
             geometry={PLANET_GEOMETRY_LO}
             material={ATMOSPHERE_MATERIAL}

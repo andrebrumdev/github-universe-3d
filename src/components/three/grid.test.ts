@@ -7,6 +7,9 @@ import {
   cellRect,
   COL_PX,
   drawActivityGrid,
+  drawGlowGrid,
+  GLOW_BACKGROUND,
+  GLOW_CELL,
   GRID_COLS,
   GRID_ROWS,
   POLAR_CAP_DEG,
@@ -119,5 +122,65 @@ describe('textura 2:1 com a grade em dois hemisférios (26×14)', () => {
     for (let r = 0; r < GRID_ROWS - 1; r++) expect(column[r + 1][1] - (column[r][1] + column[r][3])).toBe(CELL_GAP)
     expect(column[0][1]).toBe(POLAR_CAP_PX + CELL_GAP / 2)
     expect(column[13][1] + column[13][3]).toBe(TEX_H - POLAR_CAP_PX - CELL_GAP / 2)
+  })
+})
+
+/** Contexto falso que rasteriza (sem antialias) o brilho de cada pixel: 0 no preto, alpha na cor das células. */
+function rasterGlow(weeks: number[][]) {
+  const lit = new Float32Array(TEX_W * TEX_H)
+  const fills: { style: string; alpha: number; rect: number[] }[] = []
+  const ctx = {
+    fillStyle: '' as string,
+    globalAlpha: 1,
+    fillRect(x: number, y: number, w: number, h: number) {
+      fills.push({ style: this.fillStyle, alpha: this.globalAlpha, rect: [x, y, w, h] })
+      const value = this.fillStyle === GLOW_BACKGROUND ? 0 : this.globalAlpha
+      for (let py = y; py < y + h; py++) for (let px = x; px < x + w; px++) lit[py * TEX_W + px] = value
+    },
+  }
+  drawGlowGrid(ctx, weeks)
+  return { lit, fills, ctx }
+}
+
+describe('mapa de brilho (emissiveMap): só os quadrados verdes acendem', () => {
+  it('sem atividade: tudo preto, nenhuma célula desenhada', () => {
+    const { lit, fills, ctx } = rasterGlow(emptyWeeks())
+    expect(fills).toEqual([{ style: GLOW_BACKGROUND, alpha: 1, rect: [0, 0, TEX_W, TEX_H] }])
+    expect(lit.every((v) => v === 0)).toBe(true)
+    expect(ctx.globalAlpha).toBe(1)
+  })
+
+  it('só os pixels das células ativas são não pretos, com o brilho de cellAlpha', () => {
+    const weeks = emptyWeeks()
+    weeks[0][0] = 1
+    weeks[25][6] = 4
+    weeks[26][3] = 10
+    weeks[51][0] = 7
+    const { lit, fills } = rasterGlow(weeks)
+    const expected = new Float32Array(TEX_W * TEX_H)
+    const active: [number, number][] = [
+      [0, 0],
+      [25, 6],
+      [26, 3],
+      [51, 0],
+    ]
+    for (const [w, d] of active) {
+      const [x, y, cw, ch] = cellRect(w, d)
+      for (let py = y; py < y + ch; py++) for (let px = x; px < x + cw; px++) expected[py * TEX_W + px] = cellAlpha(weeks[w][d], 10)
+    }
+    expect(Array.from(lit)).toEqual(Array.from(expected))
+    // fundo + uma célula por dia com commit, todas na cor de brilho
+    expect(fills).toHaveLength(1 + active.length)
+    for (const f of fills.slice(1)) expect(f.style).toBe(GLOW_CELL)
+  })
+
+  it('dia mais movimentado brilha mais; mesmas células (e mesma grade) da textura de cor', () => {
+    const weeks = emptyWeeks()
+    weeks[3][2] = 2
+    weeks[40][5] = 8
+    const { fills } = rasterGlow(weeks)
+    const byRect = new Map(fills.slice(1).map((f) => [f.rect.join(','), f.alpha]))
+    expect(byRect.get(cellRect(40, 5).join(','))).toBeGreaterThan(byRect.get(cellRect(3, 2).join(','))!)
+    expect(byRect.get(cellRect(40, 5).join(','))).toBe(1)
   })
 })

@@ -84,3 +84,28 @@ export function drawActivityGrid(ctx: GridContext, weeks: number[][]): void {
   }
   ctx.globalAlpha = 1
 }
+
+/** Mapa de brilho: preto (não emite) em tudo, menos nos quadrados verdes. */
+export const GLOW_BACKGROUND = '#000000'
+/** Verde vivo: multiplicado pelo `emissive` verde do material, dá o brilho próprio da célula sem lavar para o branco. */
+export const GLOW_CELL = '#34d399'
+
+/**
+ * Mesma grade de `drawActivityGrid`, para o `emissiveMap`: fundo, grade, calotas e dias sem commit ficam pretos;
+ * cada dia com commit acende em GLOW_CELL com o brilho de `cellAlpha` (dia mais movimentado, mais claro).
+ */
+export function drawGlowGrid(ctx: GridContext, weeks: number[][]): void {
+  const max = maxCount(weeks)
+  ctx.globalAlpha = 1
+  ctx.fillStyle = GLOW_BACKGROUND
+  ctx.fillRect(0, 0, TEX_W, TEX_H)
+  ctx.fillStyle = GLOW_CELL
+  for (let w = 0; w < GRID_WEEKS; w++) {
+    for (let d = 0; d < GRID_DAYS; d++) {
+      if (weeks[w][d] <= 0 || max <= 0) continue
+      ctx.globalAlpha = cellAlpha(weeks[w][d], max)
+      ctx.fillRect(...cellRect(w, d))
+    }
+  }
+  ctx.globalAlpha = 1
+}

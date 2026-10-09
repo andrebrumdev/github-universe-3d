@@ -7,6 +7,7 @@ import { buildOrbits } from '@/lib/universe/orbits'
 import { bodyExtent, MAX_MOONS, maxPlanetWeight, planetRadius } from '@/lib/universe/planets'
 import { useUniverse } from '@/store/universe'
 import { CameraRig } from './CameraRig'
+import { PlanetGlowDriver } from './GlowEffects'
 import { ShipRig } from './octocat/ShipRig'
 import { OrbitLines } from './OrbitLines'
 import { Planet } from './Planet'
@@ -39,6 +40,7 @@ export function Scene({ universe }: { universe: Universe }) {
       <hemisphereLight args={['#9bd8ff', '#1a2350', 0.2]} />
       <Starfield radius={starRadius} />
       <SimClockDriver />
+      <PlanetGlowDriver />
       <Sun />
       <OrbitLines rings={system.rings} />
       {system.orbits.map((orbit, i) => (
